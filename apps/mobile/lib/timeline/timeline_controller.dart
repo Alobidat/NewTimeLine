@@ -1,5 +1,5 @@
-/// Holds the timeline viewport (signed-year range) + fetched data, and reloads
-/// (debounced) when the viewport changes.
+/// Fetches timeline data for the shared [TimeWindow] (debounced) and notifies the view.
+/// The window is shared with the map so the two surfaces stay linked.
 library;
 
 import 'dart:async';
@@ -8,27 +8,30 @@ import 'package:flutter/foundation.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../state/time_window.dart';
 
 class TimelineController extends ChangeNotifier {
-  TimelineController({ApiClient? api}) : _api = api ?? ApiClient();
+  TimelineController({required this.window, ApiClient? api})
+    : _api = api ?? ApiClient() {
+    window.addListener(_onWindowChanged);
+  }
 
+  final TimeWindow window;
   final ApiClient _api;
-
-  // Default opening view: roughly the last century of news.
-  double t0 = 1900;
-  double t1 = 2030;
 
   TimelineResponse? data;
   bool loading = false;
   String? error;
-
   Timer? _debounce;
 
-  /// Set the visible range now (for smooth repaint) and reload data shortly after.
-  void setRange(double newT0, double newT1) {
-    t0 = newT0;
-    t1 = newT1;
-    notifyListeners(); // repaint immediately with existing data at the new transform
+  double get t0 => window.t0;
+  double get t1 => window.t1;
+
+  /// Update the shared window (repaints both surfaces; reloads shortly after).
+  void setRange(double newT0, double newT1) => window.set(newT0, newT1);
+
+  void _onWindowChanged() {
+    notifyListeners(); // repaint immediately at the new transform
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), reload);
   }
@@ -51,6 +54,7 @@ class TimelineController extends ChangeNotifier {
 
   @override
   void dispose() {
+    window.removeListener(_onWindowChanged);
     _debounce?.cancel();
     _api.close();
     super.dispose();

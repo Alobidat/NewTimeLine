@@ -7,14 +7,10 @@ import 'package:flutter/material.dart';
 import '../api/models.dart';
 import '../domain/time_format.dart';
 import '../theme/severity.dart';
-import '../timeline/timeline_controller.dart';
 
-/// Open the detail sheet for [eventId], loading the full record lazily.
-void showEventDetail(
-  BuildContext context,
-  TimelineController controller,
-  String eventId,
-) {
+/// Open the detail sheet, rendering [detail] (the full event record) when it resolves.
+/// Decoupled from any controller so both the timeline and map can use it.
+void showEventDetail(BuildContext context, Future<EventDetail> detail) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -22,7 +18,7 @@ void showEventDetail(
     builder: (_) => FractionallySizedBox(
       heightFactor: 0.8,
       child: FutureBuilder<EventDetail>(
-        future: controller.fetchDetail(eventId),
+        future: detail,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());

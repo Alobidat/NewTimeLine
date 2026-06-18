@@ -92,3 +92,13 @@ trivially indexable/bucketable. We additionally keep an **optional `instant time
 on events for precise modern times (exact display + intra-day ordering). `t_end` is
 **materialized at write time** from `event_end` or the precision window, so timeline-overlap
 queries are a simple indexable range test. Detail in [data-model.md §1](data-model.md).
+
+### ADR-0013 — Client map uses flutter_map (not native maplibre_gl)
+*2026-06-18* · accepted · refines ADR-0002's "MapLibre GL" intent for the client
+The Flutter client renders the map with **flutter_map** (pure-Dart) rather than the native
+`maplibre_gl` plugin. Why: flutter_map builds and runs uniformly across web + Windows +
+mobile with no native toolchain setup, keeping the cross-platform build simple and
+CI-verifiable; it consumes standard raster/vector tile URLs (incl. MapLibre/OSM tiles), so
+the architecture's MapLibre-tile intent is preserved. We can swap in vector-tile/native
+MapLibre later for richer rendering without changing the data flow. Phase 2b uses OSM raster
+tiles for the dev/test stage; pick a tile provider/self-host for production.

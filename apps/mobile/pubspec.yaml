@@ -38,6 +38,10 @@ dependencies:
   # HTTP client for the Chronos Event API.
   http: ^1.2.2
 
+  # Map layer (pure-Dart, cross-platform; MapLibre-compatible raster/vector tiles).
+  flutter_map: ^8.0.0
+  latlong2: ^0.9.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
