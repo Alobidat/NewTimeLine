@@ -12,6 +12,7 @@ secrets/
 __pycache__/
 *.py[cod]
 .venv/
+.venv*/
 venv/
 .mypy_cache/
 .ruff_cache/

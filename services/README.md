@@ -6,8 +6,8 @@ domain types live in [`../packages/`](../packages/) so services stay decoupled.
 
 | Dir | What | Status |
 |-----|------|--------|
-| `api/` | Public + app API (events, timeline windows, sub-timelines, map, social, search) — FastAPI | Planned (Phase 1) |
-| `agents/` | The feed-first agent pipeline workers (ingest → enrich → dedup → geocode → link → score → publish) | Planned (Phase 1/3) |
+| `api/` | Public API: events, timeline windows+buckets, map bbox, sub-timeline (FastAPI) | **Phase 1 ✅** (social/search later) |
+| `agents/` | Feed-first pipeline. Phase 1: Tier-1 RSS ingest + Wikidata seed (no LLM) | **Phase 1 ✅** (enrich/dedup/geocode Phase 3) |
 | `admin-api/` | Admin/config control-plane API (RBAC, audited) | Planned (Phase 3) |
 
 Conventions: small single-responsibility modules, public API documented in each package's

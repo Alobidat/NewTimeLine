@@ -29,3 +29,20 @@ jobs:
         run: cp .env.example .env
       - name: Validate compose config
         run: docker compose config -q
+
+  python:
+    name: Python lint + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install packages
+        run: |
+          pip install -e packages/core[dev]
+          pip install -e services/api[dev] -e services/agents[dev]
+      - name: Lint
+        run: ruff check packages services db/migrations
+      - name: Unit tests (pure domain + normalizers; no DB needed)
+        run: pytest packages/core/tests services/agents/tests -q

@@ -41,18 +41,36 @@ docker-compose.yml   Local backing-services stack (Phase 0)
 Every dir has a short README — read it instead of scanning the source (see the
 [engineering standards](docs/engineering-standards.md)).
 
-## Getting started (Phase 0 — backing services)
+## Getting started
 
-Phase 0 stands up the data layer (Postgres+PostGIS+pgvector, Redis, RabbitMQ, MinIO).
 Run on a machine with Docker (the Proxmox `app-host`, or local):
 
 ```sh
-cp .env.example .env      # set strong secrets — .env is gitignored
-docker compose up -d --build
-docker compose ps         # all services should be healthy
-# or: make up / make ps   (see `make help`)
+cp .env.example .env          # set strong secrets — .env is gitignored
+docker compose up -d --build  # backing services + migrate + api (agents run on demand)
+docker compose ps             # all services healthy; `migrate` exits 0
+
+# Seed historical events + plot them on the map (one-off, no LLM cost):
+docker compose run --rm agents seed-wikidata --limit 300
+# Pull current news events from configured RSS feeds:
+docker compose run --rm agents ingest-rss
+
+# Explore the API:
+#   http://localhost:8000/docs                  (interactive)
+#   http://localhost:8000/timeline?t0=1900&t1=2026
+#   http://localhost:8000/timeline?t0=-2000000&t1=2026   (deep time → buckets/heatline)
+#   http://localhost:8000/map?bbox=-180,-90,180,90
 ```
-App services (API, agents, admin) arrive in later phases — see [docs/roadmap.md](docs/roadmap.md).
+
+**Phase 1 is backend-only** (API + agents + schema). The Flutter timeline client is Phase 2.
+See [docs/roadmap.md](docs/roadmap.md).
+
+### Developing the Python services locally (no Docker)
+```sh
+python -m venv .venv && . .venv/Scripts/activate   # Windows: .venv\Scripts\activate
+pip install -e packages/core[dev] -e services/api[dev] -e services/agents[dev]
+pytest packages/core/tests services/agents/tests   # pure-logic tests (no DB needed)
+```
 
 ## Core decisions (locked)
 

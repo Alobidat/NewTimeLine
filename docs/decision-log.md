@@ -80,3 +80,15 @@ environments. Why: existing on-prem capacity; full control; cost. Topology + ope
 *2026-06-18* · accepted
 Code lives at https://github.com/Alobidat/NewTimeLine (public). Monorepo. Conventional
 Commits, PRs into `main`, CI gates. Secrets never committed (`.env`, gitignored).
+
+### ADR-0012 — Canonical time axis is a signed numeric year, not timestamptz
+*2026-06-18* · accepted · supersedes the timestamptz anchor in ADR-0005's first draft
+The sortable/queryable time of every event and subject reference is a **signed numeric
+year** (`t_start`/`t_end`, double precision): e.g. `2011.19` (≈Mar 2011), `-1273` (1274 BC),
+`-4000000` (≈4 Mya). Why: Python `datetime` can't represent years < 1 (BC), and PostgreSQL
+`timestamptz` bottoms out at 4713 BC — but the sub-timeline must reach **millions of years**
+(ADR-0005's "origin of life" example). A numeric year spans all of time uniformly and is
+trivially indexable/bucketable. We additionally keep an **optional `instant timestamptz`**
+on events for precise modern times (exact display + intra-day ordering). `t_end` is
+**materialized at write time** from `event_end` or the precision window, so timeline-overlap
+queries are a simple indexable range test. Detail in [data-model.md §1](data-model.md).

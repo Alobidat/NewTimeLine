@@ -5,6 +5,17 @@
 
 name: chronos
 
+# Shared connection env for the app services (uses the same secrets as the backing
+# services above; service names resolve on the compose network).
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379/0
+  AMQP_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+  S3_ENDPOINT: http://minio:9000
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  ENVIRONMENT: dev
+
 services:
   postgres:
     # Custom image = PostGIS + pgvector (see infra/compose/postgres/Dockerfile).
@@ -74,6 +85,56 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+
+  # --- Application services (Phase 1) ---
+
+  migrate:
+    # One-shot: applies Alembic migrations, then exits. Other app services wait for it.
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    image: chronos/migrate:0.1
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: chronos/api:0.1
+    environment: *app-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  agents:
+    # Runs a single agent command then exits (ingest-rss by default). Invoke on demand:
+    #   docker compose run --rm agents seed-wikidata --limit 300
+    #   docker compose run --rm agents ingest-rss
+    build:
+      context: .
+      dockerfile: services/agents/Dockerfile
+    image: chronos/agents:0.1
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
 
 volumes:
   pgdata:

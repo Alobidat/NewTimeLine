@@ -1,0 +1,45 @@
+"""Process settings loaded from environment (12-factor). Shared by api + agents.
+
+Cloud-agnostic: only standard connection URLs, no vendor SDKs (ADR-0004).
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Connection + runtime settings. Override via env vars (see .env.example)."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # Data layer (standard URLs; async drivers).
+    database_url: str = Field(
+        default="postgresql+asyncpg://chronos:chronos@localhost:5432/chronos"
+    )
+    redis_url: str = Field(default="redis://localhost:6379/0")
+    amqp_url: str = Field(default="amqp://chronos:chronos@localhost:5672/")
+
+    # Object store (S3-compatible; MinIO locally).
+    s3_endpoint: str = Field(default="http://localhost:9000")
+    s3_access_key: str = Field(default="chronos")
+    s3_secret_key: str = Field(default="chronos")
+    s3_bucket: str = Field(default="chronos-sources")
+
+    # App.
+    environment: str = Field(default="dev")
+    log_level: str = Field(default="INFO")
+
+    @property
+    def sync_database_url(self) -> str:
+        """Sync URL (psycopg) for Alembic migrations."""
+        return self.database_url.replace("+asyncpg", "+psycopg")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Cached singleton settings."""
+    return Settings()

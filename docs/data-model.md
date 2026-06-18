@@ -32,32 +32,41 @@ An event has **two** distinct temporal aspects that must never be conflated:
 This keeps the main timeline honest ("only what sources attest") while still letting users
 dive through any event into the deep history it discusses.
 
-### 1.1 Precision
-Events span from live news to antiquity, with **wildly varying precision**. We never
-store "just a timestamp." Each event (and each subject reference) has a sortable instant
-plus a declared precision.
+### 1.1 Representation: a signed numeric year (deep-time capable)
+We do **not** use `timestamptz` as the canonical time axis (ADR-0012). Python `datetime`
+can't represent years < 1 (BC) and PostgreSQL `timestamptz` bottoms out at 4713 BC — but
+the sub-timeline must reach **millions of years** ("origin of life"). So the canonical,
+sortable time of every event and subject reference is a **signed numeric year**:
+
+- **`t_start` / `t_end`** (`double precision`): astronomical year, signed, fractional.
+  Examples: `2011.193` (≈11 Mar 2011), `-1273` (1274 BC), `-4000000` (≈4 million years ago).
+  The fractional part encodes sub-year position for plotting; `t_end` bounds the span.
+- **`time_precision`** (enum): how precisely the anchor is known → drives rendering and how
+  `t_end` is derived.
+- **`instant`** (`timestamptz`, nullable): the *exact* modern time, kept only when precision
+  is fine (`exact`/`day`) and within range — for precise display and intra-day ordering.
 
 ```sql
 CREATE TYPE time_precision AS ENUM (
-  'exact',    -- to the second/minute
+  'exact',    -- to the second/minute (modern; has an `instant`)
   'day',
   'month',
   'year',
   'decade',
   'century',
-  'era'       -- "Bronze Age", anchored to an approximate year
+  'era'       -- "Bronze Age" / "millions of years ago"; relies on explicit t_start/t_end
 );
-
--- event_time uses timestamptz; Postgres supports 4713 BC .. 294276 AD,
--- which comfortably covers recorded history. For pre-modern dates, the
--- instant is the *anchor* (e.g. midpoint of the year/century) and
--- time_precision tells the UI how to render & query it.
 ```
 
+**Materialized span (key simplification):** at write time we always compute and store
+`t_end` = the explicit end if given, else the **precision window** end for `t_start`
+(e.g. precision `year` at `1956` → `[1956.0, 1957.0)`; `century` at `1900` → `[1900, 2000)`).
+This makes the otherwise-awkward "widen the query by precision" logic a plain, indexable
+range overlap: an event matches a query window `[q0,q1]` iff `t_start <= q1 AND t_end >= q0`.
+The conversion helpers live in `packages/core` (`chronos_core.domain.temporal`).
+
 Rendering rule: the timeline draws an event as a **point** when precision is `exact`/`day`,
-and as a **range/band** when coarser (the band width = the precision window or
-`event_end - event_time`). Range queries always widen by the precision window so a
-"year 1923" event is returned for any query overlapping 1923.
+and as a **band** when coarser (band width = `t_end - t_start`).
 
 ## 2. Core entities (overview)
 
@@ -83,9 +92,11 @@ CREATE TABLE events (
   title           text NOT NULL,
   summary         text,                       -- LLM-generated, neutral
   body            text,                       -- longer description / merged narrative
-  event_time      timestamptz NOT NULL,       -- sortable anchor instant
-  event_end       timestamptz,                -- NULL for instantaneous events
+  t_start         double precision NOT NULL,  -- canonical signed-year anchor (deep-time capable)
+  t_end           double precision NOT NULL,  -- materialized span end (from event_end or precision window)
   time_precision  time_precision NOT NULL DEFAULT 'day',
+  instant         timestamptz,                -- exact modern time (when precision exact/day); nullable
+  source_count    integer NOT NULL DEFAULT 0, -- denormalized corroboration count
   category        text,                        -- conflict, disaster, politics, science, culture...
   tags            text[] DEFAULT '{}',
   severity        smallint DEFAULT 0,          -- 0..100 composite, recomputed
@@ -101,8 +112,8 @@ CREATE TABLE events (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX events_time_idx       ON events (event_time);
-CREATE INDEX events_time_end_idx   ON events (event_end);
+CREATE INDEX events_tstart_idx     ON events (t_start);
+CREATE INDEX events_tend_idx       ON events (t_end);
 CREATE INDEX events_geom_idx       ON events USING gist (geom);
 CREATE INDEX events_category_idx   ON events (category);
 CREATE INDEX events_tags_idx       ON events USING gin (tags);
@@ -181,8 +192,8 @@ CREATE TABLE event_references (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id         uuid REFERENCES events(id) ON DELETE CASCADE,  -- the reporting event (e.g. 1956 article)
   label            text NOT NULL,            -- "origin of life", "Bronze Age collapse"
-  subject_time     timestamptz NOT NULL,     -- when the referenced subject occurred (anchor of the sub-timeline item)
-  subject_end      timestamptz,              -- for spans
+  t_start          double precision NOT NULL, -- subject anchor (signed year; deep-time capable, e.g. -4000000)
+  t_end            double precision NOT NULL, -- materialized span end (from precision window or explicit)
   subject_precision time_precision NOT NULL DEFAULT 'era',
   subject_geom     geometry(Geometry,4326),  -- where, if known
   subject_event_id uuid REFERENCES events(id), -- OPTIONAL: link to a canonical event → recursive sub-timeline
@@ -192,11 +203,11 @@ CREATE TABLE event_references (
   created_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX event_references_event_idx   ON event_references (event_id);
-CREATE INDEX event_references_subject_idx ON event_references (subject_time);
+CREATE INDEX event_references_tstart_idx  ON event_references (t_start);
 CREATE INDEX event_references_geom_idx    ON event_references USING gist (subject_geom);
 ```
 The enricher (and tier-3 dig) extract these subject references from source text. The
-sub-timeline query for an opened event = its `event_references` ordered by `subject_time`,
+sub-timeline query for an opened event = its `event_references` ordered by `t_start`,
 plus (recursively) the references of any linked `subject_event_id`.
 
 ### 3.5 users, social graph, reputation
@@ -321,8 +332,8 @@ CREATE TABLE ingest_items (             -- raw feed items, pre-normalization (au
 
 | Need | Query shape |
 |------|-------------|
-| Timeline window (zoomed in) | `WHERE event_time && [t0,t1] AND geom && bbox AND <filters> ORDER BY event_time` |
-| Timeline buckets (zoomed out) | aggregate counts + `max(severity)` per time bucket (precomputed → Redis) |
+| Timeline window (zoomed in) | `WHERE t_start <= :q1 AND t_end >= :q0 AND geom && bbox AND <filters> ORDER BY t_start` |
+| Timeline buckets (zoomed out) | aggregate counts + `max(severity)` per numeric-year bucket (precomputed → Redis) |
 | Map within viewport | PostGIS `ST_Intersects(geom, bbox)` + severity for sizing |
 | Related events | `event_relations` join + `embedding <=> $1` nearest neighbors |
 | "Same person/place across history" | via `event_entities` shared entity → events ordered by `event_time` |

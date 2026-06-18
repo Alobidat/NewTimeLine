@@ -13,7 +13,7 @@ model, timeline rendering, the agent pipeline) while keeping every phase shippab
 
 ---
 
-## Phase 0 — Foundations (repo, infra skeleton)
+## Phase 0 — Foundations (repo, infra skeleton) ✅ DONE
 **Goal:** a monorepo and local dev environment everything else builds on.
 - Monorepo layout (`apps/`, `services/`, `db/`, `infra/`, `docs/`).
 - Docker Compose for local: Postgres+PostGIS+pgvector, Redis, MinIO (S3), RabbitMQ.
@@ -21,8 +21,12 @@ model, timeline rendering, the agent pipeline) while keeping every phase shippab
 - Provider-neutral Terraform module stubs (filled when the cloud is chosen).
 **Done when:** `docker compose up` brings up all backing services locally.
 
-## Phase 1 — The spine: events + temporal model + one ingestor
+## Phase 1 — The spine: events + temporal model + one ingestor ✅ DONE
 **Goal:** real events flowing into the DB from a free feed, queryable by time/place.
+**Delivered:** `chronos-core` (models/schemas/domain/config, 33 unit tests), Alembic
+migration (offline-validated), `chronos-api` (7 endpoints), `chronos-agents` (RSS ingest +
+Wikidata seed, Tier-1 no LLM), Config Service seeded on startup, all wired into compose.
+Time axis changed to signed numeric year (ADR-0012).
 - Implement the `events` schema + **dual-time model** (anchor time + `event_references`
   subject time) + precision + PostGIS geom (db/migrations).
 - Stand up the **Config Service** (DB-backed settings + audit) so agents are configurable
