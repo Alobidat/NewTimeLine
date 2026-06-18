@@ -57,8 +57,15 @@ Pure-Dart time/geo math unit-tested (16 tests), analyze clean, web build compile
 **Done when:** an anonymous user can scrub across millennia, see events on map+timeline,
 open an event, and drill into its historical sub-timeline.
 
-## Phase 3 — The agent pipeline (enrichment, dedup, geo, severity)
+## Phase 3 — The agent pipeline (enrichment, dedup, geo, severity) 🟡 3a DONE
 **Goal:** events arrive enriched, deduped, geocoded, and scored — automatically.
+**Phase 3a delivered:** provider-agnostic LLM layer (`chronos_core.llm`) — vLLM/Ollama/OpenAI
++ Claude behind one interface — with a **budget-aware router that auto-switches to a local
+LLM when the cloud token budget is spent** (ADR-0014/0015), all config-driven. The
+**Enricher (Tier-2)** runs on it: schema-validated summary/category/tags/impact + deep-time
+references → populates sub-timelines, impact-aware severity. `agents enrich` command. Router
+unit-tested (budget exhaustion + error fallback). **3b remaining:** dedup (pgvector),
+geocoder, relation-linker, queue streaming, admin console.
 - Stand up the queue-based worker pipeline (Normalizer → Deduper → Enricher → Geocoder →
   Relation-linker → Severity-scorer → Publisher).
 - **Deduper** with pgvector + rule fast-path + LLM adjudication for ambiguous cases.

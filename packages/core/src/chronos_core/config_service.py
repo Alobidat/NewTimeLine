@@ -30,8 +30,39 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     ),
     "agents.ingest.rss.enabled": (True, "agent:ingest"),
     "agents.ingest.rss.max_items_per_feed": (50, "agent:ingest"),
-    # Global daily LLM token budget (enforced from Phase 3; recorded now).
-    "budget.llm.daily_tokens": (0, "global"),
+    # --- LLM layer (ADR-0014/0015) — provider-agnostic, budget-aware ---
+    # Providers: kind=openai_compatible serves vLLM/Ollama/OpenAI; kind=anthropic = Claude.
+    # Set the local endpoint/model to your Ollama (base_url must include /v1).
+    "llm.providers": (
+        [
+            {
+                "name": "ollama",
+                "kind": "openai_compatible",
+                "base_url": "http://host.docker.internal:11434/v1",
+                "model": "llama3.1",
+                "is_local": True,
+                "api_key_env": None,
+            },
+            {
+                "name": "claude",
+                "kind": "anthropic",
+                "base_url": None,
+                "model": "claude-opus-4-8",
+                "is_local": False,
+                "api_key_env": "ANTHROPIC_API_KEY",
+            },
+        ],
+        "llm",
+    ),
+    # primary=local Ollama (no cost); cloud is the optional fallback/quality tier.
+    "llm.routing": ({"primary": "ollama", "fallback": "claude"}, "llm"),
+    # max_tokens=0 → no cloud cap (local primary needs none). Set >0 + primary=claude
+    # to auto-switch to local once the window's cloud budget is spent.
+    "llm.budget": ({"window_seconds": 86400, "max_tokens": 0}, "llm"),
+    # --- Enricher (Tier-2) ---
+    "agents.enrich.enabled": (True, "agent:enrich"),
+    "agents.enrich.batch_size": (20, "agent:enrich"),
+    "agents.enrich.max_tokens": (800, "agent:enrich"),
 }
 
 

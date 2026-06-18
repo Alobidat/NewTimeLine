@@ -18,8 +18,9 @@ from chronos_core.domain.severity import (
     normalize_corroboration,
 )
 from chronos_core.domain.temporal import materialize_span
-from chronos_core.models.event import Event
+from chronos_core.models.event import Event, EventReference
 from chronos_core.models.source import EventSource, Source
+from chronos_core.schemas.enrichment import EnrichmentResult
 from chronos_core.schemas.event import EventCreate, GeoPoint
 
 
@@ -135,3 +136,45 @@ async def link_source(
     }
     event.confidence = confidence
     return True
+
+
+async def apply_enrichment(
+    session: AsyncSession,
+    event: Event,
+    result: EnrichmentResult,
+    *,
+    weights: SeverityWeights | None = None,
+    agent: str = "enrich",
+) -> None:
+    """Apply LLM enrichment to an event: summary/category/tags, impact-aware severity,
+    and the extracted deep-time references (sub-timeline). Caller commits."""
+    event.summary = result.summary
+    if result.category and not event.category:
+        event.category = result.category
+    if result.tags:
+        event.tags = sorted(set(event.tags) | set(result.tags))
+
+    # Recompute severity now that we have an impact signal (plus existing corroboration).
+    sev = compute_severity(
+        source_count=event.source_count, impact_raw=result.impact, weights=weights
+    )
+    event.severity = sev.score
+    event.severity_breakdown = {
+        "impact": sev.impact,
+        "social": sev.social,
+        "corroboration": sev.corroboration,
+    }
+
+    for ref in result.references:
+        t_start, t_end = materialize_span(ref.year, ref.precision)
+        session.add(
+            EventReference(
+                event_id=event.id,
+                label=ref.label,
+                t_start=t_start,
+                t_end=t_end,
+                subject_precision=ref.precision,
+                detail=ref.detail,
+                extracted_by=agent,
+            )
+        )

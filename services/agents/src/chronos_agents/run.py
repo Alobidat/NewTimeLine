@@ -13,6 +13,7 @@ import logging
 from chronos_core import config_service
 from chronos_core.db import session_scope
 
+from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.seed_wikidata import seed_wikidata
 
@@ -23,6 +24,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ingest-rss", help="Poll configured RSS feeds once")
     seed = sub.add_parser("seed-wikidata", help="Seed historical events from Wikidata")
     seed.add_argument("--limit", type=int, default=300)
+    sub.add_parser("enrich", help="LLM-enrich a batch of events (Tier-2)")
     return parser
 
 
@@ -36,6 +38,8 @@ async def _main(args: argparse.Namespace) -> None:
         print(await ingest_rss())
     elif args.command == "seed-wikidata":
         print(await seed_wikidata(limit=args.limit))
+    elif args.command == "enrich":
+        print(await enrich_pending())
 
 
 def main() -> None:

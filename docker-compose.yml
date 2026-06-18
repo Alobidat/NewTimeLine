@@ -129,6 +129,10 @@ services:
       dockerfile: services/agents/Dockerfile
     image: chronos/agents:0.1
     environment: *app-env
+    # Lets the default LLM config reach an Ollama running on the Docker host via
+    # http://host.docker.internal:11434 (configure llm.providers for any other host).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

@@ -157,10 +157,22 @@ Triggered when an event crosses a severity/interest threshold, or a user explici
 | Tier-3 gated by severity/interest | Expensive research only where it matters |
 | Daily token budget + cache | Hard ceiling on spend |
 
-## 7. Which LLM
-Use **Claude** via API, sized per task:
-- **Dedup adjudication, enrichment:** a fast/cheaper Claude tier (e.g. latest Sonnet/Haiku
-  class) — high volume, structured output.
-- **Tier-3 deep dig / synthesis:** a stronger Claude tier (e.g. latest Opus/Sonnet class)
-  — low volume, high value.
-Model selection is config-driven so tiers can be re-balanced as pricing/quality change.
+## 7. Which LLM — provider-agnostic + budget-aware (ADR-0014/0015)
+Agents talk to LLMs through a **provider-agnostic layer** (`chronos_core.llm`), not a single
+vendor:
+- **Providers (pluggable):** an **OpenAI-compatible** provider serving **vLLM / Ollama /
+  OpenAI**, and an **Anthropic** provider for **Claude**. New providers = new config rows,
+  no code change.
+- **Config-driven** (`llm.providers`, `llm.routing`, `llm.budget`): models, endpoints,
+  which is primary/fallback, and the token budget all live in the Config Service / admin
+  portal.
+- **Budget-aware router with auto-fallback to local:** the router uses the primary unless
+  it's a **cloud** provider whose **token budget for the current time window is spent** —
+  then it switches to the **local** fallback (and also falls back on a cloud error). Only
+  cloud tokens count toward the budget; the window + cap are configurable.
+- **This project's default:** **primary = local Ollama** (no per-token cost, no budget
+  pressure), with **Claude as an optional cloud quality tier**. Flip `llm.routing.primary`
+  to `claude` and set `llm.budget.max_tokens` to get "use Claude until the daily budget is
+  spent, then fall back to local."
+- Per-task sizing still applies: a cheaper/faster model for high-volume enrich/dedup, a
+  stronger one for Tier-3 deep dig — expressed as provider/model choices in config.

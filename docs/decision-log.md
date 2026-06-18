@@ -102,3 +102,24 @@ CI-verifiable; it consumes standard raster/vector tile URLs (incl. MapLibre/OSM 
 the architecture's MapLibre-tile intent is preserved. We can swap in vector-tile/native
 MapLibre later for richer rendering without changing the data flow. Phase 2b uses OSM raster
 tiles for the dev/test stage; pick a tile provider/self-host for production.
+
+### ADR-0014 — Pluggable, provider-agnostic LLM layer (cloud + local)
+*2026-06-18* · accepted
+Agents talk to LLMs through a common `LLMProvider` interface with two implementations: an
+**Anthropic** provider (Claude) and an **OpenAI-compatible** provider that serves **vLLM,
+Ollama, and OpenAI** (all expose `/v1/chat/completions`). Providers, models, endpoints, and
+which is primary/fallback are all defined in the Config Service (`llm.providers`,
+`llm.routing`) — no code change to add or switch a provider. Why: the user requires support
+for any LLM provider including locally-hosted ones; a thin interface keeps the agents
+provider-agnostic. Detail in [ai-agents.md](ai-agents.md).
+
+### ADR-0015 — Budget-aware LLM routing with auto-fallback to local
+*2026-06-18* · accepted
+An `LLMRouter` picks the provider per call: it uses the primary unless the primary is a
+**cloud** provider AND the **token budget for the current time window is spent**, in which
+case it switches to the **local** fallback. Budget (`llm.budget.max_tokens`,
+`window_seconds`) is configurable and tracked in Redis (only cloud tokens count). On a
+primary error it also falls back. Default routing for this project: **primary = local
+Ollama** (no cost, no budget pressure), with cloud as an optional quality tier. Why: the
+user wants automatic switch to a local LLM once the budgeted cloud tokens are used in a time
+frame — fully configurable. Detail in [ai-agents.md](ai-agents.md) + [admin-portal.md](admin-portal.md).
