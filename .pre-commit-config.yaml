@@ -1,0 +1,19 @@
+# Pre-commit hooks enforce hygiene before code reaches CI/review.
+# Install once: `pip install pre-commit && pre-commit install`.
+# Language-specific hooks (ruff for Python, dart format for Flutter) are added when those
+# apps land — see docs/engineering-standards.md §1.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'   # markdown uses trailing spaces for line breaks
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: detect-private-key

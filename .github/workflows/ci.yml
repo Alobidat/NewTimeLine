@@ -1,0 +1,31 @@
+# CI gate. Grows with the codebase: Phase 0 validates config + hygiene; language jobs
+# (Python ruff/pytest, Flutter analyze/test) are added as those apps land.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  hygiene:
+    name: Pre-commit hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
+  compose:
+    name: Validate docker-compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provide env for interpolation
+        run: cp .env.example .env
+      - name: Validate compose config
+        run: docker compose config -q

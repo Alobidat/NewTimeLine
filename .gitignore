@@ -1,0 +1,55 @@
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+
+# --- Local tool state (not shared) ---
+.claude/settings.local.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Dart / Flutter ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+.pub-cache/
+.pub/
+**/ios/Pods/
+**/android/.gradle/
+**/*.g.dart.bak
+
+# --- Node (tooling, prettier, etc.) ---
+node_modules/
+
+# --- Docker / data volumes (if bind-mounted locally) ---
+.data/
+volumes/
+
+# --- IDE / OS ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
