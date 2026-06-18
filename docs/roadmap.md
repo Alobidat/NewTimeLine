@@ -39,8 +39,12 @@ Time axis changed to signed numeric year (ADR-0012).
 **Done when:** the API returns real events for a given time window + map bbox, and a
 sub-timeline for an event.
 
-## Phase 2 — The magical timeline (Flutter client, read-only)
+## Phase 2 — The magical timeline (Flutter client, read-only) 🟡 2a DONE
 **Goal:** the signature experience, consuming Phase-1 data.
+**Phase 2a delivered:** Flutter app (web+windows) — scrub/zoom timeline (CustomPainter),
+severity points/bands, density heatline from server buckets, event detail sheet with
+sub-timeline drill-down, anonymous; pure-Dart time math unit-tested (14 tests), analyze
+clean, web build compiles. **2b remaining:** the MapLibre map layer linked to the timeline.
 - Flutter app shell (Android/iOS/desktop/web targets building).
 - **Timeline widget:** scrub + log zoom, points vs bands, severity color/height,
   density heatline from server buckets.
