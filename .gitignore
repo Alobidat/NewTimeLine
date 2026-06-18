@@ -39,6 +39,7 @@ node_modules/
 # --- Docker / data volumes (if bind-mounted locally) ---
 .data/
 volumes/
+webdist/          # pre-built Flutter web bundle shipped to the host (build output)
 
 # --- IDE / OS ---
 .idea/
