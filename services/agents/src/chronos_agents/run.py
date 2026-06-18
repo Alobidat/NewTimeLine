@@ -10,6 +10,9 @@ import argparse
 import asyncio
 import logging
 
+from chronos_core import config_service
+from chronos_core.db import session_scope
+
 from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.seed_wikidata import seed_wikidata
 
@@ -24,6 +27,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 async def _main(args: argparse.Namespace) -> None:
+    # Seed Config Service defaults (idempotent) so agents work even if the API hasn't
+    # started yet — agents must not depend on the API for their configuration.
+    async with session_scope() as session:
+        await config_service.ensure_defaults(session)
+
     if args.command == "ingest-rss":
         print(await ingest_rss())
     elif args.command == "seed-wikidata":
