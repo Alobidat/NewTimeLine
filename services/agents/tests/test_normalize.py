@@ -1,8 +1,9 @@
 """Tests for the pure normalizers (chronos_agents.normalize)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from chronos_core.domain.temporal import TimePrecision
 
 from chronos_agents.normalize import (
     normalize_rss,
@@ -11,7 +12,6 @@ from chronos_agents.normalize import (
     parse_wikidata_time,
     wikidata_time_to_t,
 )
-from chronos_core.domain.temporal import TimePrecision
 
 
 def test_parse_point_wkt():
@@ -49,7 +49,7 @@ def test_normalize_rss_happy():
             "title": "Quake hits region",
             "link": "https://news.example/a",
             "summary": "A summary",
-            "published": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "published": datetime(2026, 1, 2, tzinfo=UTC),
         },
         feed_publisher="Example News",
     )

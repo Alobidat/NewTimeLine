@@ -1,6 +1,6 @@
 """Tests for the signed-year temporal axis (chronos_core.domain.temporal)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -15,13 +15,13 @@ from chronos_core.domain.temporal import (
 
 
 def test_datetime_to_t_year_boundaries():
-    assert datetime_to_t(datetime(2020, 1, 1, tzinfo=timezone.utc)) == pytest.approx(2020.0)
-    assert datetime_to_t(datetime(2021, 1, 1, tzinfo=timezone.utc)) == pytest.approx(2021.0)
+    assert datetime_to_t(datetime(2020, 1, 1, tzinfo=UTC)) == pytest.approx(2020.0)
+    assert datetime_to_t(datetime(2021, 1, 1, tzinfo=UTC)) == pytest.approx(2021.0)
 
 
 def test_datetime_to_t_midyear_leap():
     # 2020 is a leap year; 2 Jul is day 184 → ~half the year elapsed.
-    t = datetime_to_t(datetime(2020, 7, 2, tzinfo=timezone.utc))
+    t = datetime_to_t(datetime(2020, 7, 2, tzinfo=UTC))
     assert t == pytest.approx(2020.5, abs=0.01)
 
 
