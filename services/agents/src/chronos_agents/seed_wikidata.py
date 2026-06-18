@@ -42,17 +42,32 @@ def _flatten(binding: dict) -> dict:
     return row
 
 
+async def _fetch(query: str, *, attempts: int = 3) -> list[dict]:
+    """GET the SPARQL results, retrying on 429 (WDQS rate-limits, esp. during outages).
+
+    Honors ``Retry-After`` when present (capped), else backs off. Raises if still failing.
+    """
+    import asyncio
+
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/sparql-results+json"}
+    async with httpx.AsyncClient(timeout=90) as client:
+        for attempt in range(1, attempts + 1):
+            resp = await client.get(
+                ENDPOINT, params={"query": query, "format": "json"}, headers=headers
+            )
+            if resp.status_code == 429 and attempt < attempts:
+                wait = min(int(resp.headers.get("Retry-After", 65)), 90)
+                log.warning("WDQS 429 (attempt %d/%d); waiting %ds", attempt, attempts, wait)
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp.json()["results"]["bindings"]
+    return []
+
+
 async def seed_wikidata(limit: int = 300) -> dict:
     """Fetch + publish up to ``limit`` historical events. Returns a summary of counts."""
-    query = SPARQL % {"limit": limit}
-    async with httpx.AsyncClient(timeout=90) as client:
-        resp = await client.get(
-            ENDPOINT,
-            params={"query": query, "format": "json"},
-            headers={"User-Agent": USER_AGENT, "Accept": "application/sparql-results+json"},
-        )
-        resp.raise_for_status()
-        bindings = resp.json()["results"]["bindings"]
+    bindings = await _fetch(SPARQL % {"limit": limit})
 
     totals = {"fetched": len(bindings), "published": 0, "skipped": 0}
     async with session_scope() as session:

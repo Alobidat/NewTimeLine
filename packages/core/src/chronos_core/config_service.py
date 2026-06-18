@@ -23,7 +23,8 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "agents.ingest.rss.feeds": (
         [
             "http://feeds.bbci.co.uk/news/world/rss.xml",
-            "https://feeds.reuters.com/reuters/worldNews",
+            "https://www.theguardian.com/world/rss",
+            "https://www.aljazeera.com/xml/rss/all.xml",
         ],
         "agent:ingest",
     ),
