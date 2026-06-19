@@ -20,6 +20,18 @@ class ExtractedReference(BaseModel):
     detail: str | None = None
 
 
+class ExtractedEntity(BaseModel):
+    """A person/org/place/topic the event involves, with its role.
+
+    These become ``entities`` + ``event_entities`` rows and are what the relation-linker
+    uses to connect events across time (the "US ↔ Iran" anchoring).
+    """
+
+    name: str
+    kind: str = Field(description="person | org | place | topic")
+    role: str = Field(default="subject", description="actor | location | subject | affected")
+
+
 class EnrichmentResult(BaseModel):
     """LLM enrichment output for one event."""
 
@@ -29,4 +41,5 @@ class EnrichmentResult(BaseModel):
     impact: float = Field(
         default=0.0, description="rough magnitude proxy (casualties/area/economic), 0 if unknown"
     )
+    entities: list[ExtractedEntity] = Field(default_factory=list)
     references: list[ExtractedReference] = Field(default_factory=list)

@@ -12,16 +12,22 @@ from urllib.parse import urlparse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_core.domain.entities import entity_name_key
 from chronos_core.domain.severity import (
     SeverityWeights,
     compute_severity,
     normalize_corroboration,
 )
 from chronos_core.domain.temporal import materialize_span
+from chronos_core.models.entity import Entity, EventEntity
 from chronos_core.models.event import Event, EventReference
+from chronos_core.models.relation import EventRelation
 from chronos_core.models.source import EventSource, Source
 from chronos_core.schemas.enrichment import EnrichmentResult
 from chronos_core.schemas.event import EventCreate, GeoPoint
+
+_ENTITY_KINDS = {"person", "org", "place", "topic"}
+_ENTITY_ROLES = {"actor", "location", "subject", "affected"}
 
 
 def _point_expr(geo: GeoPoint | None):
@@ -138,6 +144,91 @@ async def link_source(
     return True
 
 
+async def get_or_create_entity(
+    session: AsyncSession,
+    *,
+    kind: str,
+    name: str,
+    external_id: str | None = None,
+    geo: GeoPoint | None = None,
+) -> Entity:
+    """Resolve an entity by ``(kind, external_id)`` when a QID is known, else by
+    ``(kind, name_key)``; create it if absent. Caller commits."""
+    name_key = entity_name_key(name)
+    if external_id:
+        existing = await session.scalar(
+            select(Entity).where(Entity.kind == kind, Entity.external_id == external_id)
+        )
+        if existing is not None:
+            return existing
+    existing = await session.scalar(
+        select(Entity).where(Entity.kind == kind, Entity.name_key == name_key)
+    )
+    if existing is not None:
+        # Backfill a QID if we learned one since first sighting.
+        if external_id and not existing.external_id:
+            existing.external_id = external_id
+        return existing
+    entity = Entity(
+        kind=kind,
+        name=name.strip(),
+        name_key=name_key,
+        external_id=external_id,
+        geom=_point_expr(geo),
+    )
+    session.add(entity)
+    await session.flush()
+    return entity
+
+
+async def link_entity(
+    session: AsyncSession,
+    event: Event,
+    entity: Entity,
+    *,
+    role: str = "subject",
+    added_by: str | None = None,
+) -> bool:
+    """Tag an entity onto an event in a role (idempotent). Returns True if newly linked."""
+    exists = await session.get(EventEntity, (event.id, entity.id, role))
+    if exists is not None:
+        return False
+    session.add(
+        EventEntity(event_id=event.id, entity_id=entity.id, role=role, added_by=added_by)
+    )
+    return True
+
+
+async def link_relation(
+    session: AsyncSession,
+    *,
+    src_event,
+    dst_event,
+    kind: str,
+    weight: float = 1.0,
+    created_by: str | None = None,
+) -> bool:
+    """Create a directed src→dst edge (idempotent per kind). If it exists, keep the
+    stronger weight. Returns True if a new edge was created. No self-loops."""
+    if src_event == dst_event:
+        return False
+    existing = await session.get(EventRelation, (src_event, dst_event, kind))
+    if existing is not None:
+        if weight > existing.weight:
+            existing.weight = weight
+        return False
+    session.add(
+        EventRelation(
+            src_event=src_event,
+            dst_event=dst_event,
+            kind=kind,
+            weight=weight,
+            created_by=created_by,
+        )
+    )
+    return True
+
+
 async def apply_enrichment(
     session: AsyncSession,
     event: Event,
@@ -178,3 +269,17 @@ async def apply_enrichment(
                 extracted_by=agent,
             )
         )
+
+    # Tag extracted entities (people/orgs/places/topics) → the relation-linker anchors on
+    # these. Unknown kinds/roles fall back to safe defaults so a loose LLM can't break us.
+    for ent in result.entities:
+        kind = ent.kind.strip().lower()
+        if kind not in _ENTITY_KINDS:
+            kind = "topic"
+        role = ent.role.strip().lower()
+        if role not in _ENTITY_ROLES:
+            role = "subject"
+        if not ent.name.strip():
+            continue
+        entity = await get_or_create_entity(session, kind=kind, name=ent.name)
+        await link_entity(session, event, entity, role=role, added_by=agent)

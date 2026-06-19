@@ -2,20 +2,28 @@
 (needed by Alembic autogenerate + create_all)."""
 
 from chronos_core.models.config import Config, ConfigAudit
+from chronos_core.models.entity import Entity, EventEntity
 from chronos_core.models.enums import EventStatus, IngestState, TimePrecision
 from chronos_core.models.event import EMBEDDING_DIM, Event, EventReference
 from chronos_core.models.ingest import IngestItem
+from chronos_core.models.media import EventMedia, Media
+from chronos_core.models.relation import EventRelation
 from chronos_core.models.source import EventSource, Source
 
 __all__ = [
     "Config",
     "ConfigAudit",
+    "Entity",
+    "EventEntity",
     "EventStatus",
     "IngestState",
     "TimePrecision",
     "EMBEDDING_DIM",
     "Event",
     "EventReference",
+    "EventMedia",
+    "Media",
+    "EventRelation",
     "IngestItem",
     "EventSource",
     "Source",

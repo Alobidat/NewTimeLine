@@ -12,13 +12,18 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from chronos_core.models.enums import EventStatus, TimePrecision
+from chronos_core.schemas.entity import EntityRole
+from chronos_core.schemas.geo import GeoPoint  # re-exported for existing importers
+from chronos_core.schemas.media import MediaRead
 
-
-class GeoPoint(BaseModel):
-    """WGS84 point."""
-
-    lon: float
-    lat: float
+__all__ = [
+    "GeoPoint",
+    "SourceRead",
+    "EventReferenceRead",
+    "EventRead",
+    "EventDetail",
+    "EventCreate",
+]
 
 
 class SourceRead(BaseModel):
@@ -69,11 +74,14 @@ class EventRead(BaseModel):
 
 
 class EventDetail(EventRead):
-    """Full event view: adds body, sources, and the sub-timeline references."""
+    """Full event view: adds body, sources, sub-timeline references, tagged entities, and
+    rich media (images/video clips)."""
 
     body: str | None = None
     sources: list[SourceRead] = Field(default_factory=list)
     references: list[EventReferenceRead] = Field(default_factory=list)
+    entities: list[EntityRole] = Field(default_factory=list)
+    media: list[MediaRead] = Field(default_factory=list)
 
 
 class EventCreate(BaseModel):

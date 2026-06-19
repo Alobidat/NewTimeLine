@@ -15,7 +15,7 @@ from chronos_core.settings import get_settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from chronos_api.routers import events, health, timeline
+from chronos_api.routers import entities, events, health, search, timeline
 
 
 @asynccontextmanager
@@ -45,6 +45,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(events.router)
     app.include_router(timeline.router)
+    app.include_router(search.router)
+    app.include_router(entities.router)
     return app
 
 

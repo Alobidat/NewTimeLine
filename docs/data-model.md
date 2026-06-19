@@ -328,6 +328,40 @@ CREATE TABLE ingest_items (             -- raw feed items, pre-normalization (au
 );
 ```
 
+### 3.10 media + event_media (rich content; ADR-0017)
+Images / video clips / external embeds for rich event detail. Binaries live in the object
+store (`storage_key` + `thumbnail_key`); owned/large video may instead be referenced as an
+external player (`embed_url`, status `external`). `event_media` is a link table so one asset
+can attach to several related events; `added_by` records whether an **agent** or a **user**
+added the link, so links can also be added later by users or by a new source.
+```sql
+CREATE TABLE media (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind          text NOT NULL,          -- image | video | audio | embed
+  storage_key   text,                   -- object-store key of the stored binary
+  source_url    text,                   -- where it was found/fetched
+  embed_url     text,                   -- external player URL (when not stored)
+  thumbnail_key text,
+  mime          text, width int, height int, duration_s int, bytes bigint,
+  content_hash  text,                   -- dedup identical binaries
+  caption       text, credit text, license text,
+  status        text NOT NULL DEFAULT 'pending', -- pending|stored|external|failed
+  added_by      text,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (content_hash)
+);
+CREATE TABLE event_media (
+  event_id  uuid REFERENCES events(id) ON DELETE CASCADE,
+  media_id  uuid REFERENCES media(id)  ON DELETE CASCADE,
+  role      text NOT NULL DEFAULT 'gallery', -- hero|gallery|inline|related
+  rank      int  NOT NULL DEFAULT 0,
+  added_by  text,                            -- agent run OR user id
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (event_id, media_id)
+);
+```
+
 ## 4. Key query patterns
 
 | Need | Query shape |

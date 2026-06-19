@@ -2,6 +2,8 @@
 
     python -m chronos_agents.run ingest-rss
     python -m chronos_agents.run seed-wikidata --limit 300
+    python -m chronos_agents.run enrich
+    python -m chronos_agents.run relate
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from chronos_core.db import session_scope
 
 from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
+from chronos_agents.relate import link_relations
 from chronos_agents.seed_wikidata import seed_wikidata
 
 
@@ -25,6 +28,7 @@ def _build_parser() -> argparse.ArgumentParser:
     seed = sub.add_parser("seed-wikidata", help="Seed historical events from Wikidata")
     seed.add_argument("--limit", type=int, default=300)
     sub.add_parser("enrich", help="LLM-enrich a batch of events (Tier-2)")
+    sub.add_parser("relate", help="Link events into the history graph from shared entities")
     return parser
 
 
@@ -40,6 +44,8 @@ async def _main(args: argparse.Namespace) -> None:
         print(await seed_wikidata(limit=args.limit))
     elif args.command == "enrich":
         print(await enrich_pending())
+    elif args.command == "relate":
+        print(await link_relations())
 
 
 def main() -> None:

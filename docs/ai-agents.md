@@ -89,6 +89,11 @@ what sources support and to flag uncertainty. Outputs are validated against a sc
 - Writes `event_relations` with `kind` + `weight`. This powers "see related/historical
   events" navigation and the contextual digging the product promises.
 - Heavy causal/historical synthesis is deferred to Tier 3 for important events only.
+- **Status (Phase 3b, ADR-0016):** the cheap **Tier-1 backbone is implemented** (`agents
+  relate`): for each recently-touched event it links others sharing ≥ N entities, oriented by
+  time (earlier = `src`/cause → later = `dst`/effect), emitting `same-place` / `same-actor`
+  and a `precursor` candidate-causal edge. Embedding-similarity + LLM causal adjudication are
+  the later enhancement. This backbone is what `/events/{id}/chain` walks back-and-forth.
 
 ### 2.7 Severity-scorer {#severity}
 Composite 0–100, recomputed when inputs change:

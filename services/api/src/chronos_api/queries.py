@@ -217,6 +217,9 @@ async def fetch_event_detail(
         )
     ).all()
 
+    # Local import avoids a module-level cycle (graph_queries reuses helpers from here).
+    from chronos_api.graph_queries import fetch_event_entities, fetch_event_media
+
     base = _event_read(row)
     return EventDetail(
         **base.model_dump(),
@@ -235,4 +238,6 @@ async def fetch_event_detail(
             for s in source_rows
         ],
         references=await fetch_subtimeline(session, event_id),
+        entities=await fetch_event_entities(session, event_id),
+        media=await fetch_event_media(session, event_id),
     )

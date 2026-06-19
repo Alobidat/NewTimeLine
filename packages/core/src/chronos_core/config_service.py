@@ -63,6 +63,11 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "agents.enrich.enabled": (True, "agent:enrich"),
     "agents.enrich.batch_size": (20, "agent:enrich"),
     "agents.enrich.max_tokens": (800, "agent:enrich"),
+    # --- Relation-linker (Tier-1, no LLM) — builds the history graph from shared entities ---
+    "agents.relate.enabled": (True, "agent:relate"),
+    "agents.relate.batch_size": (50, "agent:relate"),
+    "agents.relate.min_shared": (1, "agent:relate"),
+    "agents.relate.max_neighbors": (200, "agent:relate"),
 }
 
 

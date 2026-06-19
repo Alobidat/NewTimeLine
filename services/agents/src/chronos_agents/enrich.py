@@ -30,8 +30,13 @@ _SYSTEM = (
     "Be neutral and source-grounded; never invent facts. Schema: "
     '{"summary": string (1-3 sentences), "category": string|null, "tags": string[], '
     '"impact": number (rough magnitude proxy, 0 if unknown), '
+    '"entities": [{"name": string, "kind": "person|org|place|topic", '
+    '"role": "actor|location|subject|affected"}], '
     '"references": [{"label": string, "year": number (signed; negative=BC), '
     '"precision": "exact|day|month|year|decade|century|era", "detail": string|null}]}. '
+    "entities are the key people/organizations/countries/places involved — tag the primary "
+    "countries/actors with role actor, and where it happened with role location (these "
+    "anchor how events link across history). "
     "references are deep-history subjects the event discusses (empty if none)."
 )
 

@@ -123,3 +123,43 @@ primary error it also falls back. Default routing for this project: **primary = 
 Ollama** (no cost, no budget pressure), with cloud as an optional quality tier. Why: the
 user wants automatic switch to a local LLM once the budgeted cloud tokens are used in a time
 frame — fully configurable. Detail in [ai-agents.md](ai-agents.md) + [admin-portal.md](admin-portal.md).
+
+### ADR-0016 — The product's core is an entity-anchored causal graph, not a geo-feed
+*2026-06-19* · accepted
+NewTimeLine is about **digging back-and-forth through linked events**, not plotting a live
+feed of disparate incidents (earthquakes etc.). The user journey: search a **location /
+actor / title / date** → land on a few anchor events → traverse **what led to** them and
+**what they caused**, anchored on one or a few key places/actors (the worked example: the
+"US ↔ Iran" relationship, with Gulf states as secondary links). Decisions:
+- **Entities (`entities` + `event_entities`)** are first-class anchors; the enricher tags
+  the primary countries/actors (role `actor`) and where it happened (role `location`).
+- **`event_relations`** is a **directed** graph, convention **src = earlier/cause → dst =
+  later/effect**. "Led to" = edges into an event; "caused" = edges out.
+- A cheap **Tier-1 relation-linker** builds the structural backbone from **shared entities**
+  + time order (`same-place`, `same-actor`, and a `precursor` candidate-causal edge); heavy
+  causal adjudication stays in the Tier-3 dig. Why no embeddings yet: the vision is anchored
+  on *who/where*, not thematic similarity — shared entities are the right, cheap signal.
+- New API: `/search`, `/entities`, `/events/by-entities` (intersection = "all events linking
+  the US and Iran"), `/events/{id}/related` (one-hop), and `/events/{id}/chain` (recursive
+  back/forth walk over causal kinds). Detail in [data-model.md](data-model.md) §3.3–3.4 +
+  [ai-agents.md](ai-agents.md) §2.6.
+
+### ADR-0017 — Rich media: store locally in the object store, link many-to-many, accept later links
+*2026-06-19* · accepted
+Event detail must carry **images and video clips**, stored **locally** (the existing
+S3-compatible MinIO/object store, ADR-0008) and linked flexibly. Decisions:
+- **`media`** row per asset: binaries live in the object store (`storage_key` +
+  `thumbnail_key`); large/owned video may instead be referenced as an external player
+  (`embed_url`, status `external`) to avoid storage/copyright cost. `content_hash` dedups
+  identical binaries.
+- **`event_media`** is a **link table** (not a column on `events`) so one asset can attach
+  to several related events, with a `role` (hero/gallery/inline/related) + `rank`. `added_by`
+  records provenance — an **agent run OR a user id** — so links may be added **later by users
+  or by a new source**, exactly the extensibility the user asked for.
+- **Gathering (planned, built next pass):** Tier-1 ingestors capture media URLs (RSS
+  enclosures, `og:image`, `media:content`, oEmbed); a **media-fetcher** worker downloads,
+  dedups by hash, stores the binary + a generated thumbnail to the object store, and writes
+  `media` + `event_media`. Video defaults to **thumbnail + embed reference**; full download
+  only when license permits. Serving uses **signed/proxied URLs** from the API (deferred).
+  Why store the schema + link model now: it ships with migration 0002 so no later migration
+  is needed, and the detail API already returns `media` the moment rows exist.

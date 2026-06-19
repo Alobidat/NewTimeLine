@@ -1,5 +1,5 @@
 """API routers."""
 
-from chronos_api.routers import events, health, timeline
+from chronos_api.routers import entities, events, health, search, timeline
 
-__all__ = ["events", "health", "timeline"]
+__all__ = ["entities", "events", "health", "search", "timeline"]
