@@ -85,8 +85,12 @@ added. Component registry (`chronos_core.registry`) + typed config specs
 `agent_runs` history (CLI wraps runs; health derived by pure `chronos_core.domain.health`) +
 the **Admin API** (`/admin/overview|components|config|runs|storage|system|users`, bearer-token
 gated, audited).
+**Phase 3b — Admin Portal client delivered** (`apps/admin`): a Flutter app (web + apps, one
+codebase) rendering from the Admin API — Overview dashboard, Components list + detail (health,
+capabilities, enable/disable, schema-driven config editor), Config, Runs, Storage, System
+screens; responsive rail/bottom-nav; polling-based. flutter analyze + test green (CI matrix).
 **3b remaining:** dedup (pgvector), geocoder, image thumbnailing + signed media serving,
-queue/scheduler (run-now execution), the `apps/admin` Flutter client + admin real-time streaming.
+queue/scheduler (run-now execution), admin real-time streaming + deeper resource metrics.
 - Stand up the queue-based worker pipeline (Normalizer → Deduper → Enricher → Geocoder →
   Relation-linker → Severity-scorer → Publisher).
 - **Deduper** with pgvector + rule fast-path + LLM adjudication for ambiguous cases.

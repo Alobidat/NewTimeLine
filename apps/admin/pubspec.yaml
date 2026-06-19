@@ -1,0 +1,22 @@
+name: chronos_admin
+description: "Chronos (NewTimeLine) Admin Portal — operate agents, config, storage, system."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.8
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # HTTP client for the Admin API (/admin/*).
+  http: ^1.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

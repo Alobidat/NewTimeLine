@@ -123,7 +123,8 @@ hard-code a screen per component. Everything renders from three generic contract
   apps** (ADR-0002), reusing a shared design system + API client. Screens are **data-driven**
   (generated from the manifest/spec contract above), so the same build serves a full web
   console and a capable mobile admin. **Polling-first** for live tiles; SSE/WebSocket push is
-  added once the real-time gateway exists. *(Not yet built — backend foundation lands first.)*
+  added once the real-time gateway exists. *(Shell built: Overview, Components+detail, Config,
+  Runs, Storage, System screens, schema-driven config editor, responsive rail/bottom-nav.)*
 - **Backend (done):** the namespaced **Admin API** (`/admin/*`) behind `require_admin`,
   writing to the Config Service (audited + version-bumped) and reading the registry / specs /
   `agent_runs`. RBAC roles + OIDC arrive in Phase 4; today it's a bearer-token gate.
