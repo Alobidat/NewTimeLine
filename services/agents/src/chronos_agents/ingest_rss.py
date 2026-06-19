@@ -71,6 +71,11 @@ async def _ingest_feed(url: str, max_items: int, weights) -> tuple[int, int]:
                     "link": entry.get("link"),
                     "summary": entry.get("summary"),
                     "published": when,
+                    # Media fields (feedparser exposes these when present) → archived per ADR-0018.
+                    "media_content": entry.get("media_content"),
+                    "media_thumbnail": entry.get("media_thumbnail"),
+                    "enclosures": entry.get("enclosures"),
+                    "links": entry.get("links"),
                 },
                 feed_publisher=feed_title,
             )

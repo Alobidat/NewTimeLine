@@ -163,3 +163,29 @@ S3-compatible MinIO/object store, ADR-0008) and linked flexibly. Decisions:
   only when license permits. Serving uses **signed/proxied URLs** from the API (deferred).
   Why store the schema + link model now: it ships with migration 0002 so no later migration
   is needed, and the detail API already returns `media` the moment rows exist.
+
+### ADR-0018 — Media archival: capture-first by risk, release-when-durable
+*2026-06-19* · accepted
+Media on hot/sensitive events **disappears** from its origin under political, government, or
+social pressure. The system must decide, per media item and **re-evaluate over time**,
+whether to keep a local copy. Decision (pure engine `chronos_core.domain.media_policy`, fed
+by rule-based signals — no LLM):
+- **Disposition = `pin | archive | link`.** `pin` = store locally and **never auto-release**
+  (high `sensitivity`: external availability is never sufficient confidence because pressure
+  can take down *all* copies). `archive` = store now, release later **iff** proven durable.
+  `link` = reference only (low sensitivity + durable, corroborated host).
+- **Signals:** `sensitivity` (0–100, from event category/tags + `social`/user origin),
+  origin **ephemerality** (social/ephemeral domains vs. Wikimedia/archive.org/primary-doc),
+  **corroboration** (independent stable hosts via `media_sources`), and **time-survived**
+  → a `persistence_confidence` (0–100).
+- **Archive-first default:** an ambiguous item is stored locally (we never lose it for want
+  of a signal); storage is reclaimed later only once `persistence_confidence` clears the
+  release threshold AND it isn't sensitive.
+- **Sensitivity detection: rules now, LLM later** (the enricher may add a sensitivity flag in
+  a later pass). The **checker** re-evaluates sensitivity from the (now-enriched) citing
+  events and can **upgrade to `pin`**, **escalate** a vanished link to a capture attempt, or
+  **release** a durable copy.
+- **Two Tier-1 workers:** `media-fetch` (download → object store, dedup by content hash,
+  over-large binaries stay linked) and `media-check` (re-probe hosts, recompute confidence,
+  apply retention). Storage = the existing S3/MinIO object store (ADR-0008); serving via
+  signed URLs is deferred. Schema: migration 0003 (`media` policy columns + `media_sources`).

@@ -4,6 +4,8 @@
     python -m chronos_agents.run seed-wikidata --limit 300
     python -m chronos_agents.run enrich
     python -m chronos_agents.run relate
+    python -m chronos_agents.run media-fetch
+    python -m chronos_agents.run media-check
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ from chronos_core.db import session_scope
 
 from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
+from chronos_agents.media_check import check_media
+from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.relate import link_relations
 from chronos_agents.seed_wikidata import seed_wikidata
 
@@ -29,6 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--limit", type=int, default=300)
     sub.add_parser("enrich", help="LLM-enrich a batch of events (Tier-2)")
     sub.add_parser("relate", help="Link events into the history graph from shared entities")
+    sub.add_parser("media-fetch", help="Download media flagged for local capture (ADR-0018)")
+    sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
     return parser
 
 
@@ -46,6 +52,10 @@ async def _main(args: argparse.Namespace) -> None:
         print(await enrich_pending())
     elif args.command == "relate":
         print(await link_relations())
+    elif args.command == "media-fetch":
+        print(await fetch_pending())
+    elif args.command == "media-check":
+        print(await check_media())
 
 
 def main() -> None:

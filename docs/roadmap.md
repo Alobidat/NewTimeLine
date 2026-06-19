@@ -72,8 +72,14 @@ shared entities + time order, and the **dig** API — `/search`, `/entities`,
 `/events/by-entities` (the "US ↔ Iran" intersection), `/events/{id}/related`, and the
 recursive `/events/{id}/chain` (back = led-to / forward = caused). Plus the **media**
 foundation (`media` + `event_media`) so event detail can carry images/video, with links
-addable later by users or new sources. **3b remaining:** dedup (pgvector), geocoder,
-media-fetcher worker, queue streaming, admin console.
+addable later by users or new sources.
+**Phase 3b — media archival delivered** (ADR-0018, migration 0003): a capture-first policy
+engine + `media-fetch`/`media-check` workers store hot/sensitive media locally (object
+store) before it vanishes under pressure, link durable corroborated media, and release
+local copies once they prove durable; `media_sources` tracks per-host availability. RSS
+ingest now discovers media (enclosures/`media:content`/thumbnails) and applies the policy.
+**3b remaining:** dedup (pgvector), geocoder, image thumbnailing + signed media serving,
+queue streaming, admin console.
 - Stand up the queue-based worker pipeline (Normalizer → Deduper → Enricher → Geocoder →
   Relation-linker → Severity-scorer → Publisher).
 - **Deduper** with pgvector + rule fast-path + LLM adjudication for ambiguous cases.

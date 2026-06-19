@@ -333,23 +333,46 @@ Images / video clips / external embeds for rich event detail. Binaries live in t
 store (`storage_key` + `thumbnail_key`); owned/large video may instead be referenced as an
 external player (`embed_url`, status `external`). `event_media` is a link table so one asset
 can attach to several related events; `added_by` records whether an **agent** or a **user**
-added the link, so links can also be added later by users or by a new source.
+added the link, so links can also be added later by users or by a new source. The archival
+columns (`disposition`/`sensitivity`/`persistence_confidence`/…) + `media_sources` implement
+the **capture-first, release-when-durable** policy (ADR-0018): hot/sensitive media is stored
+locally before it can vanish; durable, corroborated media is linked or later released.
 ```sql
 CREATE TABLE media (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   kind          text NOT NULL,          -- image | video | audio | embed
   storage_key   text,                   -- object-store key of the stored binary
-  source_url    text,                   -- where it was found/fetched
+  source_url    text,                   -- origin URL it was found/fetched at
   embed_url     text,                   -- external player URL (when not stored)
   thumbnail_key text,
   mime          text, width int, height int, duration_s int, bytes bigint,
   content_hash  text,                   -- dedup identical binaries
   caption       text, credit text, license text,
-  status        text NOT NULL DEFAULT 'pending', -- pending|stored|external|failed
+  status        text NOT NULL DEFAULT 'pending', -- pending|stored|external|released|failed|gone
   added_by      text,
+  -- archival policy (ADR-0018; chronos_core.domain.media_policy)
+  disposition   text NOT NULL DEFAULT 'archive', -- pin|archive|link
+  sensitivity   smallint NOT NULL DEFAULT 0,      -- 0..100 takedown risk
+  persistence_confidence smallint NOT NULL DEFAULT 0, -- 0..100 will-it-stay-without-us
+  origin_kind   text,                   -- news|social|encyclopedia|...
+  pinned        boolean NOT NULL DEFAULT false,   -- manual/operator pin
+  last_checked_at timestamptz, last_available_at timestamptz,
+  avail_state   text NOT NULL DEFAULT 'unknown',  -- unknown|available|moved|gone
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (content_hash)
+);
+
+-- Every host a media item has been seen at → corroboration ("available at ≥1 stable source").
+CREATE TABLE media_sources (
+  media_id   uuid REFERENCES media(id) ON DELETE CASCADE,
+  source_url text NOT NULL,
+  source_id  uuid REFERENCES sources(id) ON DELETE SET NULL,
+  is_stable  boolean NOT NULL DEFAULT false,   -- durable host (Wikimedia, archive.org, …)
+  avail_state text NOT NULL DEFAULT 'unknown',
+  last_available_at timestamptz, last_checked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (media_id, source_url)
 );
 CREATE TABLE event_media (
   event_id  uuid REFERENCES events(id) ON DELETE CASCADE,

@@ -68,6 +68,14 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "agents.relate.batch_size": (50, "agent:relate"),
     "agents.relate.min_shared": (1, "agent:relate"),
     "agents.relate.max_neighbors": (200, "agent:relate"),
+    # --- Media archival (Tier-1, no LLM) — capture-first, release-when-durable (ADR-0018) ---
+    "agents.media.fetch.enabled": (True, "agent:media"),
+    "agents.media.fetch.batch_size": (20, "agent:media"),
+    "agents.media.fetch.max_bytes": (26_214_400, "agent:media"),  # 25 MiB; larger stays linked
+    "agents.media.check.enabled": (True, "agent:media"),
+    "agents.media.check.batch_size": (50, "agent:media"),
+    "agents.media.check.recheck_hours": (24, "agent:media"),
+    "agents.media.release_threshold": (70, "agent:media"),  # persistence_confidence to release
 }
 
 

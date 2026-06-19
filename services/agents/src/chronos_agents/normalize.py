@@ -19,6 +19,15 @@ _WD_TIME_RE = re.compile(r"^([+-]?)(\d{1,11})-(\d{2})-(\d{2})T")
 
 
 @dataclass
+class CandidateMedia:
+    """A media URL found on a feed item (image/video/audio), pre-archival-decision."""
+
+    kind: str  # image | video | audio
+    url: str
+    mime: str | None = None
+
+
+@dataclass
 class CandidateEvent:
     """A normalized, ready-to-publish event plus its single source's metadata."""
 
@@ -36,6 +45,63 @@ class CandidateEvent:
     source_publisher: str | None = None
     source_published_at: datetime | None = None
     source_kind: str | None = None
+    media: list[CandidateMedia] = field(default_factory=list)
+
+
+# Extension → (kind, mime) fallback when a feed gives no MIME type.
+_MEDIA_EXT = {
+    "jpg": ("image", "image/jpeg"), "jpeg": ("image", "image/jpeg"),
+    "png": ("image", "image/png"), "gif": ("image", "image/gif"),
+    "webp": ("image", "image/webp"), "avif": ("image", "image/avif"),
+    "mp4": ("video", "video/mp4"), "webm": ("video", "video/webm"),
+    "mov": ("video", "video/quicktime"), "m4v": ("video", "video/mp4"),
+    "mp3": ("audio", "audio/mpeg"), "m4a": ("audio", "audio/mp4"),
+    "ogg": ("audio", "audio/ogg"),
+}
+
+
+def _classify_media(url: str, mime: str | None, medium: str | None) -> CandidateMedia | None:
+    """Decide image/video/audio for one URL from its MIME, ``medium`` hint, or extension."""
+    m = (mime or "").lower()
+    if m.startswith("image/") or medium == "image":
+        return CandidateMedia("image", url, mime or None)
+    if m.startswith("video/") or medium == "video":
+        return CandidateMedia("video", url, mime or None)
+    if m.startswith("audio/") or medium == "audio":
+        return CandidateMedia("audio", url, mime or None)
+    ext = url.rsplit(".", 1)[-1].split("?")[0].lower() if "." in url else ""
+    if ext in _MEDIA_EXT:
+        kind, guessed = _MEDIA_EXT[ext]
+        return CandidateMedia(kind, url, mime or guessed)
+    return None
+
+
+def extract_media(entry: dict, *, limit: int = 10) -> list[CandidateMedia]:
+    """Pull image/video/audio URLs from a feed entry's media fields (pure, testable).
+
+    Handles RSS/Atom ``media:content``, ``media:thumbnail``, ``enclosures``, and
+    ``rel=enclosure`` links. Dedups by URL, preserves order, caps at ``limit``."""
+    out: list[CandidateMedia] = []
+    seen: set[str] = set()
+
+    def consider(url, mime=None, medium=None):
+        if not url or url in seen:
+            return
+        cm = _classify_media(url, mime, medium)
+        if cm is not None:
+            seen.add(url)
+            out.append(cm)
+
+    for mc in entry.get("media_content") or []:
+        consider(mc.get("url"), mc.get("type"), mc.get("medium"))
+    for mt in entry.get("media_thumbnail") or []:
+        consider(mt.get("url"), None, "image")
+    for enc in entry.get("enclosures") or []:
+        consider(enc.get("href") or enc.get("url"), enc.get("type"))
+    for link in entry.get("links") or []:
+        if link.get("rel") == "enclosure":
+            consider(link.get("href"), link.get("type"))
+    return out[:limit]
 
 
 def parse_point_wkt(wkt: str | None) -> GeoPoint | None:
@@ -89,6 +155,7 @@ def normalize_rss(entry: dict, *, feed_publisher: str | None = None) -> Candidat
         source_publisher=feed_publisher,
         source_published_at=published,
         source_kind="news",
+        media=extract_media(entry),
     )
 
 

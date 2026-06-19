@@ -9,13 +9,16 @@ source OR by a user (``added_by`` records which). Gathering + storage design: AD
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -28,13 +31,18 @@ from chronos_core.models.mixins import Timestamps, UuidPk
 
 
 class Media(UuidPk, Timestamps, Base):
-    """An image, video, audio clip, or external embed referenced by one or more events."""
+    """An image, video, audio clip, or external embed referenced by one or more events.
+
+    Archival fields (ADR-0018 / chronos_core.domain.media_policy) decide whether the binary
+    is stored locally (``disposition`` pin/archive) or merely linked (``link``), and track
+    observed availability so a durable archive can later be released.
+    """
 
     __tablename__ = "media"
 
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # image|video|audio|embed
     storage_key: Mapped[str | None] = mapped_column(Text)   # object-store key of the binary
-    source_url: Mapped[str | None] = mapped_column(Text)    # where it was found/fetched
+    source_url: Mapped[str | None] = mapped_column(Text)    # origin URL it was found/fetched at
     embed_url: Mapped[str | None] = mapped_column(Text)      # external player URL (not stored)
     thumbnail_key: Mapped[str | None] = mapped_column(Text)
     mime: Mapped[str | None] = mapped_column(String(128))
@@ -46,11 +54,48 @@ class Media(UuidPk, Timestamps, Base):
     caption: Mapped[str | None] = mapped_column(Text)
     credit: Mapped[str | None] = mapped_column(Text)
     license: Mapped[str | None] = mapped_column(String(64))
-    # pending=queued for fetch, stored=in object store, external=embed-only, failed
+    # pending=queued for fetch, stored=in object store, external=link/embed-only,
+    # released=was stored, dropped after proving durable, failed, gone=source vanished
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     added_by: Mapped[str | None] = mapped_column(String(64))
 
+    # --- archival policy (ADR-0018) ---
+    # disposition: pin | archive | link
+    disposition: Mapped[str] = mapped_column(String(16), default="archive", nullable=False)
+    sensitivity: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)  # 0..100
+    persistence_confidence: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
+    origin_kind: Mapped[str | None] = mapped_column(String(32))  # news|social|encyclopedia|...
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # manual pin
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # avail_state: unknown | available | moved | gone
+    avail_state: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+
     __table_args__ = (UniqueConstraint("content_hash", name="uq_media_content_hash"),)
+
+
+class MediaSource(Base):
+    """Each distinct host URL a media item has been seen at — the corroboration signal for
+    'available at one or more sources'. ``is_stable`` marks durable hosts (Wikimedia, etc.)."""
+
+    __tablename__ = "media_sources"
+
+    media_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("media.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_url: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="SET NULL")
+    )
+    is_stable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    avail_state: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+    last_available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_media_sources_media", "media_id"),)
 
 
 class EventMedia(Base):

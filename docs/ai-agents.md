@@ -75,6 +75,22 @@ extracts:
 Grounding: the prompt includes the source text(s); the model is instructed to only assert
 what sources support and to flag uncertainty. Outputs are validated against a schema.
 
+### 2.5b Media archival (Tier-1, no LLM — ADR-0018)
+Media on hot/sensitive events disappears under political/government/social pressure, so the
+pipeline **captures it locally before it vanishes** and only links/releases media that
+proves durable. On ingest, each media URL found on an item gets an **archival disposition**
+(`pin` = store forever, `archive` = store now/maybe-release, `link` = reference only) from a
+pure decision engine reading rule-based signals: **sensitivity** (event category/tags +
+social/ephemeral origin), host **durability** (Wikimedia/archive.org/primary-doc vs.
+social), **corroboration** (independent stable hosts, tracked in `media_sources`), and
+**time-survived**. Two workers run it:
+- **`media-fetch`** downloads pending store-disposition media → object store (dedup by
+  content hash; over-large binaries stay linked).
+- **`media-check`** re-probes every host, recomputes a `persistence_confidence`,
+  re-evaluates sensitivity from the (now-enriched) citing events, then **escalates** a
+  vanished link to a capture attempt, **upgrades** newly-sensitive media to `pin`, or
+  **releases** a durable non-sensitive copy to reclaim storage. Archive-first when ambiguous.
+
 ### 2.5 Geocoder
 - Resolves place strings/entities → coordinates/areas (PostGIS `geom`).
 - Prefer **structured** geocoding (Wikidata coords, gazetteers) before any geocoding API.

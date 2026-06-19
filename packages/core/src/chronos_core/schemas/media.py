@@ -29,4 +29,7 @@ class MediaRead(BaseModel):
     caption: str | None = None
     credit: str | None = None
     license: str | None = None
-    status: str = "pending"
+    status: str = "pending"           # pending|stored|external|released|failed|gone
+    disposition: str = "archive"      # pin|archive|link (archival policy, ADR-0018)
+    sensitivity: int = 0              # 0..100 takedown risk
+    locally_stored: bool = False      # binary held in our object store right now

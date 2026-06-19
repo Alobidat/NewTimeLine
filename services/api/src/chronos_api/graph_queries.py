@@ -179,8 +179,9 @@ async def fetch_event_media(session: AsyncSession, event_id: uuid.UUID) -> list[
             text(
                 "SELECT m.id, m.kind, em.role, em.rank, m.storage_key, m.embed_url, "
                 "m.thumbnail_key, m.mime, m.width, m.height, m.duration_s, m.caption, "
-                "m.credit, m.license, m.status FROM event_media em "
-                "JOIN media m ON m.id = em.media_id WHERE em.event_id = :id "
+                "m.credit, m.license, m.status, m.disposition, m.sensitivity "
+                "FROM event_media em JOIN media m ON m.id = em.media_id "
+                "WHERE em.event_id = :id "
                 "ORDER BY (em.role = 'hero') DESC, em.rank, m.created_at"
             ),
             {"id": event_id},
@@ -192,6 +193,8 @@ async def fetch_event_media(session: AsyncSession, event_id: uuid.UUID) -> list[
             embed_url=r.embed_url, thumbnail_key=r.thumbnail_key, mime=r.mime,
             width=r.width, height=r.height, duration_s=r.duration_s, caption=r.caption,
             credit=r.credit, license=r.license, status=r.status,
+            disposition=r.disposition, sensitivity=r.sensitivity,
+            locally_stored=r.storage_key is not None and r.status == "stored",
         )
         for r in rows
     ]

@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_core.domain import media_policy
 from chronos_core.domain.entities import entity_name_key
 from chronos_core.domain.severity import (
     SeverityWeights,
@@ -21,6 +22,7 @@ from chronos_core.domain.severity import (
 from chronos_core.domain.temporal import materialize_span
 from chronos_core.models.entity import Entity, EventEntity
 from chronos_core.models.event import Event, EventReference
+from chronos_core.models.media import EventMedia, Media, MediaSource
 from chronos_core.models.relation import EventRelation
 from chronos_core.models.source import EventSource, Source
 from chronos_core.schemas.enrichment import EnrichmentResult
@@ -227,6 +229,100 @@ async def link_relation(
         )
     )
     return True
+
+
+async def link_event_media(
+    session: AsyncSession,
+    event_id,
+    media: Media,
+    *,
+    role: str = "gallery",
+    rank: int = 0,
+    added_by: str | None = None,
+) -> bool:
+    """Attach a media item to an event (idempotent). Returns True if newly linked."""
+    exists = await session.get(EventMedia, (event_id, media.id))
+    if exists is not None:
+        return False
+    session.add(
+        EventMedia(
+            event_id=event_id, media_id=media.id, role=role, rank=rank, added_by=added_by
+        )
+    )
+    return True
+
+
+async def add_media_source(
+    session: AsyncSession,
+    media: Media,
+    source_url: str,
+    *,
+    source_id=None,
+    is_stable: bool = False,
+) -> bool:
+    """Record a host URL where this media was seen (idempotent). Returns True if new."""
+    exists = await session.get(MediaSource, (media.id, source_url))
+    if exists is not None:
+        return False
+    session.add(
+        MediaSource(
+            media_id=media.id, source_url=source_url, source_id=source_id, is_stable=is_stable
+        )
+    )
+    return True
+
+
+async def discover_media(
+    session: AsyncSession,
+    event: Event,
+    *,
+    url: str,
+    kind: str,
+    mime: str | None = None,
+    role: str = "gallery",
+    source_kind: str | None = None,
+    source_id=None,
+    added_by: str | None = None,
+) -> Media:
+    """Register a media URL found on an event and decide its archival disposition
+    (ADR-0018). Dedups by ``source_url``; always links the event + records the host.
+
+    Sensitive/hot/ephemeral media is queued for local capture (``pending``); durable,
+    low-sensitivity media on a stable host is linked (``external``)."""
+    domain = urlparse(url).netloc
+    ephemerality = media_policy.origin_ephemerality(source_kind, domain)
+    is_stable = ephemerality == "durable"
+
+    existing = await session.scalar(select(Media).where(Media.source_url == url))
+    if existing is not None:
+        await link_event_media(session, event.id, existing, role=role, added_by=added_by)
+        await add_media_source(session, existing, url, source_id=source_id, is_stable=is_stable)
+        return existing
+
+    sensitivity = media_policy.score_sensitivity(
+        event.category, event.tags, source_kind=source_kind
+    )
+    disposition = media_policy.decide_disposition(
+        sensitivity, ephemerality, stable_sources=1 if is_stable else 0
+    )
+    # link → reference the origin directly; pin/archive → queue for local capture.
+    status = "external" if disposition == "link" else "pending"
+    media = Media(
+        kind=kind,
+        source_url=url,
+        embed_url=url if disposition == "link" else None,
+        mime=mime,
+        status=status,
+        disposition=disposition,
+        sensitivity=sensitivity,
+        origin_kind=source_kind,
+        added_by=added_by,
+    )
+    session.add(media)
+    await session.flush()
+    await link_event_media(session, event.id, media, role=role, added_by=added_by)
+    await add_media_source(session, media, url, source_id=source_id, is_stable=is_stable)
+    return media
 
 
 async def apply_enrichment(

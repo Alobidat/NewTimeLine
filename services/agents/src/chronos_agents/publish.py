@@ -64,4 +64,16 @@ async def publish_candidate(
         weights=weights,
     )
     await repository.link_source(session, event, source, added_by=agent_name, weights=weights)
+
+    # Register any media found on the item; the archival policy (ADR-0018) decides whether
+    # each is captured locally or just linked. The first image becomes the hero.
+    hero_used = False
+    for m in cand.media:
+        role = "gallery"
+        if m.kind == "image" and not hero_used:
+            role, hero_used = "hero", True
+        await repository.discover_media(
+            session, event, url=m.url, kind=m.kind, mime=m.mime, role=role,
+            source_kind=cand.source_kind, source_id=source.id, added_by=agent_name,
+        )
     return event
