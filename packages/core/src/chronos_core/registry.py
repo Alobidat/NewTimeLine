@@ -52,6 +52,14 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:seed.iran-us", kind="agent", title="US–Iran PoC Seeder",
+        description="Seeds the curated US ↔ Iran history web (events, entities, relations, "
+                    "media) for the proof-of-concept journey.",
+        command="seed-iran-us", capabilities=["seed-curated"],
+        actions=["run-now"], stat_keys=["events", "relations", "new_edges"],
+        doc="docs/poc-iran-us.md",
+    ),
+    ComponentManifest(
         id="agent:enrich", kind="agent", title="Enricher (Tier-2)",
         description="LLM enrichment: summary/category/tags/impact + entities + deep-time refs.",
         command="enrich", config_prefix="agents.enrich",
