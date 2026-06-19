@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../map/map_model.dart';
 import '../map/map_view.dart';
+import '../search/search_screen.dart';
 import '../state/time_window.dart';
 import '../timeline/timeline_controller.dart';
 import '../timeline/timeline_panel.dart';
@@ -42,6 +43,13 @@ class _AppShellState extends State<AppShell> {
       appBar: AppBar(
         title: const Text('Chronos — Timeline'),
         actions: [
+          IconButton(
+            tooltip: 'Search & dig',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => SearchScreen(api: _timeline.api)),
+            ),
+            icon: const Icon(Icons.search),
+          ),
           IconButton(
             tooltip: 'Reload',
             onPressed: () {

@@ -66,7 +66,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     final hit = hitTest(markers, d.localPosition);
     if (hit != null) {
       setState(() => _selectedId = hit.id);
-      showEventDetail(context, _c.fetchDetail(hit.id));
+      showEventDetail(context, _c.api, hit.id);
     }
   }
 

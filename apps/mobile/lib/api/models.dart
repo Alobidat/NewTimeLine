@@ -140,6 +140,117 @@ class EventReference {
   );
 }
 
+class EntityRead {
+  EntityRead({required this.id, required this.kind, required this.name, this.externalId});
+  final String id;
+  final String kind; // place | person | org | topic
+  final String name;
+  final String? externalId;
+
+  factory EntityRead.fromJson(Map<String, dynamic> j) => EntityRead(
+    id: j['id'] as String,
+    kind: j['kind'] as String,
+    name: j['name'] as String,
+    externalId: j['external_id'] as String?,
+  );
+}
+
+class EntityRole {
+  EntityRole({required this.entity, required this.role});
+  final EntityRead entity;
+  final String role; // actor | location | subject | affected
+
+  factory EntityRole.fromJson(Map<String, dynamic> j) => EntityRole(
+    entity: EntityRead.fromJson(j['entity'] as Map<String, dynamic>),
+    role: j['role'] as String,
+  );
+}
+
+class MediaRead {
+  MediaRead({
+    required this.id,
+    required this.kind,
+    required this.role,
+    required this.disposition,
+    required this.sensitivity,
+    required this.locallyStored,
+    required this.status,
+    this.embedUrl,
+    this.caption,
+  });
+
+  final String id;
+  final String kind; // image | video | audio | embed
+  final String role;
+  final String disposition; // pin | archive | link
+  final int sensitivity;
+  final bool locallyStored;
+  final String status;
+  final String? embedUrl;
+  final String? caption;
+
+  factory MediaRead.fromJson(Map<String, dynamic> j) => MediaRead(
+    id: j['id'] as String,
+    kind: j['kind'] as String,
+    role: j['role'] as String? ?? 'gallery',
+    disposition: j['disposition'] as String? ?? 'archive',
+    sensitivity: (j['sensitivity'] as num?)?.toInt() ?? 0,
+    locallyStored: j['locally_stored'] as bool? ?? false,
+    status: j['status'] as String? ?? 'pending',
+    embedUrl: j['embed_url'] as String?,
+    caption: j['caption'] as String?,
+  );
+}
+
+class RelatedEvent {
+  RelatedEvent({required this.event, required this.kind, required this.weight, required this.direction});
+  final EventRead event;
+  final String kind;
+  final double weight;
+  final String direction; // back | forward
+
+  factory RelatedEvent.fromJson(Map<String, dynamic> j) => RelatedEvent(
+    event: EventRead.fromJson(j['event'] as Map<String, dynamic>),
+    kind: j['kind'] as String,
+    weight: _d(j['weight']),
+    direction: j['direction'] as String,
+  );
+}
+
+class ChainEdge {
+  ChainEdge({required this.src, required this.dst, required this.kind, required this.weight});
+  final String src;
+  final String dst;
+  final String kind;
+  final double weight;
+
+  factory ChainEdge.fromJson(Map<String, dynamic> j) => ChainEdge(
+    src: j['src'] as String,
+    dst: j['dst'] as String,
+    kind: j['kind'] as String,
+    weight: _d(j['weight']),
+  );
+}
+
+class ChainResponse {
+  ChainResponse({required this.root, required this.direction, required this.nodes, required this.edges});
+  final String root;
+  final String direction;
+  final List<EventRead> nodes;
+  final List<ChainEdge> edges;
+
+  factory ChainResponse.fromJson(Map<String, dynamic> j) => ChainResponse(
+    root: j['root'] as String,
+    direction: j['direction'] as String,
+    nodes: ((j['nodes'] as List?) ?? [])
+        .map((e) => EventRead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    edges: ((j['edges'] as List?) ?? [])
+        .map((e) => ChainEdge.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
 class EventDetail extends EventRead {
   EventDetail({
     required super.id,
@@ -159,11 +270,15 @@ class EventDetail extends EventRead {
     this.body,
     this.sources = const [],
     this.references = const [],
+    this.entities = const [],
+    this.media = const [],
   });
 
   final String? body;
   final List<SourceRead> sources;
   final List<EventReference> references;
+  final List<EntityRole> entities;
+  final List<MediaRead> media;
 
   factory EventDetail.fromJson(Map<String, dynamic> j) {
     final base = EventRead.fromJson(j);
@@ -188,6 +303,12 @@ class EventDetail extends EventRead {
           .toList(),
       references: ((j['references'] as List?) ?? [])
           .map((e) => EventReference.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      entities: ((j['entities'] as List?) ?? [])
+          .map((e) => EntityRole.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      media: ((j['media'] as List?) ?? [])
+          .map((e) => MediaRead.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }

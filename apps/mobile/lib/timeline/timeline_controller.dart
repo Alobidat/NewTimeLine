@@ -19,6 +19,9 @@ class TimelineController extends ChangeNotifier {
   final TimeWindow window;
   final ApiClient _api;
 
+  /// The shared API client, so detail/search/dig screens reuse one connection.
+  ApiClient get api => _api;
+
   TimelineResponse? data;
   bool loading = false;
   String? error;

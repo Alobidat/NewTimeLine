@@ -73,10 +73,57 @@ class ApiClient {
         .toList();
   }
 
-  /// Full event detail incl. sources + sub-timeline references.
+  /// Full event detail incl. sources, sub-timeline references, entities, and media.
   Future<EventDetail> event(String id) async => EventDetail.fromJson(
     await _getJson('/events/$id', const {}) as Map<String, dynamic>,
   );
+
+  /// Search events by free text (title or linked entity name) + optional year range.
+  Future<List<EventRead>> search({String? q, double? t0, double? t1, int limit = 50}) async {
+    final list = await _getJson('/search', {
+      'q': ?q,
+      't0': ?t0?.toString(),
+      't1': ?t1?.toString(),
+      'limit': limit.toString(),
+    }) as List;
+    return list.map((e) => EventRead.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Entity lookup by name (busiest first).
+  Future<List<EntityRead>> entities({String? q, String? kind, int limit = 30}) async {
+    final list = await _getJson('/entities', {
+      'q': ?q,
+      'kind': ?kind,
+      'limit': limit.toString(),
+    }) as List;
+    return list.map((e) => EntityRead.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Events linking ALL given entities (e.g. US + Iran), time-ordered.
+  Future<List<EventRead>> eventsByEntities(List<String> ids, {int limit = 200}) async {
+    final list = await _getJson('/events/by-entities', {
+      'ids': ids.join(','),
+      'limit': limit.toString(),
+    }) as List;
+    return list.map((e) => EventRead.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// One-hop related events across all relation kinds.
+  Future<List<RelatedEvent>> related(String id, {String direction = 'both'}) async {
+    final list = await _getJson('/events/$id/related', {'direction': direction}) as List;
+    return list.map((e) => RelatedEvent.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// The causal chain around an event (back = led to it, forward = it caused).
+  Future<ChainResponse> chain(String id, {String direction = 'both', int depth = 3}) async {
+    return ChainResponse.fromJson(
+      await _getJson('/events/$id/chain', {'direction': direction, 'depth': depth.toString()})
+          as Map<String, dynamic>,
+    );
+  }
+
+  /// Absolute URL for a media item's bytes (streamed/redirected by the API).
+  String mediaUrl(String mediaId) => '$baseUrl/media/$mediaId/raw';
 
   void close() => _http.close();
 }

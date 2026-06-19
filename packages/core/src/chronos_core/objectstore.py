@@ -49,6 +49,12 @@ def put_bytes(key: str, data: bytes, *, content_type: str | None = None) -> str:
     return key
 
 
+def get_bytes(key: str) -> bytes:
+    """Read an object's bytes (used by the API to serve stored media)."""
+    obj = _client().get_object(Bucket=get_settings().s3_bucket, Key=key)
+    return obj["Body"].read()
+
+
 def delete(key: str) -> None:
     """Delete an object (used when a stored item is released after proving durable)."""
     _client().delete_object(Bucket=get_settings().s3_bucket, Key=key)

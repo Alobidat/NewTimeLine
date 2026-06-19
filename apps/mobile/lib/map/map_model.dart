@@ -18,6 +18,9 @@ class MapModel extends ChangeNotifier {
   final TimeWindow window;
   final ApiClient _api;
 
+  /// The shared API client, so detail/search/dig screens reuse one connection.
+  ApiClient get api => _api;
+
   List<EventRead> events = const [];
   bool loading = false;
   String? error;

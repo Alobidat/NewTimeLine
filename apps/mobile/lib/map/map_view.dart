@@ -63,7 +63,8 @@ class _MapViewState extends State<MapView> {
                           severity: e.severity,
                           onTap: () => showEventDetail(
                             context,
-                            widget.model.fetchDetail(e.id),
+                            widget.model.api,
+                            e.id,
                           ),
                         ),
                       ),
