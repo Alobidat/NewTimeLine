@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from urllib.parse import unquote
 
+import httpx
 from chronos_core import repository
 from chronos_core.db import session_scope
 from chronos_core.models.enums import TimePrecision
@@ -35,6 +37,35 @@ from chronos_agents.publish import load_weights
 log = logging.getLogger("chronos.agents.seed_iran_us")
 AGENT = "seed:iran-us"
 
+# Wikimedia requires a descriptive User-Agent (a generic one gets 403'd).
+_UA = "ChronosBot/0.1 (+https://github.com/Alobidat/NewTimeLine) PoC seeder"
+
+
+def _wiki_article(source_url: str) -> str | None:
+    """Extract the article title from an en.wikipedia.org/wiki/<Title> URL."""
+    marker = "/wiki/"
+    if "wikipedia.org" not in source_url or marker not in source_url:
+        return None
+    return source_url.split(marker, 1)[1]
+
+
+async def _wiki_image(client: httpx.AsyncClient, source_url: str) -> str | None:
+    """Resolve an event's lead image URL from its Wikipedia article (REST summary)."""
+    title = _wiki_article(source_url)
+    if title is None:
+        return None
+    try:
+        resp = await client.get(
+            f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}", timeout=15.0
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        log.warning("no wiki summary for %s", unquote(title))
+        return None
+    img = (data.get("originalimage") or data.get("thumbnail") or {}).get("source")
+    return img
+
 
 @dataclass(frozen=True)
 class _Ent:
@@ -42,14 +73,6 @@ class _Ent:
     kind: str   # place | person | org | topic
     role: str   # actor | location | subject | affected
     qid: str | None = None
-
-
-@dataclass(frozen=True)
-class _Med:
-    url: str
-    kind: str          # image | video
-    source_kind: str   # encyclopedia | news | social  (drives the archival decision)
-    caption: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,7 +90,9 @@ class _Ev:
     tags: list[str] = field(default_factory=list)
     entities: list[_Ent] = field(default_factory=list)
     sources: list[tuple[str, str]] = field(default_factory=list)  # (url, title)
-    media: list[_Med] = field(default_factory=list)
+    # Origin kind for the event's lead image (drives the archival decision, ADR-0018).
+    # The image URL itself is fetched live from the event's Wikipedia article.
+    image_origin: str = "encyclopedia"  # encyclopedia | news | social
 
 
 # Shared entities (Wikidata QIDs where well-known) — countries modeled as place-actors so the
@@ -96,8 +121,6 @@ EVENTS: list[_Ev] = [
         entities=[US, IRAN, _loc("Tehran")],
         sources=[("https://en.wikipedia.org/wiki/Iran%E2%80%93United_States_relations",
                   "Iran–United States relations")],
-        media=[_Med("https://upload.wikimedia.org/wikipedia/commons/3/38/Naser_al-Din_Shah_Qajar.jpg",
-                    "image", "encyclopedia", "Qajar-era Persia (encyclopedic, durable → link)")],
     ),
     _Ev(
         key="coup1953", t_start=1953.58, title="1953 Iranian coup d'état (Operation Ajax)",
@@ -117,8 +140,6 @@ EVENTS: list[_Ev] = [
         lon=51.39, lat=35.69, place="Tehran, Iran", tags=["uprising", "revolution"],
         entities=[US, IRAN, _person("Ruhollah Khomeini", "Q44090"), _loc("Tehran")],
         sources=[("https://en.wikipedia.org/wiki/Iranian_Revolution", "Iranian Revolution")],
-        media=[_Med("https://upload.wikimedia.org/wikipedia/commons/5/5a/Crowds_during_the_Iranian_Revolution_of_1979.jpg",
-                    "image", "encyclopedia", "Revolution crowds (sensitive + durable → archive)")],
     ),
     _Ev(
         key="hostage1979", t_start=1979.84, title="Iran hostage crisis begins",
@@ -187,8 +208,7 @@ EVENTS: list[_Ev] = [
                   _person("Donald Trump", "Q22686"), _loc("Baghdad")],
         sources=[("https://en.wikipedia.org/wiki/Assassination_of_Qasem_Soleimani",
                   "Assassination of Qasem Soleimani")],
-        media=[_Med("https://example.org/poc/baghdad-airport-strike-aftermath.jpg",
-                    "image", "social", "Citizen footage of strike aftermath (sensitive → pin)")],
+        image_origin="social",  # citizen footage of a sensitive strike → pinned locally
     ),
     _Ev(
         key="iranstrike2020", t_start=2020.022,
@@ -211,6 +231,7 @@ RELATIONS: list[tuple[str, str, str]] = [
     ("hostage1979", "severed1980", "causal"),
     ("revolution1979", "iraniraqwar1980", "precursor"),
     ("iraniraqwar1980", "vincennes1988", "precursor"),
+    ("severed1980", "jcpoa2015", "precursor"),  # decades of estrangement → the nuclear deal
     ("jcpoa2015", "withdrawal2018", "precursor"),
     ("withdrawal2018", "soleimani2020", "causal"),
     ("soleimani2020", "iranstrike2020", "causal"),
@@ -218,8 +239,11 @@ RELATIONS: list[tuple[str, str, str]] = [
 ]
 
 
-async def _upsert_event(session, ev: _Ev, weights) -> Event:
-    """Find an existing event by title or create it, then attach sources/entities/media."""
+async def _upsert_event(session, client: httpx.AsyncClient, ev: _Ev, weights) -> Event:
+    """Find an existing event by title or create it, then attach sources/entities/media.
+
+    The lead image is resolved live from the event's Wikipedia article, so it is a real,
+    fetchable URL (the media-fetcher then archives it per ADR-0018)."""
     event = await session.scalar(select(Event).where(Event.title == ev.title))
     if event is None:
         event = await repository.create_event(
@@ -242,21 +266,23 @@ async def _upsert_event(session, ev: _Ev, weights) -> Event:
             session, kind=e.kind, name=e.name, external_id=e.qid
         )
         await repository.link_entity(session, event, entity, role=e.role, added_by=AGENT)
-    for m in ev.media:
-        await repository.discover_media(
-            session, event, url=m.url, kind=m.kind, source_kind=m.source_kind,
-            role="hero", added_by=AGENT,
-        )
+    if ev.sources:
+        image = await _wiki_image(client, ev.sources[0][0])
+        if image:
+            await repository.discover_media(
+                session, event, url=image, kind="image",
+                source_kind=ev.image_origin, role="hero", added_by=AGENT,
+            )
     return event
 
 
 async def seed_iran_us() -> dict:
     """Seed the curated US–Iran history web (idempotent). Returns counts."""
-    async with session_scope() as session:
+    async with session_scope() as session, httpx.AsyncClient(headers={"User-Agent": _UA}) as client:
         weights = await load_weights(session)
         ids: dict[str, object] = {}
         for ev in EVENTS:
-            event = await _upsert_event(session, ev, weights)
+            event = await _upsert_event(session, client, ev, weights)
             ids[ev.key] = event.id
 
         edges = 0

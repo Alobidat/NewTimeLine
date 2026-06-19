@@ -83,7 +83,9 @@ async def fetch_pending() -> dict:
         ).scalars().all()
 
         totals = {"candidates": len(rows), "stored": 0, "external": 0, "failed": 0}
-        async with httpx.AsyncClient(headers={"User-Agent": "ChronosBot/0.1"}) as client:
+        # Descriptive UA — Wikimedia and others 403 generic/empty agents.
+        ua = "ChronosBot/0.1 (+https://github.com/Alobidat/NewTimeLine) media-fetch"
+        async with httpx.AsyncClient(headers={"User-Agent": ua}) as client:
             for media in rows:
                 try:
                     media.status = await _store_one(client, session, media, max_bytes)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 from chronos_core.domain import media_policy as mp
 
 from chronos_agents.seed_iran_us import EVENTS, RELATIONS
@@ -32,15 +30,13 @@ def test_every_event_has_a_source():
 
 
 def test_media_covers_the_archival_spectrum():
-    # The dataset should demonstrate link, archive, and pin dispositions (ADR-0018).
+    # Each event's lead image (origin = ev.image_origin) should span link/archive/pin (ADR-0018).
     dispositions = set()
     for ev in EVENTS:
-        for m in ev.media:
-            domain = urlparse(m.url).netloc
-            sensitivity = mp.score_sensitivity(ev.category, ev.tags, source_kind=m.source_kind)
-            ephem = mp.origin_ephemerality(m.source_kind, domain)
-            stable = 1 if ephem == "durable" else 0
-            dispositions.add(mp.decide_disposition(sensitivity, ephem, stable_sources=stable))
+        sensitivity = mp.score_sensitivity(ev.category, ev.tags, source_kind=ev.image_origin)
+        ephem = mp.origin_ephemerality(ev.image_origin, None)
+        stable = 1 if ephem == "durable" else 0
+        dispositions.add(mp.decide_disposition(sensitivity, ephem, stable_sources=stable))
     assert {"link", "archive", "pin"} <= dispositions, dispositions
 
 

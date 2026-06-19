@@ -148,7 +148,8 @@ async def check_media() -> dict:
         ).scalars().all()
 
         totals = {"candidates": len(rows), "released": 0, "escalated": 0, "pinned": 0, "checked": 0}
-        async with httpx.AsyncClient(headers={"User-Agent": "ChronosBot/0.1"}) as client:
+        ua = "ChronosBot/0.1 (+https://github.com/Alobidat/NewTimeLine) media-check"
+        async with httpx.AsyncClient(headers={"User-Agent": ua}) as client:
             for media in rows:
                 action = await _check_one(client, session, media, threshold)
                 totals[action] = totals.get(action, 0) + 1

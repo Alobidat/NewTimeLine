@@ -5,23 +5,27 @@ from __future__ import annotations
 from chronos_agents.relate import _edge_kinds
 
 
-def test_shared_place_only_is_same_place_not_causal():
-    assert _edge_kinds(shares_place=True, shares_actor=False, shared=1) == ["same-place"]
+def test_shared_place_is_same_place():
+    assert _edge_kinds(shares_place=True, shares_actor=False) == ["same-place"]
 
 
-def test_shared_actor_only_is_same_actor_not_causal():
-    assert _edge_kinds(shares_place=False, shares_actor=True, shared=1) == ["same-actor"]
+def test_shared_actor_is_same_actor():
+    assert _edge_kinds(shares_place=False, shares_actor=True) == ["same-actor"]
 
 
-def test_place_and_actor_implies_precursor_chain():
-    kinds = _edge_kinds(shares_place=True, shares_actor=True, shared=2)
-    assert kinds == ["same-place", "same-actor", "precursor"]
+def test_place_and_actor_gives_both_cooccurrence_kinds():
+    assert _edge_kinds(shares_place=True, shares_actor=True) == ["same-place", "same-actor"]
 
 
-def test_two_shared_entities_implies_precursor_even_without_both_flags():
-    # e.g. two shared topics → still a candidate causal chain.
-    assert "precursor" in _edge_kinds(shares_place=False, shares_actor=False, shared=2)
+def test_never_infers_causal_or_precursor():
+    # Co-occurrence only — the causal chain comes from curated/LLM links, not shared entities.
+    for kinds in (
+        _edge_kinds(shares_place=True, shares_actor=True),
+        _edge_kinds(shares_place=True, shares_actor=False),
+        _edge_kinds(shares_place=False, shares_actor=True),
+    ):
+        assert "precursor" not in kinds and "causal" not in kinds
 
 
-def test_single_weak_overlap_is_not_a_chain():
-    assert _edge_kinds(shares_place=False, shares_actor=False, shared=1) == []
+def test_no_overlap_is_no_edge():
+    assert _edge_kinds(shares_place=False, shares_actor=False) == []

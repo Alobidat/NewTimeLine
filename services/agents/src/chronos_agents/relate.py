@@ -2,19 +2,19 @@
 
 The product's core promise is digging back-and-forth from an event through what *led to*
 it and what it *caused*, anchored on places/actors (the "US ↔ Iran" example). This agent
-provides the cheap, structural backbone of that graph:
+provides the cheap **co-occurrence** backbone — the "related events" panel:
 
 For each event in the batch, find other published events that share ≥ ``min_shared``
-entities and connect them. Direction follows time (earlier = cause/``src`` → later =
-effect/``dst``). Edge ``kind``:
+entities and connect them. Direction follows time (earlier = ``src`` → later = ``dst``).
+Edge ``kind``:
 - ``same-place``  when a shared entity is a place,
-- ``same-actor``  when a shared entity is a person/org,
-- ``precursor``   (the candidate causal chain) when they share a location *and* an actor,
-  or ≥ 2 entities overall.
+- ``same-actor``  when a shared entity is a person/org.
 
-Weight comes from :func:`chronos_core.domain.entities.relation_weight`. Heavy *causal*
-adjudication (vs. mere co-occurrence) is deferred to the Tier-3 deep dig. Edges are written
-idempotently, so re-runs only add what is new and keep the strongest weight.
+It deliberately does **not** infer ``causal``/``precursor`` edges from shared entities: when
+ubiquitous anchors (US + Iran) sit on every event, that links everything to everything. The
+causal **chain** (``/events/{id}/chain``) is built only from genuine cause→effect links —
+curated, or extracted by the LLM enricher / Tier-3 dig. Weight comes from
+:func:`chronos_core.domain.entities.relation_weight`; edges are written idempotently.
 """
 
 from __future__ import annotations
@@ -55,15 +55,20 @@ _NEIGHBORS_SQL = text(
 )
 
 
-def _edge_kinds(shares_place: bool, shares_actor: bool, shared: int) -> list[str]:
-    """Which relation kinds this overlap justifies."""
+def _edge_kinds(shares_place: bool, shares_actor: bool) -> list[str]:
+    """Which relation kinds this overlap justifies.
+
+    Only **co-occurrence** edges (same-place / same-actor) — these power the "related events"
+    panel. We deliberately do NOT infer ``precursor``/``causal`` edges from mere shared
+    entities: when ubiquitous anchors (e.g. US + Iran) sit on every event, that would link
+    everything to everything. The causal **chain** is built from genuine cause→effect links
+    (curated, or LLM-extracted by the enricher/Tier-3) — see chronos_api ``/events/{id}/chain``.
+    """
     kinds: list[str] = []
     if shares_place:
         kinds.append("same-place")
     if shares_actor:
         kinds.append("same-actor")
-    if (shares_place and shares_actor) or shared >= 2:
-        kinds.append("precursor")  # candidate causal chain (earlier → later)
     return kinds
 
 
@@ -94,7 +99,7 @@ async def link_relations() -> dict:
                 else:
                     src, dst = nb.other_id, ev.id
                 weight = relation_weight(nb.shared, shares_location=bool(nb.shares_place))
-                for kind in _edge_kinds(bool(nb.shares_place), bool(nb.shares_actor), nb.shared):
+                for kind in _edge_kinds(bool(nb.shares_place), bool(nb.shares_actor)):
                     created = await repository.link_relation(
                         session, src_event=src, dst_event=dst,
                         kind=kind, weight=weight, created_by=AGENT,
