@@ -288,7 +288,7 @@ async def fetch_chain(
 ) -> ChainResponse:
     """The causal chain around an event: nodes + edges reachable by following causal
     relations ``back`` (what led to it), ``forward`` (what it caused), or ``both``."""
-    depth = max(1, min(depth, 4))
+    depth = max(1, min(depth, 8))
     edges: list[ChainEdge] = []
     if direction in ("back", "both"):
         edges += await _chain_edges(session, root, "back", depth)

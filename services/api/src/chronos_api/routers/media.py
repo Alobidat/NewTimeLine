@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+import httpx
 from chronos_core import objectstore
 from chronos_core.models.media import Media
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -20,10 +21,14 @@ from chronos_api.deps import get_session
 
 router = APIRouter(prefix="/media", tags=["media"])
 
+# Descriptive UA so upstreams (Wikimedia etc.) don't 403 the proxy fetch.
+_UA = "ChronosBot/0.1 (+https://github.com/Alobidat/NewTimeLine) media-proxy"
+
 
 @router.get("/{media_id}/raw")
 async def media_raw(media_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    """Stream a stored media binary, or redirect to its external origin."""
+    """Serve media bytes: stream the stored binary, else **proxy-fetch** the external origin
+    (so the browser always gets bytes regardless of cross-origin/UA restrictions)."""
     media = await session.get(Media, media_id)
     if media is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "media not found")
@@ -31,6 +36,14 @@ async def media_raw(media_id: uuid.UUID, session: AsyncSession = Depends(get_ses
         data = await asyncio.to_thread(objectstore.get_bytes, media.storage_key)
         return Response(content=data, media_type=media.mime or "application/octet-stream")
     target = media.embed_url or media.source_url
-    if target:
+    if not target:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no servable media")
+    try:
+        async with httpx.AsyncClient(headers={"User-Agent": _UA}) as client:
+            resp = await client.get(target, follow_redirects=True, timeout=20.0)
+            resp.raise_for_status()
+        ctype = resp.headers.get("content-type") or media.mime or "application/octet-stream"
+        return Response(content=resp.content, media_type=ctype)
+    except Exception:
+        # Last resort: let the browser try the origin directly.
         return RedirectResponse(target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-    raise HTTPException(status.HTTP_404_NOT_FOUND, "no servable media")

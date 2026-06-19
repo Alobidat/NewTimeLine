@@ -99,7 +99,7 @@ async def get_related(
 async def get_chain(
     event_id: uuid.UUID,
     direction: str = Query(default="both", pattern="^(back|forward|both)$"),
-    depth: int = Query(default=2, ge=1, le=4),
+    depth: int = Query(default=2, ge=1, le=8),
     session: AsyncSession = Depends(get_session),
 ) -> ChainResponse:
     """The causal chain: follow ``back`` (what led to this) / ``forward`` (what it caused)

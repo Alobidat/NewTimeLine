@@ -26,8 +26,8 @@ class _DigScreenState extends State<DigScreen> {
   void initState() {
     super.initState();
     _chains = Future.wait([
-      widget.api.chain(widget.root.id, direction: 'back', depth: 4),
-      widget.api.chain(widget.root.id, direction: 'forward', depth: 4),
+      widget.api.chain(widget.root.id, direction: 'back', depth: 8),
+      widget.api.chain(widget.root.id, direction: 'forward', depth: 8),
     ]);
   }
 
