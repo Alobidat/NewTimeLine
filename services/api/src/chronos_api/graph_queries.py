@@ -76,13 +76,18 @@ async def search_events(
         clauses.append("e.category = :category")
         params["category"] = category
     where = " AND ".join(clauses)
+    # Match (title OR linked-entity name) in a CTE, then project event columns alone — keeps
+    # the shared _EVENT_COLS (unqualified id/geom) unambiguous despite the entity join.
     rows = (
         await session.execute(
             text(
-                f"SELECT DISTINCT {_EVENT_COLS} FROM events e "
-                "LEFT JOIN event_entities ee ON ee.event_id = e.id "
-                "LEFT JOIN entities en ON en.id = ee.entity_id "
-                f"WHERE {where} ORDER BY t_start LIMIT :limit"
+                "WITH matched AS ("
+                "  SELECT DISTINCT e.id AS event_id FROM events e "
+                "  LEFT JOIN event_entities ee ON ee.event_id = e.id "
+                "  LEFT JOIN entities en ON en.id = ee.entity_id "
+                f"  WHERE {where}"
+                f") SELECT {_EVENT_COLS} FROM events e JOIN matched m ON m.event_id = e.id "
+                "ORDER BY t_start LIMIT :limit"
             ),
             params,
         )
