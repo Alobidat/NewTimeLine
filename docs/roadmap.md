@@ -78,8 +78,15 @@ engine + `media-fetch`/`media-check` workers store hot/sensitive media locally (
 store) before it vanishes under pressure, link durable corroborated media, and release
 local copies once they prove durable; `media_sources` tracks per-host availability. RSS
 ingest now discovers media (enclosures/`media:content`/thumbnails) and applies the policy.
+**Phase 3b — Admin Portal backend foundation delivered** (ADR-0019, migration 0004): a
+**manifest-driven, schema-driven** control plane so the portal self-extends as components are
+added. Component registry (`chronos_core.registry`) + typed config specs
+(`chronos_core.config_spec`, now the single source of truth for `DEFAULTS` + validation) +
+`agent_runs` history (CLI wraps runs; health derived by pure `chronos_core.domain.health`) +
+the **Admin API** (`/admin/overview|components|config|runs|storage|system|users`, bearer-token
+gated, audited).
 **3b remaining:** dedup (pgvector), geocoder, image thumbnailing + signed media serving,
-queue streaming, admin console.
+queue/scheduler (run-now execution), the `apps/admin` Flutter client + admin real-time streaming.
 - Stand up the queue-based worker pipeline (Normalizer → Deduper → Enricher → Geocoder →
   Relation-linker → Severity-scorer → Publisher).
 - **Deduper** with pgvector + rule fast-path + LLM adjudication for ambiguous cases.

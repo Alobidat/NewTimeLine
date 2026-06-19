@@ -13,70 +13,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_core.config_spec import SPECS
 from chronos_core.models.config import Config, ConfigAudit
 
-# Phase-1 defaults, seeded once via ensure_defaults(). Scopes group related keys.
-DEFAULTS: dict[str, tuple[Any, str]] = {
-    # Severity blend weights (see chronos_core.domain.severity).
-    "severity.weights": ({"impact": 0.5, "social": 0.2, "corroboration": 0.3}, "severity"),
-    # RSS feeds the Phase-1 ingestor polls (no LLM). Add/remove via the admin portal later.
-    "agents.ingest.rss.feeds": (
-        [
-            "http://feeds.bbci.co.uk/news/world/rss.xml",
-            "https://www.theguardian.com/world/rss",
-            "https://www.aljazeera.com/xml/rss/all.xml",
-        ],
-        "agent:ingest",
-    ),
-    "agents.ingest.rss.enabled": (True, "agent:ingest"),
-    "agents.ingest.rss.max_items_per_feed": (50, "agent:ingest"),
-    # --- LLM layer (ADR-0014/0015) — provider-agnostic, budget-aware ---
-    # Providers: kind=openai_compatible serves vLLM/Ollama/OpenAI; kind=anthropic = Claude.
-    # Set the local endpoint/model to your Ollama (base_url must include /v1).
-    "llm.providers": (
-        [
-            {
-                "name": "ollama",
-                "kind": "openai_compatible",
-                "base_url": "http://host.docker.internal:11434/v1",
-                "model": "llama3.1",
-                "is_local": True,
-                "api_key_env": None,
-            },
-            {
-                "name": "claude",
-                "kind": "anthropic",
-                "base_url": None,
-                "model": "claude-opus-4-8",
-                "is_local": False,
-                "api_key_env": "ANTHROPIC_API_KEY",
-            },
-        ],
-        "llm",
-    ),
-    # primary=local Ollama (no cost); cloud is the optional fallback/quality tier.
-    "llm.routing": ({"primary": "ollama", "fallback": "claude"}, "llm"),
-    # max_tokens=0 → no cloud cap (local primary needs none). Set >0 + primary=claude
-    # to auto-switch to local once the window's cloud budget is spent.
-    "llm.budget": ({"window_seconds": 86400, "max_tokens": 0}, "llm"),
-    # --- Enricher (Tier-2) ---
-    "agents.enrich.enabled": (True, "agent:enrich"),
-    "agents.enrich.batch_size": (20, "agent:enrich"),
-    "agents.enrich.max_tokens": (800, "agent:enrich"),
-    # --- Relation-linker (Tier-1, no LLM) — builds the history graph from shared entities ---
-    "agents.relate.enabled": (True, "agent:relate"),
-    "agents.relate.batch_size": (50, "agent:relate"),
-    "agents.relate.min_shared": (1, "agent:relate"),
-    "agents.relate.max_neighbors": (200, "agent:relate"),
-    # --- Media archival (Tier-1, no LLM) — capture-first, release-when-durable (ADR-0018) ---
-    "agents.media.fetch.enabled": (True, "agent:media"),
-    "agents.media.fetch.batch_size": (20, "agent:media"),
-    "agents.media.fetch.max_bytes": (26_214_400, "agent:media"),  # 25 MiB; larger stays linked
-    "agents.media.check.enabled": (True, "agent:media"),
-    "agents.media.check.batch_size": (50, "agent:media"),
-    "agents.media.check.recheck_hours": (24, "agent:media"),
-    "agents.media.release_threshold": (70, "agent:media"),  # persistence_confidence to release
-}
+# Seed defaults are derived from the config specs (single source of truth — ADR-0019).
+# Each value is (default, scope); ensure_defaults() seeds any missing keys.
+DEFAULTS: dict[str, tuple[Any, str]] = {s.key: (s.default, s.scope) for s in SPECS}
 
 
 async def get(session: AsyncSession, key: str, default: Any = None) -> Any:

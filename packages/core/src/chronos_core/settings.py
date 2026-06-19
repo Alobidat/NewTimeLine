@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     environment: str = Field(default="dev")
     log_level: str = Field(default="INFO")
 
+    # Admin API gate (scaffold until OIDC/RBAC lands in Phase 4). When set, the Admin API
+    # requires this bearer token; when empty in dev, admin access is open for convenience.
+    admin_token: str = Field(default="")
+
     @property
     def sync_database_url(self) -> str:
         """Sync URL (psycopg) for Alembic migrations."""

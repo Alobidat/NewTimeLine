@@ -189,3 +189,28 @@ by rule-based signals — no LLM):
   over-large binaries stay linked) and `media-check` (re-probe hosts, recompute confidence,
   apply retention). Storage = the existing S3/MinIO object store (ADR-0008); serving via
   signed URLs is deferred. Schema: migration 0003 (`media` policy columns + `media_sources`).
+
+### ADR-0019 — Admin Portal is manifest-driven + schema-driven (self-extending)
+*2026-06-19* · accepted
+The system will accrue many agents/services/stores, so the Admin Portal must **not** hard-code
+a screen per component. Instead components self-describe and the portal renders from those
+descriptions. Decisions:
+- **Component registry** (`chronos_core.registry`): each agent/service/store is a
+  `ComponentManifest` (id, kind, title, capabilities, `config_prefix`, `enabled_key`,
+  declared `actions`, stat keys). **Adding a component = adding a manifest** → it auto-appears
+  with a health card, config form, and action buttons. No Admin API / UI code changes.
+- **Schema-driven config** (`chronos_core.config_spec`): every config key has a typed
+  `ConfigSpec` (type, default, scope, label/help, min/max/enum/secret, owning component).
+  This is the **single source of truth** — `config_service.DEFAULTS` is derived from it, the
+  Admin API validates writes against it, and the UI auto-generates forms from it.
+- **Observable runtime:** `agent_runs` (migration 0004) records each execution
+  (running→ok/error + result counts); the CLI wraps runs via `chronos_core.runs.record_run`.
+  Health is **derived** (pure `chronos_core.domain.health`), not stored.
+- **Admin API** (`/admin/*`, gated by `require_admin`, config writes audited): generic
+  endpoints — overview, components(+detail/actions), config(get/put), runs, storage, system,
+  users. The contract is generic so new components don't grow the surface.
+- **Auth scaffold:** a bearer `admin_token` gate now (open in dev when unset); real OIDC/RBAC
+  + user management arrive with Phase 4.
+- **Client:** one **Flutter** codebase for **web + apps** (ADR-0002), a separate `apps/admin`
+  app rendering from the manifest/spec contract; **polling-first**, streaming later.
+  Detail in [admin-portal.md](admin-portal.md).

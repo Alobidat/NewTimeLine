@@ -95,16 +95,40 @@ severity-scorer, tier-3 dig) and globally:
 - **System:** service health, latency, DB/queue/cache metrics (via the standard
   observability stack — OpenTelemetry/Prometheus/dashboards).
 
+## 4b. Architecture — self-extending (manifest + schema driven) · ADR-0019
+The portal must stay cheap to extend as we add agents/services/stores, so it does **not**
+hard-code a screen per component. Everything renders from three generic contracts:
+
+1. **Component registry** (`chronos_core.registry`) — each component is a
+   `ComponentManifest`: `id` (`agent:enrich`), `kind` (agent|service|store), title,
+   `capabilities`, `config_prefix`, `enabled_key`, declared `actions`
+   (enable/disable/pause/run-now), and notable `stat_keys`. **Adding a component = appending
+   one manifest** (plus its config specs). It then auto-appears in the portal with a health
+   card, an auto-generated config form, and its action buttons — no Admin API or UI changes.
+2. **Schema-driven config** (`chronos_core.config_spec`) — every config key has a typed
+   `ConfigSpec` (type, default, scope, label/help, min/max/enum/secret, owning component).
+   This is the **single source of truth**: `config_service.DEFAULTS` is derived from it, the
+   Admin API validates writes against it, and the UI generates forms from it.
+3. **Observable runtime** — `agent_runs` records each execution (running→ok/error + the
+   agent's result counts), written via `chronos_core.runs.record_run`. Health (liveness, lag,
+   success rate, "what's running now") is **derived** by the pure `chronos_core.domain.health`.
+
+**Admin API** (implemented): `/admin/overview`, `/admin/components` (+ `/{id}`,
+`/{id}/actions/{action}`), `/admin/config` (GET + `PUT /{key}` validated), `/admin/runs`,
+`/admin/storage`, `/admin/system`, `/admin/users` (501 until Phase 4). All gated by
+`require_admin` (bearer `admin_token`; open in dev when unset) and config writes are audited.
+
 ## 5. Implementation
-- **Frontend:** build the admin portal as a **Flutter Web** app to stay on one UI stack
-  (reuses the design system + API client). *Alternative:* a dedicated web-admin framework
-  (e.g. React + a data-grid/admin kit) if richer tables/forms are wanted — decision in
-  [decisions.md](decisions.md). Recommendation: Flutter Web for stack consistency.
-- **Backend:** an **Admin API** (separate service or namespaced routes) behind strict RBAC,
-  writing to the Config Service + emitting `config.changed`, and reading the observability
-  stores. All endpoints audited.
+- **Frontend:** a dedicated **Flutter** `apps/admin` app — **one codebase → web *and* mobile
+  apps** (ADR-0002), reusing a shared design system + API client. Screens are **data-driven**
+  (generated from the manifest/spec contract above), so the same build serves a full web
+  console and a capable mobile admin. **Polling-first** for live tiles; SSE/WebSocket push is
+  added once the real-time gateway exists. *(Not yet built — backend foundation lands first.)*
+- **Backend (done):** the namespaced **Admin API** (`/admin/*`) behind `require_admin`,
+  writing to the Config Service (audited + version-bumped) and reading the registry / specs /
+  `agent_runs`. RBAC roles + OIDC arrive in Phase 4; today it's a bearer-token gate.
 - **Secrets:** API keys/credentials go to a secret manager; config rows hold references,
-  not raw secrets.
+  not raw secrets (`ConfigSpec.secret` masks them in API reads).
 
 ## 6. Where it sits in the roadmap
 The Config Service ships early (so agents are configurable from the start). The portal UI

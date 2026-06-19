@@ -16,6 +16,7 @@ import logging
 
 from chronos_core import config_service
 from chronos_core.db import session_scope
+from chronos_core.runs import record_run
 
 from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
@@ -23,6 +24,16 @@ from chronos_agents.media_check import check_media
 from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.relate import link_relations
 from chronos_agents.seed_wikidata import seed_wikidata
+
+# command → (component id, coroutine factory). One place to map CLI ↔ registry component.
+_COMMANDS = {
+    "ingest-rss": ("agent:ingest.rss", lambda a: ingest_rss()),
+    "seed-wikidata": ("agent:seed.wikidata", lambda a: seed_wikidata(limit=a.limit)),
+    "enrich": ("agent:enrich", lambda a: enrich_pending()),
+    "relate": ("agent:relate", lambda a: link_relations()),
+    "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
+    "media-check": ("agent:media.check", lambda a: check_media()),
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -44,18 +55,12 @@ async def _main(args: argparse.Namespace) -> None:
     async with session_scope() as session:
         await config_service.ensure_defaults(session)
 
-    if args.command == "ingest-rss":
-        print(await ingest_rss())
-    elif args.command == "seed-wikidata":
-        print(await seed_wikidata(limit=args.limit))
-    elif args.command == "enrich":
-        print(await enrich_pending())
-    elif args.command == "relate":
-        print(await link_relations())
-    elif args.command == "media-fetch":
-        print(await fetch_pending())
-    elif args.command == "media-check":
-        print(await check_media())
+    component_id, factory = _COMMANDS[args.command]
+    # Record the execution (running → ok/error) so the Admin Portal sees health + history.
+    async with record_run(component_id, args.command) as rec:
+        result = await factory(args)
+        rec.set_stats(result)
+    print(result)
 
 
 def main() -> None:
