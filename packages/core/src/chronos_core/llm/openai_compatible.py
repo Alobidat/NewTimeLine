@@ -23,12 +23,16 @@ class OpenAICompatibleProvider(LLMProvider):
         api_key: str | None = None,
         is_local: bool = True,
         timeout: float = 120.0,
+        extra_body: dict | None = None,
     ) -> None:
         self.name = name
         self.model = model
         self.is_local = is_local
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
+        # Server-specific request fields merged into every call, e.g. Ollama's
+        # ``{"think": false}`` to stop reasoning models burning the token budget.
+        self._extra_body = extra_body or {}
         self._client = httpx.AsyncClient(timeout=timeout)
 
     async def complete(
@@ -47,6 +51,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            **self._extra_body,
         }
         if json_schema is not None:
             body["response_format"] = {

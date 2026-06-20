@@ -31,6 +31,7 @@ def _build_provider(cfg: dict) -> LLMProvider:
             cfg["base_url"],
             api_key=api_key,
             is_local=bool(cfg.get("is_local", True)),
+            extra_body=cfg.get("extra_body"),
         )
     raise ValueError(f"unknown llm provider kind: {kind!r}")
 

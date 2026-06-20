@@ -15,10 +15,11 @@ from chronos_core import config_service, repository
 from chronos_core.db import session_scope
 from chronos_core.llm import build_router
 from chronos_core.llm.router import LLMRouter
+from chronos_core.models.entity import EventEntity
 from chronos_core.models.enums import EventStatus
 from chronos_core.models.event import Event
 from chronos_core.schemas.enrichment import EnrichmentResult
-from sqlalchemy import select
+from sqlalchemy import exists, select
 
 from chronos_agents.publish import load_weights
 
@@ -55,6 +56,10 @@ def _extract_json(text: str) -> dict:
 
 def _user_prompt(event: Event) -> str:
     parts = [f"Title: {event.title}"]
+    # Ground the model in the source text we already have so it summarizes/extracts
+    # from real reporting instead of inventing detail from the title alone.
+    if event.summary:
+        parts.append(f"Source description: {event.summary}")
     if event.category:
         parts.append(f"Current category: {event.category}")
     if event.tags:
@@ -89,10 +94,17 @@ async def enrich_pending() -> dict:
         weights = await load_weights(session)
         router = await build_router(session)
 
+        # Enrich events that are still under-enriched: no summary, or — crucially — no
+        # entity anchors yet (RSS arrives with a description but no entities, and those
+        # entities are what the relation-linker uses to weave the history graph).
+        no_entities = ~exists().where(EventEntity.event_id == Event.id)
         rows = (
             await session.execute(
                 select(Event)
-                .where(Event.summary.is_(None), Event.status == EventStatus.PUBLISHED)
+                .where(
+                    Event.status == EventStatus.PUBLISHED,
+                    Event.summary.is_(None) | no_entities,
+                )
                 .order_by(Event.severity.desc())
                 .limit(batch)
             )
