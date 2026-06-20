@@ -42,6 +42,9 @@ dependencies:
   flutter_map: ^8.0.0
   latlong2: ^0.9.1
 
+  # Inline video playback for event media clips (web + mobile + desktop).
+  video_player: ^2.9.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

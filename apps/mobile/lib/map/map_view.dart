@@ -39,6 +39,17 @@ class _MapViewState extends State<MapView> {
           options: MapOptions(
             initialCenter: const LatLng(20, 0),
             initialZoom: 1.6,
+            // Keep the camera within a single world so the globe never tiles
+            // horizontally into repeated copies. minZoom stops zooming out far
+            // enough to reveal wrapped tiles; the constraint pins panning to one map.
+            minZoom: 1.6,
+            maxZoom: 18,
+            cameraConstraint: CameraConstraint.contain(
+              bounds: LatLngBounds(
+                const LatLng(-85, -180),
+                const LatLng(85, 180),
+              ),
+            ),
             onMapReady: _syncBbox,
             onPositionChanged: (camera, hasGesture) {
               if (hasGesture) _syncBbox();
@@ -48,6 +59,11 @@ class _MapViewState extends State<MapView> {
             TileLayer(
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.alobidat.chronos_app',
+              // Don't paint the wrapped world copies on either side.
+              tileBounds: LatLngBounds(
+                const LatLng(-85, -180),
+                const LatLng(85, 180),
+              ),
             ),
             AnimatedBuilder(
               animation: widget.model,
