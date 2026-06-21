@@ -354,6 +354,24 @@ class ApiClient {
     });
   }
 
+  // ── Social graph + promotion (social-and-feed §2, Phase 4-B). These endpoints are NOT
+  // live yet — the backend builds them in a parallel wave. The feed shell calls them and
+  // tolerates failure gracefully (the UI shows a snackbar). The signatures match the
+  // documented contract so wiring is a no-op once the routes exist.
+
+  /// Follow a user/entity (social-and-feed §2). TODO(phase-4-B): backend route lands later;
+  /// throws [ApiException] until then (callers catch + snackbar).
+  Future<void> followAuthor(String authorId) async {
+    await _postJson('/follows', {'target_id': authorId, 'target_kind': 'user'});
+  }
+
+  /// Promote (up) or demote (down) an event (social-and-feed §2). TODO(phase-4-B): until the
+  /// dedicated promote route lands, the feed maps this to the live reaction substrate
+  /// ([toggleReaction]); this method targets the future endpoint.
+  Future<void> promoteEvent(String eventId, {required bool up}) async {
+    await _postJson('/events/$eventId/promote', {'direction': up ? 'up' : 'down'});
+  }
+
   /// Absolute URL for a media item's bytes (streamed/redirected by the API).
   String mediaUrl(String mediaId) => '$baseUrl/media/$mediaId/raw';
 

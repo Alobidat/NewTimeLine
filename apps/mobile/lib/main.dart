@@ -1,9 +1,11 @@
-/// Chronos (NewTimeLine) client entrypoint — opens on the magical timeline.
+/// Chronos (NewTimeLine) client entrypoint — opens on the TikTok-style video feed
+/// (ADR-0027). The classic map/timeline experience stays reachable from the feed's overflow
+/// menu and the graph/timeline-web view.
 library;
 
 import 'package:flutter/material.dart';
 
-import 'shell/experience_screen.dart';
+import 'feed/feed_home.dart';
 
 void main() => runApp(const ChronosApp());
 
@@ -20,7 +22,7 @@ class ChronosApp extends StatelessWidget {
         brightness: Brightness.dark,
         colorSchemeSeed: const Color(0xFF2E7DF6),
       ),
-      home: const ExperienceScreen(),
+      home: const FeedHome(),
     );
   }
 }

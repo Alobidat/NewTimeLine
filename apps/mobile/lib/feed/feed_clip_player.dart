@@ -1,0 +1,193 @@
+/// The full-screen, looping clip player for one feed page (ADR-0027). Distinct from the
+/// event media viewer's [FullscreenVideo] (which plays *with sound + scrub controls*): the
+/// feed wants the TikTok behaviour — **muted, looping autoplay** while the page is the
+/// active one, paused (and rewound) when off-screen, tap to toggle mute/play.
+///
+/// To keep memory bounded the controller is created lazily and disposed as soon as the page
+/// leaves the small "near the viewport" window (the parent [VideoFeed] only marks 2-3 pages
+/// active/preload at a time). When there is no clip url the player shows a static poster so
+/// the feed never renders a blank or broken page.
+library;
+
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+
+/// A muted, looping clip filling its box, with cover-fit (BoxFit.cover semantics) so it
+/// behaves like a TikTok video. [active] drives autoplay; [preload] keeps the controller
+/// initialized (buffered) without playing, so a swipe to it starts instantly.
+class FeedClipPlayer extends StatefulWidget {
+  const FeedClipPlayer({
+    super.key,
+    required this.url,
+    required this.active,
+    this.preload = false,
+    this.posterUrl,
+  });
+
+  /// The clip url, or null when the event has no playable hero clip (poster-only).
+  final String? url;
+
+  /// Whether this is the visible page (autoplays + loops).
+  final bool active;
+
+  /// Keep the controller buffered though not the active page (a neighbour).
+  final bool preload;
+
+  /// Optional still image shown behind/instead of the clip (e.g. a thumbnail).
+  final String? posterUrl;
+
+  @override
+  State<FeedClipPlayer> createState() => _FeedClipPlayerState();
+}
+
+class _FeedClipPlayerState extends State<FeedClipPlayer> {
+  VideoPlayerController? _controller;
+  bool _failed = false;
+  bool _muted = true;
+
+  bool get _wanted => widget.url != null && (widget.active || widget.preload);
+
+  @override
+  void initState() {
+    super.initState();
+    if (_wanted) _init();
+  }
+
+  @override
+  void didUpdateWidget(FeedClipPlayer old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) {
+      _disposeController();
+      _failed = false;
+      if (_wanted) _init();
+      return;
+    }
+    if (_wanted && _controller == null && !_failed) {
+      _init();
+      return;
+    }
+    if (!_wanted && _controller != null) {
+      _disposeController();
+      setState(() {});
+      return;
+    }
+    _syncPlayback();
+  }
+
+  Future<void> _init() async {
+    final c = VideoPlayerController.networkUrl(Uri.parse(widget.url!));
+    try {
+      await c.initialize();
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      await c.setLooping(true);
+      await c.setVolume(_muted ? 0 : 1);
+      _controller = c;
+      _syncPlayback();
+      setState(() {});
+    } catch (_) {
+      await c.dispose();
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  /// Play only while the active page; pause + rewind when it scrolls away.
+  void _syncPlayback() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (widget.active) {
+      c.play();
+    } else {
+      c.pause();
+      c.seekTo(Duration.zero);
+    }
+  }
+
+  void _disposeController() {
+    _controller?.dispose();
+    _controller = null;
+  }
+
+  void _onTap() {
+    final c = _controller;
+    if (c == null || !widget.active) return;
+    setState(() {
+      _muted = !_muted;
+      c.setVolume(_muted ? 0 : 1);
+      if (!c.value.isPlaying) c.play();
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposeController();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _surface(),
+          if (widget.active && _muted && _controller != null)
+            const Positioned(
+              right: 12,
+              top: 12,
+              child: Icon(Icons.volume_off, color: Colors.white70, size: 22),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _surface() {
+    final c = _controller;
+    if (c != null && c.value.isInitialized) {
+      // Cover-fit: scale the video to fill the page (crop overflow), TikTok-style.
+      return FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(
+          width: c.value.size.width,
+          height: c.value.size.height,
+          child: VideoPlayer(c),
+        ),
+      );
+    }
+    // No clip / still loading / failed: poster or a neutral backdrop.
+    return _poster();
+  }
+
+  Widget _poster() {
+    final poster = widget.posterUrl;
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      child: poster != null
+          ? Image.network(
+              poster,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              errorBuilder: (_, _, _) => _glyph(),
+              loadingBuilder: (ctx, child, p) =>
+                  p == null ? child : _glyph(),
+            )
+          : _glyph(),
+    );
+  }
+
+  Widget _glyph() => Center(
+    child: Icon(
+      _failed ? Icons.error_outline : Icons.movie_creation_outlined,
+      color: Colors.white24,
+      size: 64,
+    ),
+  );
+}
