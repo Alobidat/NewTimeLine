@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # requires this bearer token; when empty in dev, admin access is open for convenience.
     admin_token: str = Field(default="")
 
+    # Identity stub for interaction writes (ADR-0025). Until Phase-4 OIDC lands, every
+    # interaction (comment/reaction/vote/link) is attributed to this fixed dev/anonymous
+    # actor UUID. Phase 4 replaces the get_actor stub body with the real session lookup;
+    # this key then becomes unused. Stable default so dev writes are reproducible.
+    dev_actor_id: str = Field(default="00000000-0000-0000-0000-000000000001")
+
     @property
     def sync_database_url(self) -> str:
         """Sync URL (psycopg) for Alembic migrations."""

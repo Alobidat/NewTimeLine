@@ -8,6 +8,19 @@ from chronos_core.schemas.event import (
     GeoPoint,
     SourceRead,
 )
+from chronos_core.schemas.interaction import (
+    CommentCreate,
+    CommentRead,
+    CommentUpdate,
+    EventLinkCreate,
+    EventLinkResult,
+    ReactionSummary,
+    ReactionToggle,
+    ReactionToggleResult,
+    SourceVoteCast,
+    SourceVoteResult,
+    SourceVoteSummary,
+)
 from chronos_core.schemas.timeline import TimelineBucket, TimelineResponse
 
 __all__ = [
@@ -19,4 +32,15 @@ __all__ = [
     "GeoPoint",
     "TimelineBucket",
     "TimelineResponse",
+    "CommentCreate",
+    "CommentRead",
+    "CommentUpdate",
+    "ReactionToggle",
+    "ReactionToggleResult",
+    "ReactionSummary",
+    "SourceVoteCast",
+    "SourceVoteResult",
+    "SourceVoteSummary",
+    "EventLinkCreate",
+    "EventLinkResult",
 ]

@@ -29,6 +29,18 @@ from chronos_api.queries import _EVENT_COLS, _event_read
 CHAIN_KINDS = ("precursor", "causal", "sequel")
 
 
+def _link_origin(created_by: str | None) -> str:
+    """Classify a relation's provenance: ``user`` if ``created_by`` is a user UUID (set by
+    the interaction API), else ``agent`` (an agent-run label like 'relate'/'enrich')."""
+    if not created_by:
+        return "agent"
+    try:
+        uuid.UUID(created_by)
+    except ValueError:
+        return "agent"
+    return "user"
+
+
 def _entity_read(row) -> EntityRead:
     geo = GeoPoint(lon=row.lon, lat=row.lat) if row.lon is not None else None
     return EntityRead(
@@ -260,7 +272,7 @@ async def fetch_related(
         rows = (
             await session.execute(
                 text(
-                    f"SELECT {_EVENT_COLS}, r.kind, r.weight FROM event_relations r "
+                    f"SELECT {_EVENT_COLS}, r.kind, r.weight, r.created_by FROM event_relations r "
                     "JOIN events e ON e.id = r.src_event "
                     "WHERE r.dst_event = :id AND e.status = 'published' "
                     "ORDER BY r.weight DESC LIMIT :limit"
@@ -269,14 +281,17 @@ async def fetch_related(
             )
         ).all()
         out += [
-            RelatedEvent(event=_event_read(r), kind=r.kind, weight=r.weight, direction="back")
+            RelatedEvent(
+                event=_event_read(r), kind=r.kind, weight=r.weight, direction="back",
+                origin=_link_origin(r.created_by), added_by=r.created_by,
+            )
             for r in rows
         ]
     if direction in ("forward", "both"):
         rows = (
             await session.execute(
                 text(
-                    f"SELECT {_EVENT_COLS}, r.kind, r.weight FROM event_relations r "
+                    f"SELECT {_EVENT_COLS}, r.kind, r.weight, r.created_by FROM event_relations r "
                     "JOIN events e ON e.id = r.dst_event "
                     "WHERE r.src_event = :id AND e.status = 'published' "
                     "ORDER BY r.weight DESC LIMIT :limit"
@@ -285,7 +300,10 @@ async def fetch_related(
             )
         ).all()
         out += [
-            RelatedEvent(event=_event_read(r), kind=r.kind, weight=r.weight, direction="forward")
+            RelatedEvent(
+                event=_event_read(r), kind=r.kind, weight=r.weight, direction="forward",
+                origin=_link_origin(r.created_by), added_by=r.created_by,
+            )
             for r in rows
         ]
     return out

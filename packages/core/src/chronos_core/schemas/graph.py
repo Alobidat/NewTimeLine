@@ -42,12 +42,19 @@ class SearchResults(BaseModel):
 
 
 class RelatedEvent(BaseModel):
-    """An event reached from another via one graph edge."""
+    """An event reached from another via one graph edge.
+
+    ``origin`` distinguishes who asserted the edge: ``user`` (a person added it via the
+    interaction API, ``event_relations.created_by`` is a user UUID) vs ``agent`` (the
+    relation-linker / enricher produced it). ``added_by`` carries the raw provenance label
+    (the user id or the agent run name) for clients that want to attribute it precisely."""
 
     event: EventRead
     kind: str                # causal | precursor | same-place | same-actor | thematic | sequel
     weight: float
     direction: str           # back (led to) | forward (caused)
+    origin: str = "agent"    # user | agent
+    added_by: str | None = None
 
 
 class ChainEdge(BaseModel):
