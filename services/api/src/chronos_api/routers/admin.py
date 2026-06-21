@@ -10,12 +10,15 @@ routes needed.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from datetime import UTC, datetime
 
 import redis as redislib
 from chronos_core import config_service, registry
 from chronos_core.config_spec import SPEC_BY_KEY, validate_value
-from chronos_core.run_queue import push_job
+from chronos_core.db import session_scope
+from chronos_core.run_queue import QUEUE_KEY, push_job
 from chronos_core.runs import recent_runs
 from chronos_core.schemas.admin import (
     ComponentDetail,
@@ -28,11 +31,14 @@ from chronos_core.schemas.admin import (
     SystemView,
 )
 from chronos_core.settings import get_settings
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_api import admin_queries as aq
 from chronos_api.deps import get_session, require_admin
+
+log = logging.getLogger("chronos.api.admin")
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -166,8 +172,78 @@ async def get_storage(session: AsyncSession = Depends(get_session)) -> StorageVi
 
 @router.get("/system", response_model=SystemView)
 async def get_system(session: AsyncSession = Depends(get_session)) -> SystemView:
-    """Coarse system status (resource dashboards expand this later)."""
-    return await aq.system(session, get_settings().environment)
+    """System status + pipeline throughput metrics."""
+    r = redislib.from_url(get_settings().redis_url)
+    try:
+        queue_depth = int(await asyncio.to_thread(r.llen, QUEUE_KEY))
+    except Exception:
+        queue_depth = 0
+    finally:
+        await asyncio.to_thread(r.close)
+    return await aq.system(session, get_settings().environment, queue_depth=queue_depth)
+
+
+# ── SSE constants ─────────────────────────────────────────────────────────────
+_OVERVIEW_EVERY = 4   # emit a full overview every N ticks
+_TICK_SECS = 5        # seconds between polls
+
+
+def _sse(event: str, data: dict) -> str:
+    """Format a single Server-Sent Event frame."""
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+@router.get("/stream")
+async def admin_stream(
+    request: Request,
+    actor: str = Depends(require_admin),
+) -> StreamingResponse:
+    """Server-Sent Events feed for the Admin Portal.
+
+    Pushes two event types so the portal can update without polling:
+    - ``overview`` — full overview snapshot (component health + counts + recent runs)
+    - ``run``      — a single agent-run row that changed status since the last tick
+
+    The client reconnects automatically on drop; the stream restarts clean (stateless).
+    """
+    async def gen():
+        seen_runs: dict[str, str] = {}  # run_id → last-seen status
+        tick = 0
+        try:
+            while not await request.is_disconnected():
+                async with session_scope() as session:
+                    runs = await recent_runs(session, limit=50)
+
+                    # Emit 'run' events for new or status-changed runs.
+                    for r in runs:
+                        rid = str(r.id)
+                        if seen_runs.get(rid) != r.status:
+                            seen_runs[rid] = r.status
+                            yield _sse("run", aq._run_view(r).model_dump())
+
+                    # Emit full overview every OVERVIEW_EVERY ticks (~20 s).
+                    if tick % _OVERVIEW_EVERY == 0:
+                        now = datetime.now(UTC)
+                        values = await aq.all_config_values(session)
+                        components = [
+                            await aq.component_view(session, m, now, values)
+                            for m in registry.REGISTRY
+                        ]
+                        overview = OverviewView(
+                            components=components,
+                            counts=await aq.counts(session),
+                            recent_runs=[aq._run_view(r) for r in runs[:15]],
+                        )
+                        yield _sse("overview", overview.model_dump())
+
+                tick += 1
+                await asyncio.sleep(_TICK_SECS)
+        except asyncio.CancelledError:
+            pass  # client disconnected
+        except Exception:
+            log.exception("admin SSE stream error")
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @router.get("/users")

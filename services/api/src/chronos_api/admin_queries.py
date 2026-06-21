@@ -125,13 +125,29 @@ async def storage(session: AsyncSession) -> StorageView:
     )
 
 
-async def system(session: AsyncSession, environment: str) -> SystemView:
-    """Coarse system status."""
-    running = await session.scalar(
-        text("SELECT count(*) FROM agent_runs WHERE status = 'running'")
+async def system(session: AsyncSession, environment: str, queue_depth: int = 0) -> SystemView:
+    """System status + pipeline throughput metrics."""
+    running, config_keys, events_1h, runs_1h = (
+        await session.scalar(
+            text("SELECT count(*) FROM agent_runs WHERE status = 'running'")
+        ),
+        await session.scalar(text("SELECT count(*) FROM config")),
+        await session.scalar(
+            text("SELECT count(*) FROM events WHERE created_at > now() - interval '1 hour'")
+        ),
+        await session.scalar(
+            text(
+                "SELECT count(*) FROM agent_runs "
+                "WHERE status = 'ok' AND finished_at > now() - interval '1 hour'"
+            )
+        ),
     )
-    config_keys = await session.scalar(text("SELECT count(*) FROM config"))
     return SystemView(
-        environment=environment, database="ok", config_keys=int(config_keys or 0),
-        components=len(registry.REGISTRY), running_agents=int(running or 0),
+        environment=environment, database="ok",
+        config_keys=int(config_keys or 0),
+        components=len(registry.REGISTRY),
+        running_agents=int(running or 0),
+        queue_depth=queue_depth,
+        events_last_hour=int(events_1h or 0),
+        runs_last_hour=int(runs_1h or 0),
     )

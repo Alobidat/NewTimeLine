@@ -96,10 +96,13 @@ class StorageView(BaseModel):
 
 
 class SystemView(BaseModel):
-    """Coarse system status (resource dashboards expand this later)."""
+    """System status + pipeline throughput metrics for the Admin Portal."""
 
     environment: str
     database: str                     # ok | error
     config_keys: int
     components: int
     running_agents: int
+    queue_depth: int = 0              # jobs waiting in the Redis run queue
+    events_last_hour: int = 0         # events created in the past 60 min
+    runs_last_hour: int = 0           # agent runs completed (ok) in the past 60 min
