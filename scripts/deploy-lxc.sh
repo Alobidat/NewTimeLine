@@ -39,6 +39,9 @@ if $WEB; then
   if ( cd apps/mobile && "$FLUTTER" build web --pwa-strategy=none --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
     sudo rm -rf "$LIVE"/webdist/*
     sudo cp -a apps/mobile/build/web/. "$LIVE"/webdist/
+    # Overwrite Flutter's SW with the kill-switch so any client still running the old caching
+    # SW clears itself (new visitors don't register one — --pwa-strategy=none above).
+    sudo cp -f infra/webapp/flutter_service_worker.js "$LIVE"/webdist/flutter_service_worker.js
     sudo find "$LIVE"/webdist -type d -exec chmod 755 {} +
     sudo find "$LIVE"/webdist -type f -exec chmod 644 {} +
     log "webdist updated (hard-refresh to drop the old service worker)"
@@ -56,6 +59,7 @@ if $ADMIN; then
     sudo mkdir -p "$LIVE"/webdist-admin
     sudo rm -rf "$LIVE"/webdist-admin/*
     sudo cp -a apps/admin/build/web/. "$LIVE"/webdist-admin/
+    sudo cp -f infra/webapp/flutter_service_worker.js "$LIVE"/webdist-admin/flutter_service_worker.js
     sudo find "$LIVE"/webdist-admin -type d -exec chmod 755 {} +
     sudo find "$LIVE"/webdist-admin -type f -exec chmod 644 {} +
     ( cd "$LIVE" && docker compose up -d adminapp ) >>"$LOG" 2>&1
