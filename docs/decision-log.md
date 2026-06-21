@@ -254,6 +254,30 @@ wants the data set to "always be expanding as we add more sources," and every se
 "initiate a search to collect events" immediately. Background collect (not synchronous block)
 keeps the UX responsive. Detail in [event-presentation.md §5](event-presentation.md).
 
+### ADR-0024 — Media-forward presentation (clips > images > text)
+*2026-06-21* · accepted · extends ADR-0021/0023
+The event experience leads with media because users give more time to a clip than an image and
+more to an image than text. The hero is a **video clip** when one exists (muted autoplay-preview;
+tap → fullscreen with sound), else the best image; the gallery shows more media, larger, above
+the fold; prose is demoted (short summary first, body behind "Read more", metadata as compact
+chips). Media **quality** is prioritised (higher-res images, real clips, blur-up placeholders,
+never a broken tile) and collectors are tuned to fetch better variants. Degrade clip → image →
+text, flagging text-only events for acquisition (ADR-0023). UI-only for presentation; the
+quality side improves what the media pipeline fetches. Detail in
+[interactions-and-media.md §1](interactions-and-media.md).
+
+### ADR-0025 — Build interaction foundations now, gate on an identity stub until Phase 4
+*2026-06-21* · accepted
+Implement the user-interaction substrate the data model already designs (data-model.md §3.5–3.7):
+**threaded comments**, **reactions** (like/dislike/important/doubt), **source/event votes**, and
+**user-created event links** (`event_relations.added_by = user`). Ship the models (migration
+0005), schemas, repository helpers, and API routers now, but gate writes behind a single
+`get_actor` **identity stub** (anonymous/dev actor today) so interaction is testable end-to-end.
+Phase 4 replaces only the stub's body with the real OIDC session lookup — no router/schema
+change. Reputation-weighting, LLM-assisted moderation, and notifications stay in Phase 4/5. Why:
+lets us build engagement and the related-events UX now without blocking on the full auth stack.
+Detail in [interactions-and-media.md §2](interactions-and-media.md).
+
 ### ADR-0023 — Clips-first media; no text-only events
 *2026-06-21* · accepted
 Presentation and collection both **prefer video clips over images over text**. Media is shown

@@ -137,6 +137,23 @@ live. 123 backend + 21 Flutter tests pass; analyze clean.
 or more countries on the map, and a search returns existing results while live-collecting and
 streaming in new ones.
 
+## Phase 3d — Media-forward presentation + interaction foundations 🟡 IN PROGRESS
+**Goal:** make the event experience media-first (clips > images > text) and tidy, and build the
+foundations for user interaction (threaded comments, reactions, votes, user-created event links)
+ahead of the full auth stack. Design: [interactions-and-media.md](interactions-and-media.md)
+(ADR-0024/0025).
+- **M — Media-forward UI:** clip hero (autoplay-preview), larger/more media above the fold, tidy
+  layout (summary first, body behind "Read more", compact chips), blur-up placeholders. (ADR-0024)
+- **I — Interaction API foundations:** `comments`/`reactions`/`source_votes` models + migration
+  0005 + schemas + repository + routers + user-added `event_relations`; writes gated by a
+  `get_actor` identity stub (real OIDC in Phase 4). (ADR-0025)
+- **MQ — Media quality/collection:** collectors fetch higher-res images + real clips, prefer
+  clips. (ADR-0024)
+- **IU — Interaction UI:** comment threads, reaction bar, vote affordances, "link this event"
+  wired to I's API.
+**Done when:** events present media-first and tidy, and a (stub) user can comment in threads,
+react, vote, and link events — ready for Phase 4 to attach real accounts.
+
 ## Phase 4 — Social layer + accounts
 **Goal:** users, reactions, comments, and the source-validation system.
 - **Social login (OIDC):** Google, Facebook, **Apple** (iOS-required), email; first login
