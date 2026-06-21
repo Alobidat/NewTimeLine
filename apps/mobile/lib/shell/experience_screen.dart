@@ -21,7 +21,7 @@ import '../state/time_window.dart';
 import '../summary/summary_model.dart';
 import '../summary/summary_panel.dart';
 import '../timeline/timeline_controller.dart';
-import '../timeline/timeline_panel.dart';
+import '../timeline/vertical_timeline.dart';
 import 'morph_host.dart';
 
 const _kWideBreakpoint = 900.0;
@@ -336,48 +336,38 @@ class _ExperienceScreenState extends State<ExperienceScreen>
     ),
   );
 
-  Widget _timelineBar({double height = 184}) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: height,
-      child: Material(
-        color: scheme.surface.withValues(alpha: 0.9),
-        child: Column(
-          children: [
-            _cockpitStrip(),
-            const Divider(height: 1),
-            Expanded(
-              child: TimelinePanel(
-                controller: _timeline,
-                onEventTap: (id) => _select(id),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  /// The timeline as a vertical scroll/zoom bar pinned to the right edge.
+  Widget _verticalTimeline({double width = 96}) => VerticalTimelineBar(
+    controller: _timeline,
+    selectedId: _selection.selectedEventId,
+    onEventTap: (id) => _select(id),
+    width: width,
+  );
 
-  /// The timeline's status line — its level-of-detail readout: which mode we're in
-  /// (overview vs a single event), how many events the window holds, and a one-tap way
-  /// back to the overview. Reinforces that collapsing/expanding time *is* the zoom.
-  Widget _cockpitStrip() {
+  /// A small floating pill over the map showing the level-of-detail readout (OVERVIEW vs a
+  /// single EVENT), the current event count + range, and a one-tap way back to the overview.
+  Widget _cockpitChip() {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final detail = _selection.mode == ViewMode.detail;
     final total = _summary.summary?.total;
     final range = '${formatYear(_window.t0)} → ${formatYear(_window.t1)}';
     final label = detail
         ? range
         : (total != null ? '$total events  ·  $range' : range);
-    return SizedBox(
-      height: 44,
+    return Material(
+      color: scheme.surface.withValues(alpha: 0.9),
+      elevation: 2,
+      borderRadius: BorderRadius.circular(24),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             _modeBadge(detail),
-            const SizedBox(width: 12),
-            Expanded(
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
               child: Text(
                 label,
                 style: theme.textTheme.labelMedium,
@@ -385,7 +375,8 @@ class _ExperienceScreenState extends State<ExperienceScreen>
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (detail)
+            if (detail) ...[
+              const SizedBox(width: 4),
               TextButton.icon(
                 onPressed: _clearSelection,
                 style: TextButton.styleFrom(
@@ -394,13 +385,8 @@ class _ExperienceScreenState extends State<ExperienceScreen>
                 ),
                 icon: const Icon(Icons.grid_view_rounded, size: 16),
                 label: const Text('Overview'),
-              )
-            else if (_summary.loading)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
               ),
+            ],
           ],
         ),
       ),
@@ -449,8 +435,8 @@ class _ExperienceScreenState extends State<ExperienceScreen>
       child: Stack(
         children: [
           Positioned.fill(child: map),
-          Positioned(left: 0, right: 0, bottom: 0, child: _timelineBar()),
           Positioned(left: 0, right: 0, top: 0, child: _searchBar()),
+          Positioned(left: 12, top: 12, child: _cockpitChip()),
         ],
       ),
     );
@@ -462,43 +448,39 @@ class _ExperienceScreenState extends State<ExperienceScreen>
         child: _panelWithTarget(targetKey),
       ),
     );
-    return Row(
+    final content = Row(
       children: _panelOnRight ? [mapStack, panel] : [panel, mapStack],
     );
+    // Timeline pinned to the far-right edge as a vertical scroll/zoom bar.
+    return Row(children: [Expanded(child: content), _verticalTimeline(width: 96)]);
   }
 
-  /// Phone layout: the map fills, the timeline pins to the very bottom, and the panel is a
-  /// sheet that *morphs* its height between summary (a peek) and detail (most of the screen).
+  /// Phone layout: the map fills with the morphing sheet over it; the timeline is the
+  /// vertical bar on the right edge.
   Widget _narrow(Widget map, GlobalKey targetKey) {
-    const timelineH = 168.0;
     final detail = _selection.mode == ViewMode.detail;
-    return Column(
-      children: [
-        Expanded(
-          child: LayoutBuilder(
-            builder: (ctx, c) {
-              final sheetH = (detail ? 0.62 : 0.40) * c.maxHeight;
-              return Stack(
-                children: [
-                  Positioned.fill(child: map),
-                  Positioned(left: 0, right: 0, top: 0, child: _searchBar()),
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 350),
-                    curve: Curves.easeOutCubic,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: sheetH,
-                    child: _sheet(targetKey, detail),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        _timelineBar(height: timelineH),
-      ],
+    final body = LayoutBuilder(
+      builder: (ctx, c) {
+        final sheetH = (detail ? 0.62 : 0.40) * c.maxHeight;
+        return Stack(
+          children: [
+            Positioned.fill(child: map),
+            Positioned(left: 0, right: 0, top: 0, child: _searchBar()),
+            Positioned(left: 8, top: 8, child: _cockpitChip()),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeOutCubic,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: sheetH,
+              child: _sheet(targetKey, detail),
+            ),
+          ],
+        );
+      },
     );
+    return Row(children: [Expanded(child: body), _verticalTimeline(width: 60)]);
   }
 
   Widget _sheet(GlobalKey targetKey, bool detail) {
