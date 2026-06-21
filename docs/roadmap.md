@@ -105,11 +105,20 @@ queue/scheduler (run-now execution), admin real-time streaming + deeper resource
 **Done when:** new world events appear enriched+scored within minutes, under budget, and an
 operator can tune agents/budgets/feeds from the admin console.
 
-## Phase 3c — Event presentation, location integrity & live search 🟡 IN PROGRESS
+## Phase 3c — Event presentation, location integrity & live search ✅ DONE
 **Goal:** every event is a complete, richly-presented article that *always* highlights on the
 map and is *always* connected to related events; search both reads and grows the corpus.
 Builds on the existing schema (no new core tables). Full design:
 [event-presentation.md](event-presentation.md) (ADR-0020…0023).
+**Delivered:** A — location-resolution cascade (`chronos_core.domain.location`: geo_label →
+location entities → text analysis → news-agency country) + client map fallback (highlight all
+involved countries, nearest-country + geo_label name match) + data-integrity counts on
+`/admin/storage`. B — one shared `EventArticle` layout for sheet + panel with a clips-first
+expandable media gallery (fullscreen, pinch-zoom, video). D — `SourceAdapter` registry
+(RSS/Wikidata/Wikipedia full-text), on-demand `collect` agent, `media_policy.has_required_media`
+(≥1-image floor) + `media_gap` re-collection. C — faceted `/search` (events/actors/places) that
+enqueues a `collect` job and a public `/search/stream` SSE that streams newly collected events
+live. 123 backend + 21 Flutter tests pass; analyze clean.
 - **A — Location integrity & map fix** *(start here; the reported "huge problem")*: enforce
   Time+Location+Actors per event via a **resolution cascade** (geom → `geo_label` →
   `location` entities → text analysis → news-agency country) + multi-location highlighting +
