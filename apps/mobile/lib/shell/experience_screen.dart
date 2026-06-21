@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../domain/time_format.dart';
 import '../event/detail_panel.dart';
 import '../map/animated_map_controller.dart';
 import '../map/country_atlas.dart';
@@ -335,13 +336,109 @@ class _ExperienceScreenState extends State<ExperienceScreen>
     ),
   );
 
-  Widget _timelineBar({double height = 168}) {
+  Widget _timelineBar({double height = 184}) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       height: height,
       child: Material(
         color: scheme.surface.withValues(alpha: 0.9),
-        child: TimelinePanel(controller: _timeline, onEventTap: (id) => _select(id)),
+        child: Column(
+          children: [
+            _cockpitStrip(),
+            const Divider(height: 1),
+            Expanded(
+              child: TimelinePanel(
+                controller: _timeline,
+                onEventTap: (id) => _select(id),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The timeline's status line — its level-of-detail readout: which mode we're in
+  /// (overview vs a single event), how many events the window holds, and a one-tap way
+  /// back to the overview. Reinforces that collapsing/expanding time *is* the zoom.
+  Widget _cockpitStrip() {
+    final theme = Theme.of(context);
+    final detail = _selection.mode == ViewMode.detail;
+    final total = _summary.summary?.total;
+    final range = '${formatYear(_window.t0)} → ${formatYear(_window.t1)}';
+    final label = detail
+        ? range
+        : (total != null ? '$total events  ·  $range' : range);
+    return SizedBox(
+      height: 44,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            _modeBadge(detail),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.labelMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (detail)
+              TextButton.icon(
+                onPressed: _clearSelection,
+                style: TextButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                icon: const Icon(Icons.grid_view_rounded, size: 16),
+                label: const Text('Overview'),
+              )
+            else if (_summary.loading)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _modeBadge(bool detail) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = detail ? scheme.primary : scheme.secondary;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: Container(
+        key: ValueKey(detail),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              detail ? Icons.place : Icons.travel_explore,
+              size: 14,
+              color: color,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              detail ? 'EVENT' : 'OVERVIEW',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -373,7 +470,7 @@ class _ExperienceScreenState extends State<ExperienceScreen>
   /// Phone layout: the map fills, the timeline pins to the very bottom, and the panel is a
   /// sheet that *morphs* its height between summary (a peek) and detail (most of the screen).
   Widget _narrow(Widget map, GlobalKey targetKey) {
-    const timelineH = 132.0;
+    const timelineH = 168.0;
     final detail = _selection.mode == ViewMode.detail;
     return Column(
       children: [
