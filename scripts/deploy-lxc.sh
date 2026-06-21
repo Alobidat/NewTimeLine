@@ -36,7 +36,7 @@ log "live checkout -> $(sudo git -C "$LIVE" rev-parse --short HEAD)"
 # 3. Web bundle: build here, copy into nginx's webdist.
 if $WEB; then
   log "build Flutter web"
-  if ( cd apps/mobile && "$FLUTTER" build web --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
+  if ( cd apps/mobile && "$FLUTTER" build web --pwa-strategy=none --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
     sudo rm -rf "$LIVE"/webdist/*
     sudo cp -a apps/mobile/build/web/. "$LIVE"/webdist/
     sudo find "$LIVE"/webdist -type d -exec chmod 755 {} +
@@ -52,7 +52,7 @@ fi
 if $ADMIN; then
   log "build Admin Portal web"
   if ( cd apps/admin && "$FLUTTER" build web --dart-define=API_BASE_URL=/api \
-        --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
+        --pwa-strategy=none --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
     sudo mkdir -p "$LIVE"/webdist-admin
     sudo rm -rf "$LIVE"/webdist-admin/*
     sudo cp -a apps/admin/build/web/. "$LIVE"/webdist-admin/
