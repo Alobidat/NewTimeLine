@@ -54,6 +54,26 @@ class ApiClient {
     );
   }
 
+  /// Bandwidth-safe distillation of a timeframe (+ optional bbox): heat buckets, top
+  /// entities/places, and a capped set of representative events for a montage. Payload
+  /// stays bounded no matter how many events match — the semantic-zoom "summary".
+  Future<TimelineSummary> timelineSummary({
+    required double t0,
+    required double t1,
+    String? bbox,
+    int minSeverity = 0,
+  }) async {
+    final q = {
+      't0': t0.toString(),
+      't1': t1.toString(),
+      'min_severity': minSeverity.toString(),
+      'bbox': ?bbox,
+    };
+    return TimelineSummary.fromJson(
+      await _getJson('/timeline/summary', q) as Map<String, dynamic>,
+    );
+  }
+
   /// Geolocated events within a viewport bbox ("minLon,minLat,maxLon,maxLat").
   Future<List<EventRead>> map({
     required String bbox,

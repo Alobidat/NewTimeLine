@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'shell/app_shell.dart';
+import 'shell/experience_screen.dart';
 
 void main() => runApp(const ChronosApp());
 
@@ -20,7 +20,7 @@ class ChronosApp extends StatelessWidget {
         brightness: Brightness.dark,
         colorSchemeSeed: const Color(0xFF2E7DF6),
       ),
-      home: const AppShell(),
+      home: const ExperienceScreen(),
     );
   }
 }

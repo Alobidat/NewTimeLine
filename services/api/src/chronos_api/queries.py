@@ -17,9 +17,21 @@ from chronos_core.schemas.event import (
     GeoPoint,
     SourceRead,
 )
-from chronos_core.schemas.timeline import TimelineBucket, TimelineResponse
+from chronos_core.schemas.entity import EntityRead
+from chronos_core.schemas.timeline import (
+    SummaryPlace,
+    SummaryRep,
+    TimelineBucket,
+    TimelineResponse,
+    TimelineSummary,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Caps that keep the summary payload bounded no matter how many events match.
+_SUMMARY_TOP_ENTITIES = 8
+_SUMMARY_TOP_PLACES = 8
+_SUMMARY_REPS = 12
 
 # Shared projection: an event row + representative point (centroid) as lon/lat.
 _EVENT_COLS = """
@@ -132,6 +144,131 @@ async def fetch_timeline(session: AsyncSession, p: TimelineParams) -> TimelineRe
     ]
     return TimelineResponse(
         mode="buckets", t0=p.t0, t1=p.t1, bucket_years=width, buckets=buckets
+    )
+
+
+async def fetch_timeline_summary(
+    session: AsyncSession, p: TimelineParams
+) -> TimelineSummary:
+    """Distill a timeframe (+ optional bbox) into a fixed-size payload.
+
+    Everything is aggregated server-side: a bounded set of buckets, top entities, top
+    places, and a capped handful of representative events. We never stream the raw events
+    of a dense window to the client — that is the whole point of this endpoint."""
+    if p.t1 <= p.t0:
+        return TimelineSummary(t0=p.t0, t1=p.t1, total=0)
+
+    where, params = _filters(p)
+    total = await session.scalar(
+        text(f"SELECT count(*) FROM events WHERE {where}"), params
+    )
+
+    # Heatline buckets (same fixed-width aggregation as the dense timeline branch).
+    width = (p.t1 - p.t0) / p.buckets
+    bucket_rows = (
+        await session.execute(
+            text(
+                f"SELECT floor((t_start - :t0) / :w) AS b, count(*) AS c, "
+                f"max(severity) AS m FROM events WHERE {where} GROUP BY b ORDER BY b"
+            ),
+            params | {"w": width},
+        )
+    ).all()
+    buckets = [
+        TimelineBucket(
+            t_start=p.t0 + int(r.b) * width,
+            t_end=p.t0 + (int(r.b) + 1) * width,
+            count=r.c,
+            peak_severity=r.m or 0,
+        )
+        for r in bucket_rows
+    ]
+
+    # Top entities by event count in the window. The matched-ids CTE keeps the shared
+    # event WHERE (unqualified columns) unambiguous despite the entity join.
+    entity_rows = (
+        await session.execute(
+            text(
+                f"WITH matched AS (SELECT id AS eid FROM events WHERE {where}) "
+                "SELECT en.id, en.kind, en.name, en.external_id, "
+                "CASE WHEN en.geom IS NOT NULL THEN ST_X(en.geom) END AS lon, "
+                "CASE WHEN en.geom IS NOT NULL THEN ST_Y(en.geom) END AS lat, "
+                "count(*) AS event_count FROM matched m "
+                "JOIN event_entities ee ON ee.event_id = m.eid "
+                "JOIN entities en ON en.id = ee.entity_id "
+                "GROUP BY en.id ORDER BY event_count DESC, en.name LIMIT :lim"
+            ),
+            params | {"lim": _SUMMARY_TOP_ENTITIES},
+        )
+    ).all()
+    top_entities = [
+        EntityRead(
+            id=r.id,
+            kind=r.kind,
+            name=r.name,
+            external_id=r.external_id,
+            geo=_geo(r),
+            event_count=r.event_count,
+        )
+        for r in entity_rows
+    ]
+
+    # Top places by event count, with a representative centroid (avg of event centroids).
+    place_rows = (
+        await session.execute(
+            text(
+                f"SELECT geo_label AS label, count(*) AS c, "
+                "avg(CASE WHEN geom IS NOT NULL THEN ST_X(ST_Centroid(geom)) END) AS lon, "
+                "avg(CASE WHEN geom IS NOT NULL THEN ST_Y(ST_Centroid(geom)) END) AS lat "
+                f"FROM events WHERE {where} AND geo_label IS NOT NULL "
+                "GROUP BY geo_label ORDER BY c DESC, label LIMIT :lim"
+            ),
+            params | {"lim": _SUMMARY_TOP_PLACES},
+        )
+    ).all()
+    top_places = [
+        SummaryPlace(label=r.label, count=r.c, lat=r.lat, lon=r.lon) for r in place_rows
+    ]
+
+    # A capped set of high-impact representatives for the montage/headlines. Impact mixes
+    # severity with source weight (ln(+2) so severity always contributes even at 0 sources).
+    rep_rows = (
+        await session.execute(
+            text(
+                f"WITH matched AS (SELECT id AS eid FROM events WHERE {where}) "
+                f"SELECT {_EVENT_COLS}, "
+                "(SELECT em.media_id FROM event_media em WHERE em.event_id = events.id "
+                " AND em.role = 'hero' ORDER BY em.rank LIMIT 1) AS hero_media_id "
+                "FROM events JOIN matched m ON m.eid = events.id "
+                "ORDER BY severity * ln(source_count + 2.0) DESC, severity DESC, t_start "
+                "LIMIT :lim"
+            ),
+            params | {"lim": _SUMMARY_REPS},
+        )
+    ).all()
+    representatives = [
+        SummaryRep(
+            id=r.id,
+            title=r.title,
+            t_start=r.t_start,
+            time_precision=r.time_precision,
+            severity=r.severity,
+            geo=_geo(r),
+            geo_label=r.geo_label,
+            hero_media_id=r.hero_media_id,
+        )
+        for r in rep_rows
+    ]
+
+    return TimelineSummary(
+        t0=p.t0,
+        t1=p.t1,
+        total=total or 0,
+        bucket_years=width,
+        buckets=buckets,
+        top_entities=top_entities,
+        top_places=top_places,
+        representatives=representatives,
     )
 
 

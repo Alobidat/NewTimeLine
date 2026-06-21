@@ -13,9 +13,13 @@ import 'timeline_layout.dart';
 import 'timeline_painter.dart';
 
 class TimelinePanel extends StatefulWidget {
-  const TimelinePanel({super.key, required this.controller});
+  const TimelinePanel({super.key, required this.controller, this.onEventTap});
 
   final TimelineController controller;
+
+  /// When set, tapping an event routes the id here (the Experience screen focuses it
+  /// inline) instead of opening the legacy modal detail sheet.
+  final void Function(String id)? onEventTap;
 
   @override
   State<TimelinePanel> createState() => _TimelinePanelState();
@@ -66,7 +70,12 @@ class _TimelinePanelState extends State<TimelinePanel> {
     final hit = hitTest(markers, d.localPosition);
     if (hit != null) {
       setState(() => _selectedId = hit.id);
-      showEventDetail(context, _c.api, hit.id);
+      final onTap = widget.onEventTap;
+      if (onTap != null) {
+        onTap(hit.id);
+      } else {
+        showEventDetail(context, _c.api, hit.id);
+      }
     }
   }
 

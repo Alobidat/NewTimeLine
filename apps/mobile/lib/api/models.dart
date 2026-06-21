@@ -141,17 +141,28 @@ class EventReference {
 }
 
 class EntityRead {
-  EntityRead({required this.id, required this.kind, required this.name, this.externalId});
+  EntityRead({
+    required this.id,
+    required this.kind,
+    required this.name,
+    this.externalId,
+    this.geo,
+    this.eventCount,
+  });
   final String id;
   final String kind; // place | person | org | topic
   final String name;
   final String? externalId;
+  final GeoPoint? geo;
+  final int? eventCount; // filled by listing/summary endpoints
 
   factory EntityRead.fromJson(Map<String, dynamic> j) => EntityRead(
     id: j['id'] as String,
     kind: j['kind'] as String,
     name: j['name'] as String,
     externalId: j['external_id'] as String?,
+    geo: GeoPoint.fromJson(j['geo'] as Map<String, dynamic>?),
+    eventCount: (j['event_count'] as num?)?.toInt(),
   );
 }
 
@@ -332,6 +343,98 @@ class TimelineBucket {
     tEnd: _d(j['t_end']),
     count: j['count'] as int,
     peakSeverity: j['peak_severity'] as int,
+  );
+}
+
+/// A place (free-text geo_label) with its event count + a representative point.
+/// Drives which countries the silhouette map draws and where to anchor labels.
+class SummaryPlace {
+  SummaryPlace({required this.label, required this.count, this.lat, this.lon});
+  final String label;
+  final int count;
+  final double? lat;
+  final double? lon;
+
+  factory SummaryPlace.fromJson(Map<String, dynamic> j) => SummaryPlace(
+    label: j['label'] as String,
+    count: j['count'] as int,
+    lat: (j['lat'] as num?)?.toDouble(),
+    lon: (j['lon'] as num?)?.toDouble(),
+  );
+}
+
+/// A lightweight representative event for a timeframe montage (no body/sources/media list).
+class SummaryRep {
+  SummaryRep({
+    required this.id,
+    required this.title,
+    required this.tStart,
+    required this.precision,
+    required this.severity,
+    this.geo,
+    this.geoLabel,
+    this.heroMediaId,
+  });
+  final String id;
+  final String title;
+  final double tStart;
+  final TimePrecision precision;
+  final int severity;
+  final GeoPoint? geo;
+  final String? geoLabel;
+  final String? heroMediaId;
+
+  factory SummaryRep.fromJson(Map<String, dynamic> j) => SummaryRep(
+    id: j['id'] as String,
+    title: j['title'] as String,
+    tStart: _d(j['t_start']),
+    precision: TimePrecision.parse(j['time_precision'] as String),
+    severity: j['severity'] as int,
+    geo: GeoPoint.fromJson(j['geo'] as Map<String, dynamic>?),
+    geoLabel: j['geo_label'] as String?,
+    heroMediaId: j['hero_media_id'] as String?,
+  );
+}
+
+/// Bandwidth-safe distillation of a whole timeframe (many events → one view).
+class TimelineSummary {
+  TimelineSummary({
+    required this.t0,
+    required this.t1,
+    required this.total,
+    this.bucketYears,
+    this.buckets = const [],
+    this.topEntities = const [],
+    this.topPlaces = const [],
+    this.representatives = const [],
+  });
+
+  final double t0;
+  final double t1;
+  final int total;
+  final double? bucketYears;
+  final List<TimelineBucket> buckets;
+  final List<EntityRead> topEntities;
+  final List<SummaryPlace> topPlaces;
+  final List<SummaryRep> representatives;
+
+  factory TimelineSummary.fromJson(Map<String, dynamic> j) => TimelineSummary(
+    t0: _d(j['t0']),
+    t1: _d(j['t1']),
+    total: j['total'] as int,
+    bucketYears: j['bucket_years'] == null ? null : _d(j['bucket_years']),
+    buckets: ((j['buckets'] as List?) ?? [])
+        .map((e) => TimelineBucket.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    topEntities: ((j['top_entities'] as List?) ?? [])
+        .map((e) => EntityRead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    topPlaces: ((j['top_places'] as List?) ?? [])
+        .map((e) => SummaryPlace.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    representatives: ((j['representatives'] as List?) ?? [])
+        .map((e) => SummaryRep.fromJson(e as Map<String, dynamic>))
+        .toList(),
   );
 }
 

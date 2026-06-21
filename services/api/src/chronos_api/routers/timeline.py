@@ -6,12 +6,17 @@ Times are signed years (ADR-0012): pass ``t0``/``t1`` like ``-4000000`` … ``20
 from __future__ import annotations
 
 from chronos_core.schemas.event import EventRead
-from chronos_core.schemas.timeline import TimelineResponse
+from chronos_core.schemas.timeline import TimelineResponse, TimelineSummary
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_api.deps import get_session
-from chronos_api.queries import TimelineParams, fetch_map, fetch_timeline
+from chronos_api.queries import (
+    TimelineParams,
+    fetch_map,
+    fetch_timeline,
+    fetch_timeline_summary,
+)
 
 router = APIRouter(tags=["timeline"])
 
@@ -53,6 +58,30 @@ async def get_timeline(
         buckets=buckets,
     )
     return await fetch_timeline(session, params)
+
+
+@router.get("/timeline/summary", response_model=TimelineSummary)
+async def get_timeline_summary(
+    t0: float = Query(..., description="window start (signed year)"),
+    t1: float = Query(..., description="window end (signed year)"),
+    bbox: str | None = Query(None, description=_BBOX),
+    category: str | None = None,
+    min_severity: int = Query(0, ge=0, le=100),
+    buckets: int = Query(48, ge=1, le=1000),
+    session: AsyncSession = Depends(get_session),
+) -> TimelineSummary:
+    """Collapse a whole timeframe into one bandwidth-safe view: heat buckets + the top
+    entities/places + a capped set of representative events for a montage. Payload size is
+    bounded no matter how many events fall in the window (the semantic-zoom 'summary')."""
+    params = TimelineParams(
+        t0=t0,
+        t1=t1,
+        bbox=_parse_bbox(bbox),
+        category=category,
+        min_severity=min_severity,
+        buckets=buckets,
+    )
+    return await fetch_timeline_summary(session, params)
 
 
 @router.get("/map", response_model=list[EventRead])
