@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from chronos_core.models.interaction import Comment, Reaction, SourceVote
 from chronos_core.models.media import EventMedia
 from chronos_core.models.relation import EventRelation
-from chronos_core.models.social import ActivityLog, Follow, Promote
+from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote
 from chronos_core.models.user import User, UserAgreement, UserIdentity
 
 log = logging.getLogger("chronos.accounts")
@@ -186,6 +186,9 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
     promotes = (
         await session.scalars(select(Promote).where(Promote.user_id == user_id))
     ).all()
+    bookmarks = (
+        await session.scalars(select(Bookmark).where(Bookmark.user_id == user_id))
+    ).all()
 
     return {
         "schema": "chronos.user_export.v1",
@@ -236,6 +239,11 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
             {"target_type": p.target_type, "target_id": str(p.target_id), "value": p.value}
             for p in promotes
         ],
+        "bookmarks": [
+            {"event_id": str(b.event_id),
+             "created_at": b.created_at.isoformat() if b.created_at else None}
+            for b in bookmarks
+        ],
     }
 
 
@@ -281,6 +289,9 @@ async def purge_user(session: AsyncSession, user_id: uuid.UUID, *, objectstore=N
     ).rowcount or 0
     counts["activity"] = (
         await session.execute(delete(ActivityLog).where(ActivityLog.user_id == user_id))
+    ).rowcount or 0
+    counts["bookmarks"] = (
+        await session.execute(delete(Bookmark).where(Bookmark.user_id == user_id))
     ).rowcount or 0
     # identities + agreements cascade off users; deleting the user removes them.
     counts["user"] = (

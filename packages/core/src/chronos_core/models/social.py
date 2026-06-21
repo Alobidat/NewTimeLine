@@ -97,3 +97,21 @@ class Promote(Timestamps, Base):
     value: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # +1 / -1
 
     __table_args__ = (Index("ix_promotes_target", "target_type", "target_id"),)
+
+
+class Bookmark(Base):
+    """A user's private save of an event (the "Saved" collection). PK on (user, event) → at
+    most one per event. Unlike :class:`Follow`/:class:`Promote` it carries no activity weight —
+    a bookmark is a private bookmark, not a public engagement signal — so it is never recorded
+    in :class:`ActivityLog`. ``user_id`` is a plain uuid with no FK (Phase-4 decoupling; the
+    GDPR purge fans out explicitly in chronos_core.accounts_repo)."""
+
+    __tablename__ = "bookmarks"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_bookmarks_user_created", "user_id", "created_at"),)

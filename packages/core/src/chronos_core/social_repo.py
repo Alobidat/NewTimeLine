@@ -22,6 +22,7 @@ from chronos_core.models.social import (
     FOLLOW_TARGETS,
     PROMOTE_TARGETS,
     ActivityLog,
+    Bookmark,
     Follow,
     Promote,
 )
@@ -129,6 +130,40 @@ async def following_count(session: AsyncSession, *, user_id: uuid.UUID) -> int:
         )
         or 0
     )
+
+
+# --- bookmarks ------------------------------------------------------------------------
+
+
+async def bookmark(
+    session: AsyncSession, *, user_id: uuid.UUID, event_id: uuid.UUID
+) -> bool:
+    """Save an event to the caller's private collection (idempotent). Returns True if a new
+    bookmark was created. Caller commits."""
+    existing = await session.get(Bookmark, (user_id, event_id))
+    if existing is not None:
+        return False
+    session.add(Bookmark(user_id=user_id, event_id=event_id))
+    return True
+
+
+async def unbookmark(
+    session: AsyncSession, *, user_id: uuid.UUID, event_id: uuid.UUID
+) -> bool:
+    """Remove a saved event. Returns True if a row was deleted. Caller commits."""
+    result = await session.execute(
+        delete(Bookmark).where(
+            Bookmark.user_id == user_id, Bookmark.event_id == event_id
+        )
+    )
+    return (result.rowcount or 0) > 0
+
+
+async def is_bookmarked(
+    session: AsyncSession, *, user_id: uuid.UUID, event_id: uuid.UUID
+) -> bool:
+    """True iff the caller has the event saved."""
+    return (await session.get(Bookmark, (user_id, event_id))) is not None
 
 
 # --- promotes -------------------------------------------------------------------------

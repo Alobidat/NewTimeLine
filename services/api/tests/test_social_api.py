@@ -128,6 +128,41 @@ def test_cast_promote_rejects_bad_value_422(client):
     assert resp.status_code == 422  # caught by the Literal in the DTO
 
 
+# --- bookmarks ------------------------------------------------------------------------
+
+
+def test_bookmark_injects_actor_and_returns_state(client, monkeypatch):
+    captured = {}
+
+    async def fake_bookmark(session, *, user_id, event_id):
+        captured.update(user_id=user_id, event_id=event_id)
+        return True
+
+    monkeypatch.setattr(srepo, "bookmark", fake_bookmark)
+    ev = uuid.uuid4()
+    resp = client.post("/bookmark", params={"event_id": str(ev)})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body == {"event_id": str(ev), "bookmarked": True}
+    assert captured["user_id"] == get_actor(None) and captured["event_id"] == ev
+
+
+def test_bookmark_state_reports_saved(client, monkeypatch):
+    async def fake_is_bookmarked(session, *, user_id, event_id):
+        return True
+
+    monkeypatch.setattr(srepo, "is_bookmarked", fake_is_bookmarked)
+    ev = uuid.uuid4()
+    resp = client.get("/bookmark/state", params={"event_id": str(ev)})
+    assert resp.status_code == 200
+    assert resp.json()["bookmarked"] is True
+
+
+def test_my_bookmarks_requires_sign_in(client):
+    # The default test actor is the dev/anonymous fallback id → a private list must 401.
+    assert client.get("/me/bookmarks").status_code == 401
+
+
 # --- interest -------------------------------------------------------------------------
 
 

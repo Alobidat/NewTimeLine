@@ -19,6 +19,7 @@ __all__ = [
     "FollowCounts",
     "FollowTarget",
     "FollowList",
+    "BookmarkResult",
     "PromoteCast",
     "PromoteResult",
     "PromoteSummary",
@@ -64,6 +65,16 @@ class FollowList(BaseModel):
 
     items: list[FollowTarget] = Field(default_factory=list)
     count: int = 0
+
+
+# --- bookmarks ------------------------------------------------------------------------
+
+
+class BookmarkResult(BaseModel):
+    """Outcome of a bookmark/unbookmark on an event (+ the caller's post-state)."""
+
+    event_id: uuid.UUID
+    bookmarked: bool                   # True if the caller now has the event saved
 
 
 # --- promotes -------------------------------------------------------------------------

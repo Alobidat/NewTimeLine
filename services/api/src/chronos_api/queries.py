@@ -63,6 +63,9 @@ def _event_read(row) -> EventRead:
         geo=_geo(row),
         geo_label=row.geo_label,
         status=row.status,
+        # Only the feed projection joins the hero media's uploader; other callers
+        # (timeline/map/detail) omit the column, so default to None.
+        author_id=getattr(row, "author_id", None),
     )
 
 

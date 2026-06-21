@@ -34,14 +34,18 @@ _FEED_COLS = """
     CASE WHEN e.geom IS NOT NULL THEN ST_X(ST_Centroid(e.geom)) END AS lon,
     CASE WHEN e.geom IS NOT NULL THEN ST_Y(ST_Centroid(e.geom)) END AS lat,
     h.media_id AS hero_media_id,
-    h.is_clip AS hero_is_clip
+    h.is_clip AS hero_is_clip,
+    h.author_id AS author_id
 """
 
 # Lateral pick of the event's hero (clip preferred) — exactly one row per event, never broken.
 _HERO_JOIN = """
     LEFT JOIN LATERAL (
         SELECT em.media_id,
-               (m.kind IN ('video','embed')) AS is_clip
+               (m.kind IN ('video','embed')) AS is_clip,
+               -- The uploader, only for user-generated clips; cast the text added_by to uuid.
+               -- Agent/seed media (origin_kind <> 'user') has a non-uuid added_by → leave null.
+               CASE WHEN m.origin_kind = 'user' THEN em.added_by::uuid END AS author_id
         FROM event_media em JOIN media m ON m.id = em.media_id
         WHERE em.event_id = e.id AND em.role = 'hero'
         ORDER BY em.rank LIMIT 1

@@ -10,7 +10,7 @@ from chronos_core.models.ingest import IngestItem
 from chronos_core.models.interaction import Comment, Reaction, SourceVote
 from chronos_core.models.media import EventMedia, Media, MediaSource
 from chronos_core.models.relation import EventRelation
-from chronos_core.models.social import ActivityLog, Follow, Promote
+from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote
 from chronos_core.models.source import EventSource, Source
 from chronos_core.models.user import User, UserAgreement, UserIdentity
 
@@ -31,6 +31,7 @@ __all__ = [
     "MediaSource",
     "EventRelation",
     "ActivityLog",
+    "Bookmark",
     "Follow",
     "Promote",
     "IngestItem",

@@ -71,6 +71,9 @@ class EventRead(BaseModel):
     geo: GeoPoint | None = None
     geo_label: str | None = None
     status: EventStatus
+    # The uploading user's id for user-generated clips (origin_kind='user'); None for
+    # agent/seed events. Lets the client offer "follow the creator" (target_type='user').
+    author_id: uuid.UUID | None = None
 
 
 class EventDetail(EventRead):
