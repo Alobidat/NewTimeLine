@@ -12,6 +12,17 @@
 | 6 | Admin & config | **Admin Portal + DB-backed Config Service** | All agent behavior, budgets, capabilities, feeds, thresholds configurable at runtime (no redeploy), monitored, RBAC + audited. See [admin-portal.md](admin-portal.md). |
 | 7 | Access & auth | **Anonymous browse/search; auth-gated interaction; social login** | Anyone views/searches without an account; reactions/comments/validation/follows require sign-in. **Social login** (Google/Facebook/Apple…) via OIDC, first login auto-provisions (no form), multi-provider **account linkage**. Apple sign-in required on iOS. See [architecture.md §4.7](architecture.md). |
 
+## Phase 3c additions (2026-06-21) — presentation, location integrity, live search
+
+| # | Decision | Choice | Rationale |
+|---|----------|--------|-----------|
+| 8 | Event completeness | **Time + Location + Actors on every event; location via cascade, flag (never silent-drop)** | Guarantees map coverage + the who/where the product needs. Cascade: geom → geo_label → location entities → text analysis → source-agency country. (ADR-0020) |
+| 9 | Event presentation | **One standard article layout** (title → media → summary → subject+inline links → actors → related-events footer → sources) | Sheet/panel consistency; elevates related-event links as the 2nd-most-important element. (ADR-0021) |
+| 10 | Search | **Reads existing data AND triggers background live collection** that streams new events in | Corpus always expanding; every search both consumes and grows data. (ADR-0022) |
+| 11 | Media | **Clips-first, expandable gallery; no text-only events** | Users engage with clips > images > text. (ADR-0023) |
+
+See [event-presentation.md](event-presentation.md) for the full design and implementation phases.
+
 ## Derived recommendations (mine, open to change)
 
 | Area | Recommendation | Note |

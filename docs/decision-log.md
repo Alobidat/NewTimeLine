@@ -214,3 +214,52 @@ descriptions. Decisions:
 - **Client:** one **Flutter** codebase for **web + apps** (ADR-0002), a separate `apps/admin`
   app rendering from the manifest/spec contract; **polling-first**, streaming later.
   Detail in [admin-portal.md](admin-portal.md).
+
+### ADR-0020 — Every event has Time + Location + Actors; location via a resolution cascade
+*2026-06-21* · accepted
+An event is incomplete without **time, location, and actors**, and a missing location means
+it can't highlight on the map (the reported "huge problem"). We make this invariant real
+**without silently dropping events**: location is resolved through an ordered **cascade** and
+anything still short is **flagged** (not shown broken). Cascade: (1) existing `geom`; (2)
+`geo_label` → Nominatim (current geocoder); (3) `location`-role entities that already have a
+`geom` (gives **one or more** countries — the multi-location case); (4) **text analysis** of
+title/summary/body to extract+geocode place mentions and attach them as `location` entities;
+(5) **last resort** — the **news-agency/source** country (`sources.domain`/`publisher` → a
+curated publisher→country map). Each resolved location records its derivation for audit/UI
+confidence. `events.geom` stays the single **primary** location (pin/bbox); the full set
+lives as `location`-role entities and is returned by the detail API. Why: guarantees map
+coverage and the who/where the product is built on, while never losing an event for want of
+a clean geocode. Detail in [event-presentation.md §1](event-presentation.md).
+
+### ADR-0021 — One standard article layout for events (shared sheet + panel)
+*2026-06-21* · accepted
+Events render in **one** layout everywhere (the modal sheet and the side panel currently
+diverge): **title → media (hero + gallery) → summary → subject/body (with inline related-event
+links) → actors & place → related events (footer) → sources**. The **related-event links**
+(inline and in a persistent footer, from `event_relations` via `/related` + `/chain`) are
+treated as the **second-most-important** element of every event — they are what give the user
+the full historical picture (what led to an event, who the actors are) and are always present.
+Why: consistency, and elevating the links that are the product's core value. Detail in
+[event-presentation.md §3](event-presentation.md).
+
+### ADR-0022 — Search reads existing data **and** triggers live collection
+*2026-06-21* · accepted
+A search for a **location / actor(s) / keyword** must both return existing matches **and**
+expand the corpus on demand. A query: (1) returns DB matches immediately; (2) enqueues a
+**collection job** on the Phase-3b Redis run-queue; (3) an **on-demand collection agent**
+fans the subject out across all enabled source adapters and runs results through the normal
+publish→enrich→relate→geocode→media pipeline; (4) new events **stream to the client** (reusing
+the Phase-3b real-time stream / SSE) so the view refreshes as results arrive. Why: the user
+wants the data set to "always be expanding as we add more sources," and every search to
+"initiate a search to collect events" immediately. Background collect (not synchronous block)
+keeps the UX responsive. Detail in [event-presentation.md §5](event-presentation.md).
+
+### ADR-0023 — Clips-first media; no text-only events
+*2026-06-21* · accepted
+Presentation and collection both **prefer video clips over images over text**. Media is shown
+as an **expandable** gallery (swipe carousel, pinch-zoom images, fullscreen video). We **avoid
+text-only events**: the enrich/media stage ensures **≥1 image** and, where available, **one or
+more clips**; an otherwise text-only event is flagged for media acquisition, and media-rich
+sources are preferred during collection. Storage/archival is unchanged (ADR-0018). Why: users
+engage far more with clips than with bare text. Detail in
+[event-presentation.md §4](event-presentation.md).

@@ -100,6 +100,44 @@ class CountryAtlas {
     return null;
   }
 
+  /// The country containing [p]; if the point falls in ocean / outside every polygon, the
+  /// nearest country by bbox-centroid distance (so a coastal or disputed point still lights
+  /// up a country). Returns null only for an empty atlas. Part of the ADR-0020 fallback.
+  Country? countryAtOrNearest(LatLng p) {
+    final hit = countryAt(p);
+    if (hit != null) return hit;
+    Country? best;
+    var bestD = double.infinity;
+    for (final c in _countries) {
+      final cy = (c.minLat + c.maxLat) / 2, cx = (c.minLon + c.maxLon) / 2;
+      final dy = cy - p.latitude, dx = cx - p.longitude;
+      final d = dy * dy + dx * dx;
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /// Resolve a free-text place label (e.g. "United Kingdom", "GBR", "Iran") to a country by
+  /// matching its name or ISO, case-insensitively. Returns null if no match. Lets an event
+  /// with a geo_label but no usable coordinate still highlight a country.
+  Country? countryByName(String? label) {
+    if (label == null) return null;
+    final q = label.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    for (final c in _countries) {
+      if (c.name.toLowerCase() == q || (c.iso?.toLowerCase() == q)) return c;
+    }
+    // Loose contains match (e.g. label "Tehran, Iran" → "Iran").
+    for (final c in _countries) {
+      final n = c.name.toLowerCase();
+      if (n.length > 3 && q.contains(n)) return c;
+    }
+    return null;
+  }
+
   /// The distinct countries touched by any of [points] (nulls ignored), in first-seen order.
   List<Country> resolve(Iterable<LatLng?> points) {
     final seen = <String>{};

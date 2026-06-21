@@ -146,6 +146,14 @@ SPECS: list[ConfigSpec] = [
        scope="agent:geocode", component_id="agent:geocode", minimum=2, maximum=200,
        help="Events + place entities to geocode per run. Nominatim is rate-limited to "
             "~1 req/s so keep this low unless running on a private instance."),
+    _b("agents.geocode.cascade", True, "Location cascade",
+       scope="agent:geocode", component_id="agent:geocode",
+       help="When geo_label lookup fails, resolve via location entities → text analysis "
+            "→ news-agency country so every event gets a location (ADR-0020)."),
+    _b("agents.geocode.agency_fallback", True, "News-agency fallback",
+       scope="agent:geocode", component_id="agent:geocode",
+       help="Last resort: place the event at the source/news-agency's country when nothing "
+            "else resolves. Weakest signal; disable to leave such events unresolved."),
 
     # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
     ConfigSpec(key="llm.embedding.base_url", type="string",

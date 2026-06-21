@@ -86,6 +86,18 @@ class OverviewView(BaseModel):
     recent_runs: list[RunView] = Field(default_factory=list)
 
 
+class IntegrityView(BaseModel):
+    """Data-integrity counts: published events missing a required field (ADR-0020).
+
+    Every event should carry Time + Location + Actors; these count the shortfalls so the
+    geocoder/enricher can consume the worklist and operators can see coverage."""
+
+    published: int = 0                 # total published events
+    missing_location: int = 0          # geom IS NULL
+    missing_actors: int = 0            # no actor-role entity
+    missing_media: int = 0             # no linked media (text-only; ADR-0023)
+
+
 class StorageView(BaseModel):
     """Storage usage: media by status/disposition + bytes, and event/source totals."""
 
@@ -93,6 +105,7 @@ class StorageView(BaseModel):
     media_by_disposition: dict[str, int] = Field(default_factory=dict)
     media_stored_bytes: int = 0
     totals: dict[str, int] = Field(default_factory=dict)
+    integrity: "IntegrityView | None" = None  # event Time/Location/Actors coverage (ADR-0020)
 
 
 class SystemView(BaseModel):

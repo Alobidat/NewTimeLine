@@ -186,22 +186,48 @@ class _ExperienceScreenState extends State<ExperienceScreen>
   (List<MapPin>, List<Country>, Map<String, int>) _mapData() {
     if (_selection.mode == ViewMode.detail) {
       final d = _detail;
-      if (d?.geo == null) return (const [], const [], const {});
-      final pt = LatLng(d!.geo!.lat, d.geo!.lon);
-      final c = _atlas.isEmpty ? null : _atlas.countryAt(pt);
+      if (d == null) return (const [], const [], const {});
+
+      // Gather every location this event involves: the primary point plus any location-role
+      // (and country-actor) entities that carry coordinates → multi-country highlight.
+      final pins = <MapPin>[];
+      final points = <LatLng>[];
+      if (d.geo != null) {
+        final pt = LatLng(d.geo!.lat, d.geo!.lon);
+        points.add(pt);
+        pins.add(MapPin(
+          id: d.id,
+          point: pt,
+          severity: d.severity,
+          label: d.geoLabel,
+          selected: true,
+          onTap: () {},
+        ));
+      }
+      for (final er in d.entities) {
+        if ((er.role == 'location' || er.role == 'actor') && er.entity.geo != null) {
+          points.add(LatLng(er.entity.geo!.lat, er.entity.geo!.lon));
+        }
+      }
+
+      // Resolve countries: each point → containing-or-nearest country; plus a geo_label name
+      // match. This is the ADR-0020 client fallback so every event highlights something.
+      final countries = <Country>[];
+      final seen = <String>{};
+      void add(Country? c) {
+        if (c != null && seen.add(c.id)) countries.add(c);
+      }
+
+      if (!_atlas.isEmpty) {
+        for (final p in points) {
+          add(_atlas.countryAtOrNearest(p));
+        }
+        if (countries.isEmpty) add(_atlas.countryByName(d.geoLabel));
+      }
       return (
-        [
-          MapPin(
-            id: d.id,
-            point: pt,
-            severity: d.severity,
-            label: d.geoLabel,
-            selected: true,
-            onTap: () {},
-          ),
-        ],
-        c != null ? [c] : const [],
-        c != null ? {c.id: 1} : const {},
+        pins,
+        countries,
+        {for (final c in countries) c.id: 1},
       );
     }
     // Summary mode: plot the representatives, draw every involved country.

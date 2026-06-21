@@ -19,6 +19,7 @@ from chronos_core.schemas.admin import (
     ComponentView,
     ConfigEntry,
     HealthView,
+    IntegrityView,
     RunView,
     StorageView,
     SystemView,
@@ -102,6 +103,32 @@ async def counts(session: AsyncSession) -> dict[str, int]:
     }
 
 
+async def integrity(session: AsyncSession) -> IntegrityView:
+    """Count published events missing a required field (Location / Actors / Media) — ADR-0020.
+
+    This is the worklist the geocoder + enricher consume and the coverage the portal shows."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT count(*) AS published, "
+                "count(*) FILTER (WHERE geom IS NULL) AS missing_location, "
+                "count(*) FILTER (WHERE NOT EXISTS ("
+                "  SELECT 1 FROM event_entities ee WHERE ee.event_id = e.id "
+                "  AND ee.role = 'actor')) AS missing_actors, "
+                "count(*) FILTER (WHERE NOT EXISTS ("
+                "  SELECT 1 FROM event_media em WHERE em.event_id = e.id)) AS missing_media "
+                "FROM events e WHERE e.status = 'published'"
+            )
+        )
+    ).first()
+    return IntegrityView(
+        published=row.published,
+        missing_location=row.missing_location,
+        missing_actors=row.missing_actors,
+        missing_media=row.missing_media,
+    )
+
+
 async def storage(session: AsyncSession) -> StorageView:
     """Media usage by status/disposition + stored bytes, plus headline totals."""
     by_status = {
@@ -122,6 +149,7 @@ async def storage(session: AsyncSession) -> StorageView:
     return StorageView(
         media_by_status=by_status, media_by_disposition=by_disp,
         media_stored_bytes=int(stored_bytes or 0), totals=await counts(session),
+        integrity=await integrity(session),
     )
 
 

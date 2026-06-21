@@ -105,6 +105,29 @@ queue/scheduler (run-now execution), admin real-time streaming + deeper resource
 **Done when:** new world events appear enriched+scored within minutes, under budget, and an
 operator can tune agents/budgets/feeds from the admin console.
 
+## Phase 3c — Event presentation, location integrity & live search 🟡 IN PROGRESS
+**Goal:** every event is a complete, richly-presented article that *always* highlights on the
+map and is *always* connected to related events; search both reads and grows the corpus.
+Builds on the existing schema (no new core tables). Full design:
+[event-presentation.md](event-presentation.md) (ADR-0020…0023).
+- **A — Location integrity & map fix** *(start here; the reported "huge problem")*: enforce
+  Time+Location+Actors per event via a **resolution cascade** (geom → `geo_label` →
+  `location` entities → text analysis → news-agency country) + multi-location highlighting +
+  data-integrity flagging; fix the client's silent no-highlight fallback; backfill existing
+  events. (ADR-0020)
+- **B — Article format & rich media:** one standard layout across sheet + panel (title →
+  media → summary → subject w/ inline links → actors → **related-events footer** → sources);
+  expandable, clips-first media gallery (carousel, pinch-zoom, fullscreen video). (ADR-0021/0023)
+- **C — Rich search + live collection:** search by location/actor/keyword (faceted), and a
+  search **triggers background collection** (Redis run-queue → on-demand collection agent →
+  pipeline → SSE stream) so results refresh as new events arrive. (ADR-0022)
+- **D — Source expansion & media-richness:** source-adapter registry (RSS/Wikidata/Wikipedia/
+  news APIs) widening both background and search-driven collection; **no text-only events**
+  (ensure ≥1 image, prefer clips). (ADR-0023)
+**Done when:** every event shows the article layout with media + related links, highlights one
+or more countries on the map, and a search returns existing results while live-collecting and
+streaming in new ones.
+
 ## Phase 4 — Social layer + accounts
 **Goal:** users, reactions, comments, and the source-validation system.
 - **Social login (OIDC):** Google, Facebook, **Apple** (iOS-required), email; first login
