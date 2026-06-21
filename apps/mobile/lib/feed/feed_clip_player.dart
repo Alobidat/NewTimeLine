@@ -9,6 +9,8 @@
 /// the feed never renders a blank or broken page.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -149,14 +151,24 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   Widget _surface() {
     final c = _controller;
     if (c != null && c.value.isInitialized) {
-      // Cover-fit: scale the video to fill the page (crop overflow), TikTok-style.
-      return FittedBox(
-        fit: BoxFit.cover,
-        clipBehavior: Clip.hardEdge,
-        child: SizedBox(
-          width: c.value.size.width,
-          height: c.value.size.height,
-          child: VideoPlayer(c),
+      // Cover-fit, TikTok-style: scale the clip to fill the page and crop the overflow.
+      // We size the video box *explicitly* to the cover dimensions (rather than relying on
+      // FittedBox) because on the web the player is an HTML <video> platform view that
+      // FittedBox can't transform — a landscape clip would otherwise letterbox into a strip.
+      final vs = c.value.size;
+      return ClipRect(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final boxW = constraints.maxWidth, boxH = constraints.maxHeight;
+            final vw = vs.width <= 0 ? boxW : vs.width;
+            final vh = vs.height <= 0 ? boxH : vs.height;
+            final scale = math.max(boxW / vw, boxH / vh); // cover
+            final w = vw * scale, h = vh * scale;
+            return OverflowBox(
+              minWidth: w, maxWidth: w, minHeight: h, maxHeight: h,
+              child: SizedBox(width: w, height: h, child: VideoPlayer(c)),
+            );
+          },
         ),
       );
     }
