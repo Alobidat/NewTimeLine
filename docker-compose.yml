@@ -15,6 +15,12 @@ x-app-env: &app-env
   S3_ACCESS_KEY: ${MINIO_ROOT_USER}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   ENVIRONMENT: dev
+  # Social-login client secrets (ADR-0026). Kept out of git — set in the host .env; a provider
+  # is only offered when its secret here AND its client_id (Config Service) are present.
+  AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
+  AUTH_APPLE_CLIENT_SECRET: ${AUTH_APPLE_CLIENT_SECRET:-}
+  AUTH_FACEBOOK_CLIENT_SECRET: ${AUTH_FACEBOOK_CLIENT_SECRET:-}
+  AUTH_TWITTER_CLIENT_SECRET: ${AUTH_TWITTER_CLIENT_SECRET:-}
 
 services:
   postgres:
