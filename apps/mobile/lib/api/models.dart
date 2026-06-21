@@ -214,17 +214,30 @@ class MediaRead {
 }
 
 class RelatedEvent {
-  RelatedEvent({required this.event, required this.kind, required this.weight, required this.direction});
+  RelatedEvent({
+    required this.event,
+    required this.kind,
+    required this.weight,
+    required this.direction,
+    this.origin = 'agent',
+    this.addedBy,
+  });
   final EventRead event;
   final String kind;
   final double weight;
   final String direction; // back | forward
+  final String origin; // user | agent (ADR-0025 §2.4)
+  final String? addedBy; // actor id when origin == user
+
+  bool get isUserAdded => origin == 'user';
 
   factory RelatedEvent.fromJson(Map<String, dynamic> j) => RelatedEvent(
     event: EventRead.fromJson(j['event'] as Map<String, dynamic>),
     kind: j['kind'] as String,
     weight: _d(j['weight']),
     direction: j['direction'] as String,
+    origin: j['origin'] as String? ?? 'agent',
+    addedBy: j['added_by'] as String?,
   );
 }
 
@@ -470,6 +483,124 @@ class TimelineSummary {
     representatives: ((j['representatives'] as List?) ?? [])
         .map((e) => SummaryRep.fromJson(e as Map<String, dynamic>))
         .toList(),
+  );
+}
+
+/// One threaded comment on an event (data-model.md §3.5 / ADR-0025). Replies point at a
+/// parent via [parentId]; a null parent is a top-level comment. The article builds the
+/// tree client-side from the flat, oldest-first list the API returns. Soft-removed
+/// comments come back with status `removed` (kept so reply threads don't collapse).
+class CommentRead {
+  CommentRead({
+    required this.id,
+    required this.eventId,
+    required this.userId,
+    required this.body,
+    required this.score,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+    this.parentId,
+  });
+
+  final String id;
+  final String eventId;
+  final String userId;
+  final String? parentId;
+  final String body;
+  final int score;
+  final String status; // visible | removed | hidden
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  bool get isRemoved => status == 'removed';
+
+  static DateTime _dt(Object? v) =>
+      DateTime.tryParse(v as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+  factory CommentRead.fromJson(Map<String, dynamic> j) => CommentRead(
+    id: j['id'] as String,
+    eventId: j['event_id'] as String,
+    userId: j['user_id'] as String,
+    parentId: j['parent_id'] as String?,
+    body: j['body'] as String? ?? '',
+    score: (j['score'] as num?)?.toInt() ?? 0,
+    status: j['status'] as String? ?? 'visible',
+    createdAt: _dt(j['created_at']),
+    updatedAt: _dt(j['updated_at']),
+  );
+}
+
+/// Aggregate reactions for an event (ADR-0025 §2.2): per-kind counts plus the kinds the
+/// calling actor has set (`mine`). The POST toggle returns the same aggregate so the UI
+/// reconciles to the server truth after its optimistic update.
+class ReactionSummary {
+  ReactionSummary({
+    required this.eventId,
+    required this.counts,
+    required this.mine,
+  });
+
+  final String eventId;
+  final Map<String, int> counts; // kind -> count
+  final Set<String> mine; // kinds the actor has set
+
+  static const List<String> kinds = ['like', 'dislike', 'important', 'doubt'];
+
+  int countOf(String kind) => counts[kind] ?? 0;
+  bool isMine(String kind) => mine.contains(kind);
+
+  static Map<String, int> _counts(Object? v) {
+    final m = (v as Map?) ?? const {};
+    return m.map((k, val) => MapEntry(k as String, (val as num).toInt()));
+  }
+
+  factory ReactionSummary.fromJson(Map<String, dynamic> j) => ReactionSummary(
+    eventId: j['event_id'] as String? ?? '',
+    counts: _counts(j['counts']),
+    mine: ((j['mine'] as List?) ?? const []).map((e) => e as String).toSet(),
+  );
+
+  /// The POST toggle response carries `{kind, active, counts, mine}` — same aggregate.
+  factory ReactionSummary.fromToggle(Map<String, dynamic> j) =>
+      ReactionSummary.fromJson(j);
+}
+
+/// Credibility votes for an event's sources (ADR-0025 §2.3). [tallies] maps each source
+/// id to its per-verdict counts; [mine] maps each source id to the verdict the actor cast
+/// (absent → not yet voted).
+class SourceVotes {
+  SourceVotes({required this.eventId, required this.tallies, required this.mine});
+
+  final String eventId;
+  final Map<String, Map<String, int>> tallies; // source_id -> verdict -> count
+  final Map<String, String> mine; // source_id -> verdict
+
+  static const List<String> verdicts = ['corroborate', 'dispute', 'irrelevant'];
+
+  Map<String, int> talliesFor(String sourceId) => tallies[sourceId] ?? const {};
+  String? mineFor(String sourceId) => mine[sourceId];
+
+  static Map<String, Map<String, int>> _tallies(Object? v) {
+    final m = (v as Map?) ?? const {};
+    return m.map((sid, verdicts) {
+      final vm = (verdicts as Map?) ?? const {};
+      return MapEntry(
+        sid as String,
+        vm.map((k, c) => MapEntry(k as String, (c as num).toInt())),
+      );
+    });
+  }
+
+  static Map<String, String> _mine(Object? v) {
+    final m = (v as Map?) ?? const {};
+    return m.map((sid, verdict) => MapEntry(sid as String, verdict as String));
+  }
+
+  factory SourceVotes.fromJson(Map<String, dynamic> j) => SourceVotes(
+    eventId: j['event_id'] as String? ?? '',
+    tallies: _tallies(j['tallies']),
+    mine: _mine(j['mine']),
   );
 }
 

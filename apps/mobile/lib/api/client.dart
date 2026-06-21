@@ -32,6 +32,40 @@ class ApiClient {
     return jsonDecode(resp.body);
   }
 
+  static const _jsonHeaders = {'content-type': 'application/json'};
+
+  /// POST [body] as JSON; accept any 2xx. Returns the decoded body (or null when empty).
+  Future<dynamic> _postJson(
+    String path,
+    Object body, {
+    Map<String, String>? query,
+  }) async {
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final resp = await _http.post(uri, headers: _jsonHeaders, body: jsonEncode(body));
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw ApiException('POST $uri → ${resp.statusCode}');
+    }
+    return resp.body.isEmpty ? null : jsonDecode(resp.body);
+  }
+
+  Future<dynamic> _patchJson(String path, Object body) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final resp = await _http.patch(uri, headers: _jsonHeaders, body: jsonEncode(body));
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw ApiException('PATCH $uri → ${resp.statusCode}');
+    }
+    return resp.body.isEmpty ? null : jsonDecode(resp.body);
+  }
+
+  Future<dynamic> _delete(String path, {Map<String, String>? query}) async {
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final resp = await _http.delete(uri);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw ApiException('DELETE $uri → ${resp.statusCode}');
+    }
+    return resp.body.isEmpty ? null : jsonDecode(resp.body);
+  }
+
   /// Timeline window: events (sparse) or buckets (dense). Times are signed years.
   Future<TimelineResponse> timeline({
     required double t0,
@@ -206,6 +240,118 @@ class ApiClient {
       await _getJson('/events/$id/chain', {'direction': direction, 'depth': depth.toString()})
           as Map<String, dynamic>,
     );
+  }
+
+  // ── Interaction foundations (ADR-0025). Writes resolve a server-side actor stub; the
+  // client never sends a user id (real OIDC sessions arrive in Phase 4 with no API change).
+
+  /// Comments on an event, oldest-first (the article builds the reply tree client-side).
+  Future<List<CommentRead>> comments(
+    String eventId, {
+    int limit = 200,
+    int offset = 0,
+  }) async {
+    final list = await _getJson('/events/$eventId/comments', {
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    }) as List;
+    return list
+        .map((e) => CommentRead.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Post a top-level comment ([parentId] null) or a reply. Returns the created comment.
+  Future<CommentRead> addComment(
+    String eventId,
+    String body, {
+    String? parentId,
+  }) async {
+    final j = await _postJson('/events/$eventId/comments', {
+      'body': body,
+      'parent_id': ?parentId,
+    });
+    return CommentRead.fromJson(j as Map<String, dynamic>);
+  }
+
+  /// Edit one's own comment body.
+  Future<CommentRead> editComment(
+    String eventId,
+    String commentId,
+    String body,
+  ) async {
+    final j = await _patchJson('/events/$eventId/comments/$commentId', {
+      'body': body,
+    });
+    return CommentRead.fromJson(j as Map<String, dynamic>);
+  }
+
+  /// Soft-delete one's own comment (the server keeps it as `removed` so replies survive).
+  Future<void> deleteComment(String eventId, String commentId) async {
+    await _delete('/events/$eventId/comments/$commentId');
+  }
+
+  /// Aggregate reactions for an event (+ the actor's own set).
+  Future<ReactionSummary> reactions(String eventId) async {
+    return ReactionSummary.fromJson(
+      await _getJson('/events/$eventId/reactions', const {})
+          as Map<String, dynamic>,
+    );
+  }
+
+  /// Toggle a reaction [kind] (like|dislike|important|doubt). Returns the fresh aggregate.
+  Future<ReactionSummary> toggleReaction(String eventId, String kind) async {
+    return ReactionSummary.fromToggle(
+      await _postJson('/events/$eventId/reactions', {'kind': kind})
+          as Map<String, dynamic>,
+    );
+  }
+
+  /// Source-credibility vote tallies for an event (+ the actor's own verdicts).
+  Future<SourceVotes> sourceVotes(String eventId) async {
+    return SourceVotes.fromJson(
+      await _getJson('/events/$eventId/source-votes', const {})
+          as Map<String, dynamic>,
+    );
+  }
+
+  /// Cast a source vote (verdict ∈ corroborate|dispute|irrelevant). Returns fresh tallies.
+  Future<SourceVotes> castSourceVote(
+    String eventId,
+    String sourceId,
+    String verdict,
+  ) async {
+    return SourceVotes.fromJson(
+      await _postJson('/events/$eventId/source-votes', {
+        'source_id': sourceId,
+        'verdict': verdict,
+      }) as Map<String, dynamic>,
+    );
+  }
+
+  /// Assert a user link between two events (ADR-0025 §2.4). Default kind `thematic`.
+  Future<void> createLink(
+    String srcEvent,
+    String dstEvent, {
+    String kind = 'thematic',
+  }) async {
+    await _postJson('/links', {
+      'src_event': srcEvent,
+      'dst_event': dstEvent,
+      'kind': kind,
+    });
+  }
+
+  /// Remove a previously-asserted user link.
+  Future<void> removeLink(
+    String srcEvent,
+    String dstEvent, {
+    String kind = 'thematic',
+  }) async {
+    await _delete('/links', query: {
+      'src_event': srcEvent,
+      'dst_event': dstEvent,
+      'kind': kind,
+    });
   }
 
   /// Absolute URL for a media item's bytes (streamed/redirected by the API).

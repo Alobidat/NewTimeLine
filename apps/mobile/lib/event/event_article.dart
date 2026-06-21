@@ -23,8 +23,12 @@ import 'package:flutter/material.dart';
 import '../api/client.dart';
 import '../api/models.dart';
 import '../domain/time_format.dart';
+import 'comments_section.dart';
 import 'detail_widgets.dart';
 import 'event_detail_sheet.dart' show showEventDetailById;
+import 'link_picker.dart';
+import 'reaction_bar.dart';
+import 'source_vote_bar.dart';
 
 class EventArticle extends StatefulWidget {
   const EventArticle({
@@ -65,6 +69,11 @@ class EventArticle extends StatefulWidget {
 class _EventArticleState extends State<EventArticle> {
   late Future<List<RelatedEvent>> _related;
 
+  // Source-credibility votes (ADR-0025 §2.3) — one fetch per event, shared by every
+  // source row's vote bar. Null while loading / on failure.
+  SourceVotes? _sourceVotes;
+  final Set<String> _voteInFlight = {};
+
   @override
   void initState() {
     super.initState();
@@ -74,13 +83,63 @@ class _EventArticleState extends State<EventArticle> {
   @override
   void didUpdateWidget(EventArticle old) {
     super.didUpdateWidget(old);
-    if (old.detail.id != widget.detail.id) _load();
+    if (old.detail.id != widget.detail.id) {
+      _sourceVotes = null;
+      _load();
+    }
   }
 
   void _load() {
     _related = widget.api
         .related(widget.detail.id)
         .catchError((_) => <RelatedEvent>[]);
+    _loadSourceVotes();
+  }
+
+  Future<void> _loadSourceVotes() async {
+    try {
+      final v = await widget.api.sourceVotes(widget.detail.id);
+      if (mounted) setState(() => _sourceVotes = v);
+    } catch (_) {
+      // Leave tallies empty; the bars still render and casting can retry.
+    }
+  }
+
+  /// Reload the related footer (after the user creates a link). The new edge returns
+  /// tagged origin=user and renders distinctly.
+  void _reloadRelated() {
+    setState(() {
+      _related = widget.api
+          .related(widget.detail.id)
+          .catchError((_) => <RelatedEvent>[]);
+    });
+  }
+
+  Future<void> _castSourceVote(String sourceId, String verdict) async {
+    if (_voteInFlight.contains(sourceId)) return;
+    setState(() => _voteInFlight.add(sourceId));
+    try {
+      final fresh =
+          await widget.api.castSourceVote(widget.detail.id, sourceId, verdict);
+      if (mounted) setState(() => _sourceVotes = fresh);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('Could not record your vote.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _voteInFlight.remove(sourceId));
+    }
+  }
+
+  Future<void> _openLinkPicker() async {
+    final created = await showLinkPicker(
+      context,
+      widget.api,
+      srcEventId: widget.detail.id,
+    );
+    if (created) _reloadRelated();
   }
 
   @override
@@ -103,6 +162,10 @@ class _EventArticleState extends State<EventArticle> {
         ),
         const SizedBox(height: 8),
         _MetaRow(e: e),
+
+        // Reaction bar (ADR-0025 §2.2) — near the title/meta so engagement is immediate.
+        const SizedBox(height: 8),
+        ReactionBar(api: widget.api, eventId: e.id),
 
         // 2. Media — hero (clip-preferred) + expandable gallery.
         if (media.isNotEmpty) ...[
@@ -152,15 +215,17 @@ class _EventArticleState extends State<EventArticle> {
           ),
         ],
 
-        // 6. Related events footer — always present.
+        // 6. Related events footer — always present. Includes a "Link this event"
+        // affordance; user-created links render distinctly (ADR-0025 §2.4).
         const SizedBox(height: 20),
         RelatedFooter(
           future: _related,
           api: widget.api,
           onSelect: _selectRelated,
+          onAddLink: _openLinkPicker,
         ),
 
-        // 7. Sources.
+        // 7. Sources, each with a credibility-vote bar (ADR-0025 §2.3).
         const SizedBox(height: 20),
         const Section('Sources'),
         if (e.sources.isEmpty)
@@ -168,7 +233,11 @@ class _EventArticleState extends State<EventArticle> {
         else
           ...e.sources.map(_sourceTile),
 
-        // 8. Sub-timeline references (deep-history subjects, ADR-0005).
+        // 8. Discussion — threaded comments (ADR-0025 §2.1).
+        const SizedBox(height: 24),
+        CommentsSection(api: widget.api, eventId: e.id),
+
+        // 9. Sub-timeline references (deep-history subjects, ADR-0005).
         if (e.references.isNotEmpty) ...[
           const SizedBox(height: 12),
           const Section('Explore the history (sub-timeline)'),
@@ -214,18 +283,35 @@ class _EventArticleState extends State<EventArticle> {
     );
   }
 
-  Widget _sourceTile(SourceRead s) => ListTile(
-    contentPadding: EdgeInsets.zero,
-    leading: const Icon(Icons.article_outlined),
-    title: Text(s.title ?? s.domain),
-    subtitle: Text(
-      [
-        s.publisher ?? s.domain,
-        if (s.publishedAt != null) formatDate(s.publishedAt!),
-        s.url,
-      ].join(' · '),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+  Widget _sourceTile(SourceRead s) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.article_outlined),
+          title: Text(s.title ?? s.domain),
+          subtitle: Text(
+            [
+              s.publisher ?? s.domain,
+              if (s.publishedAt != null) formatDate(s.publishedAt!),
+              s.url,
+            ].join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 40, bottom: 4),
+          child: SourceVoteBar(
+            sourceId: s.id,
+            votes: _sourceVotes,
+            busy: _voteInFlight.contains(s.id),
+            onCast: (verdict) => _castSourceVote(s.id, verdict),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -438,11 +524,15 @@ class RelatedFooter extends StatelessWidget {
     required this.future,
     required this.api,
     required this.onSelect,
+    this.onAddLink,
   });
 
   final Future<List<RelatedEvent>> future;
   final ApiClient api;
   final void Function(String eventId) onSelect;
+
+  /// Opens the "link this event" picker (ADR-0025 §2.4). When null the affordance hides.
+  final VoidCallback? onAddLink;
 
   static bool _isStructural(String kind) =>
       kind == 'same-place' || kind == 'same-actor';
@@ -455,19 +545,37 @@ class RelatedFooter extends StatelessWidget {
         final loading = snap.connectionState != ConnectionState.done;
         final items = snap.data ?? const <RelatedEvent>[];
 
-        final ledTo = items
+        // User-asserted links surface in their own group, tagged "added by a user"
+        // (ADR-0025 §2.4), regardless of direction/kind.
+        final userAdded = items.where((r) => r.isUserAdded).toList();
+        final agentItems = items.where((r) => !r.isUserAdded).toList();
+
+        final ledTo = agentItems
             .where((r) => r.direction == 'back' && !_isStructural(r.kind))
             .toList();
-        final caused = items
+        final caused = agentItems
             .where((r) => r.direction == 'forward' && !_isStructural(r.kind))
             .toList();
         final sameContext =
-            items.where((r) => _isStructural(r.kind)).toList();
+            agentItems.where((r) => _isStructural(r.kind)).toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Section('Related events'),
+            Row(
+              children: [
+                const Expanded(child: Section('Related events')),
+                if (onAddLink != null)
+                  TextButton.icon(
+                    onPressed: onAddLink,
+                    icon: const Icon(Icons.add_link, size: 18),
+                    label: const Text('Link this event'),
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+              ],
+            ),
             if (loading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
@@ -495,6 +603,12 @@ class RelatedFooter extends StatelessWidget {
                 icon: Icons.hub_outlined,
                 title: 'Same place / same actors',
                 items: sameContext,
+                onSelect: onSelect,
+              ),
+              _RelatedGroup(
+                icon: Icons.person_add_alt_1_outlined,
+                title: 'Added by a user',
+                items: userAdded,
                 onSelect: onSelect,
               ),
             ],
