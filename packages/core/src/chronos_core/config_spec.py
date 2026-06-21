@@ -31,6 +31,22 @@ _RSS_FEEDS = [
     "https://www.aljazeera.com/xml/rss/all.xml",
 ]
 
+# Auth providers (ADR-0026): the non-secret half of the provider registry. Each entry is a
+# toggle + client_id + scopes; the matching client SECRET lives in Settings (env). A provider
+# is only offered to clients when ``enabled`` AND it has a client_id (config) AND a secret
+# (env). Default ships them DISABLED with empty client_ids so the app boots with no providers
+# configured → /auth/providers returns []. Adding a provider is config, not code.
+_AUTH_PROVIDERS = [
+    {"id": "google", "enabled": False, "client_id": "",
+     "scopes": ["openid", "email", "profile"]},
+    {"id": "apple", "enabled": False, "client_id": "",
+     "scopes": ["name", "email"]},
+    {"id": "facebook", "enabled": False, "client_id": "",
+     "scopes": ["email", "public_profile"]},
+    {"id": "twitter", "enabled": False, "client_id": "",
+     "scopes": ["users.read", "tweet.read"]},
+]
+
 
 class ConfigSpec(BaseModel):
     """Type + metadata + constraints for one config key."""
@@ -209,6 +225,30 @@ SPECS: list[ConfigSpec] = [
     _i("search.stream.max_seconds", 120, "Search stream lifetime (s)",
        scope="search", component_id=None, minimum=5, maximum=900,
        help="Upper bound on a single /search/stream connection before the client reconnects."),
+
+    # Accounts / auth (ADR-0026). Non-secret toggles; client secrets live in Settings (env).
+    # Owned by the API auth surface (no component manifest) → component_id None.
+    ConfigSpec(key="auth.providers", type="json", scope="auth", default=_AUTH_PROVIDERS,
+               label="Auth providers", component_id=None,
+               help="Social-login providers (enabled + client_id + scopes). The client "
+                    "SECRET is set via env/Settings. A provider is offered only when enabled "
+                    "AND has a client_id AND a secret. Empty/disabled → /auth/providers is []."),
+    ConfigSpec(key="auth.redirect_base", type="string", scope="auth", default="",
+               label="OAuth redirect base URL", component_id=None,
+               help="Public base URL the provider redirects back to; the callback path "
+                    "/auth/{provider}/callback is appended. Empty → derived from the request."),
+    ConfigSpec(key="auth.agreement_version", type="string", scope="auth", default="2026-06-21",
+               label="Agreement version", component_id=None,
+               help="Current Terms/acceptable-use/privacy version. Bumping it re-prompts every "
+                    "user; interaction requires an acceptance of this exact version."),
+    ConfigSpec(key="auth.agreement_url", type="string", scope="auth",
+               default="https://newtimeline.app/legal/terms",
+               label="Agreement document URL", component_id=None,
+               help="Where the current agreement text is published (shown to the user)."),
+    _b("auth.require_email_verified", True, "Require verified email to interact",
+       scope="auth", component_id=None,
+       help="Gate writes on a verified email (ADR-0026). Providers asserting a verified "
+            "email satisfy it; otherwise the user verifies via emailed code."),
 
     # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
     ConfigSpec(key="llm.embedding.base_url", type="string",

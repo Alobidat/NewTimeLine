@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import chronos_core.interactions_repo as repo
 import chronos_api.graph_queries as gq
 import pytest
-from chronos_api.auth_stub import get_actor
+from chronos_api.auth_stub import get_actor, require_verified_actor
 from chronos_api.deps import get_session
 from chronos_api.routers import interactions, links
 from fastapi import FastAPI
@@ -53,6 +53,10 @@ def client(monkeypatch):
         yield _FakeSession()
 
     app.dependency_overrides[get_session] = _fake_session
+    # Write endpoints now depend on the Phase-4 write gate (require_verified_actor); these
+    # wiring tests stand in a fixed verified actor so they still assert the same plumbing.
+    # The gate itself is unit-tested in test_auth.py (anonymous → 401).
+    app.dependency_overrides[require_verified_actor] = get_actor
     return TestClient(app)
 
 
@@ -71,7 +75,7 @@ def test_create_comment_injects_actor_and_returns_201(client, monkeypatch):
     data = resp.json()
     assert data["body"] == "hello"
     # The actor came from the get_actor stub, not the request body.
-    assert captured["user_id"] == get_actor()
+    assert captured["user_id"] == get_actor(None)
     assert str(captured["event_id"]) == str(ev)
 
 
@@ -149,7 +153,7 @@ def test_create_link_attributes_to_actor(client, monkeypatch):
     body = resp.json()
     assert body["created"] is True
     assert body["kind"] == "thematic"  # default
-    assert captured["user_id"] == get_actor()
+    assert captured["user_id"] == get_actor(None)
 
 
 def test_remove_link_only_reports_removed(client, monkeypatch):

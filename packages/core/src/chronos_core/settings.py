@@ -37,11 +37,45 @@ class Settings(BaseSettings):
     # requires this bearer token; when empty in dev, admin access is open for convenience.
     admin_token: str = Field(default="")
 
-    # Identity stub for interaction writes (ADR-0025). Until Phase-4 OIDC lands, every
-    # interaction (comment/reaction/vote/link) is attributed to this fixed dev/anonymous
-    # actor UUID. Phase 4 replaces the get_actor stub body with the real session lookup;
-    # this key then becomes unused. Stable default so dev writes are reproducible.
+    # Identity stub for interaction writes (ADR-0025). Until a JWT session is presented,
+    # READS still resolve to this fixed dev/anonymous actor UUID for local convenience.
+    # NOTE: this anonymous actor never satisfies ``require_verified_actor`` (write gate) —
+    # only a verified, agreement-accepted JWT session does. Stable default → reproducible.
     dev_actor_id: str = Field(default="00000000-0000-0000-0000-000000000001")
+
+    # --- Phase-4 accounts / auth (ADR-0026) --------------------------------------------
+    # Session JWT (HS256, stdlib HMAC — no extra dependency). Set a strong secret per env;
+    # the dev default lets the app boot but MUST be overridden in prod.
+    jwt_secret: str = Field(default="dev-insecure-change-me")
+    jwt_ttl_seconds: int = Field(default=60 * 60 * 24 * 14)  # 14 days
+    jwt_issuer: str = Field(default="chronos")
+
+    # OAuth2/OIDC provider client secrets, keyed by provider id. Non-secret toggles (enabled
+    # set, scopes, redirect) live in the Config Service (auth.providers). A provider is only
+    # offered when it is enabled in config AND has both a client_id (config) and secret (here).
+    auth_google_client_secret: str = Field(default="")
+    auth_apple_client_secret: str = Field(default="")
+    auth_facebook_client_secret: str = Field(default="")
+    auth_twitter_client_secret: str = Field(default="")
+
+    # SMTP for email-verification mail. When host is empty the sender is a no-op console stub
+    # (dev/tests) — the verification code is still issued + returned by the request endpoint
+    # in non-prod so the flow is exercisable without a live SMTP.
+    smtp_host: str = Field(default="")
+    smtp_port: int = Field(default=587)
+    smtp_user: str = Field(default="")
+    smtp_password: str = Field(default="")
+    smtp_from: str = Field(default="no-reply@newtimeline.app")
+    smtp_starttls: bool = Field(default=True)
+
+    def provider_secret(self, provider: str) -> str:
+        """Return the configured client secret for a provider id (empty if unset)."""
+        return {
+            "google": self.auth_google_client_secret,
+            "apple": self.auth_apple_client_secret,
+            "facebook": self.auth_facebook_client_secret,
+            "twitter": self.auth_twitter_client_secret,
+        }.get(provider, "")
 
     @property
     def sync_database_url(self) -> str:

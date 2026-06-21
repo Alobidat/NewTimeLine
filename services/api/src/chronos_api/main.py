@@ -16,7 +16,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from chronos_api.routers import (
+    account,
     admin,
+    auth,
     entities,
     events,
     health,
@@ -60,6 +62,8 @@ def create_app() -> FastAPI:
     app.include_router(media.router)
     app.include_router(interactions.router)
     app.include_router(links.router)
+    app.include_router(auth.router)
+    app.include_router(account.router)
     app.include_router(admin.router)
     return app
 

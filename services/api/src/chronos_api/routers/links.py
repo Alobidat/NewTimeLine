@@ -3,7 +3,8 @@
 These are ``event_relations`` rows with ``created_by`` = the actor's user id (so the
 related-events view tags them "added by a user" vs agent-derived edges — see
 ``RelatedEvent.origin``). ``kind`` defaults to ``thematic``, the non-causal default for a
-user link. Auth is the ``get_actor`` stub for now.
+user link. Writes require ``require_verified_actor`` (signed-in, email-verified, agreement
+accepted — ADR-0026).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from chronos_core.schemas.interaction import EventLinkCreate, EventLinkResult
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from chronos_api.auth_stub import get_actor
+from chronos_api.auth_stub import require_verified_actor
 from chronos_api.deps import get_session
 
 router = APIRouter(prefix="/links", tags=["links"])
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/links", tags=["links"])
 async def create_link(
     data: EventLinkCreate,
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> EventLinkResult:
     """Add a directed src→dst relation between two events, attributed to the caller."""
     try:
@@ -49,7 +50,7 @@ async def remove_link(
     dst_event: uuid.UUID = Query(),
     kind: str = Query(default="thematic"),
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> EventLinkResult:
     """Remove your own event-link. Only edges you created (``created_by`` = your id) are
     removed — agent-derived edges are left untouched."""

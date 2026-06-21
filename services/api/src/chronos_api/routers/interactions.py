@@ -25,7 +25,7 @@ from chronos_core.schemas.interaction import (
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from chronos_api.auth_stub import get_actor
+from chronos_api.auth_stub import get_actor, require_verified_actor
 from chronos_api.deps import get_session
 
 router = APIRouter(prefix="/events/{event_id}", tags=["interactions"])
@@ -52,7 +52,7 @@ async def create_comment(
     event_id: uuid.UUID,
     data: CommentCreate,
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> CommentRead:
     """Post a comment, or a reply when ``parent_id`` is set."""
     try:
@@ -70,7 +70,7 @@ async def edit_comment(
     comment_id: uuid.UUID,
     data: CommentUpdate,
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> CommentRead:
     """Edit the body of your own comment."""
     try:
@@ -87,7 +87,7 @@ async def delete_comment(
     event_id: uuid.UUID,
     comment_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> CommentRead:
     """Soft-delete your own comment (status → removed; the row is kept for thread integrity)."""
     try:
@@ -119,7 +119,7 @@ async def toggle_reaction(
     event_id: uuid.UUID,
     data: ReactionToggle,
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> ReactionToggleResult:
     """Toggle a reaction kind on/off for the caller, returning the fresh aggregate."""
     try:
@@ -154,7 +154,7 @@ async def cast_source_vote(
     event_id: uuid.UUID,
     data: SourceVoteCast,
     session: AsyncSession = Depends(get_session),
-    actor: uuid.UUID = Depends(get_actor),
+    actor: uuid.UUID = Depends(require_verified_actor),
 ) -> SourceVoteResult:
     """Cast or change your verdict on a source's relevance to this event."""
     try:

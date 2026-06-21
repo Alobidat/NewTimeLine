@@ -1,7 +1,9 @@
 """API routers."""
 
 from chronos_api.routers import (
+    account,
     admin,
+    auth,
     entities,
     events,
     health,
@@ -13,7 +15,9 @@ from chronos_api.routers import (
 )
 
 __all__ = [
+    "account",
     "admin",
+    "auth",
     "entities",
     "events",
     "health",

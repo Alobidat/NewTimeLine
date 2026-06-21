@@ -11,6 +11,7 @@ from chronos_core.models.interaction import Comment, Reaction, SourceVote
 from chronos_core.models.media import EventMedia, Media, MediaSource
 from chronos_core.models.relation import EventRelation
 from chronos_core.models.source import EventSource, Source
+from chronos_core.models.user import User, UserAgreement, UserIdentity
 
 __all__ = [
     "AgentRun",
@@ -34,4 +35,7 @@ __all__ = [
     "SourceVote",
     "EventSource",
     "Source",
+    "User",
+    "UserIdentity",
+    "UserAgreement",
 ]
