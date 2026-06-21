@@ -87,8 +87,10 @@ class FeedItemView extends StatelessWidget {
               url: clipUrl,
               active: active,
               preload: preload,
-              posterUrl:
-                  item.heroMediaId != null ? api.mediaUrl(item.heroMediaId!) : null,
+              // No posterUrl: the hero is a *video*, so its /raw URL isn't a decodable image —
+              // passing it to Image.network just renders a broken image. The player shows a
+              // neutral backdrop while the clip initialises instead.
+              posterUrl: null,
             ),
             // Subtle bottom scrim so the caption stays legible over bright clips.
             const Positioned(
