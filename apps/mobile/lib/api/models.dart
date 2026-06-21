@@ -604,6 +604,139 @@ class SourceVotes {
   );
 }
 
+// ── Social graph + promotion + feed (social-and-feed §2/§4, ADR-0028). ──
+
+/// Follower/following counts for a follow target (`GET /follow/counts`).
+class FollowCounts {
+  FollowCounts({required this.followers, required this.following});
+  final int followers;
+  final int following;
+
+  factory FollowCounts.fromJson(Map<String, dynamic> j) => FollowCounts(
+    followers: (j['followers'] as num?)?.toInt() ?? 0,
+    following: (j['following'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// The tally returned by `POST /promote`: the caller's own vote ([mine] ∈ -1|0|1), the net
+/// [score], and the raw [up]/[down] counts. Drives the up/down affordances' selected state.
+class PromoteResult {
+  PromoteResult({
+    required this.mine,
+    required this.score,
+    required this.up,
+    required this.down,
+  });
+  final int mine;
+  final int score;
+  final int up;
+  final int down;
+
+  factory PromoteResult.fromJson(Map<String, dynamic> j) => PromoteResult(
+    mine: (j['mine'] as num?)?.toInt() ?? 0,
+    score: (j['score'] as num?)?.toInt() ?? 0,
+    up: (j['up'] as num?)?.toInt() ?? 0,
+    down: (j['down'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// One weighted interest the recommender learned (`GET /me/interests`): a label + its decayed
+/// weight, grouped by [kind] (entity | category | place | author).
+class InterestItem {
+  InterestItem({
+    required this.kind,
+    required this.label,
+    required this.weight,
+    this.id,
+  });
+  final String kind;
+  final String label;
+  final double weight;
+  final String? id;
+
+  factory InterestItem.fromJson(Map<String, dynamic> j) => InterestItem(
+    kind: (j['kind'] ?? j['type'] ?? 'topic') as String,
+    label: (j['label'] ?? j['name'] ?? '') as String,
+    weight: (j['weight'] as num?)?.toDouble() ?? 0,
+    id: j['id'] as String?,
+  );
+}
+
+/// The user's activity-driven interest profile (`GET /me/interests`, ADR-0028).
+class InterestProfile {
+  InterestProfile({this.items = const [], this.sampleSize = 0});
+  final List<InterestItem> items;
+
+  /// The number of activity rows the profile was computed from (`sample_size`); 0 means the
+  /// recommender has nothing to learn from yet (drives the empty-state copy).
+  final int sampleSize;
+
+  bool get isEmpty => items.isEmpty;
+
+  factory InterestProfile.fromJson(Map<String, dynamic> j) {
+    final sample = (j['sample_size'] as num?)?.toInt() ?? 0;
+    // Tolerate either a flat `interests`/`items` list or per-kind buckets.
+    final flat = (j['interests'] ?? j['items']) as List?;
+    if (flat != null) {
+      return InterestProfile(
+        items: flat
+            .map((e) => InterestItem.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        sampleSize: sample,
+      );
+    }
+    // The live `/me/interests` shape (chronos_core.schemas.social.InterestProfile): per-kind
+    // `{id-or-name: weight}` maps. `categories` keys are display names; `entities`/`places`/
+    // `sources` key by uuid (no name on the wire), so the id doubles as the label for now.
+    final out = <InterestItem>[];
+    for (final kind in const ['entities', 'categories', 'places', 'sources']) {
+      final bucket = j[kind];
+      if (bucket is Map) {
+        bucket.forEach((key, weight) {
+          out.add(InterestItem(
+            kind: kind,
+            label: key.toString(),
+            weight: (weight as num?)?.toDouble() ?? 0,
+            id: kind == 'categories' ? null : key.toString(),
+          ));
+        });
+      } else if (bucket is List) {
+        for (final e in bucket) {
+          final m = Map<String, dynamic>.from(e as Map);
+          m['kind'] ??= kind;
+          out.add(InterestItem.fromJson(m));
+        }
+      }
+    }
+    out.sort((a, b) => b.weight.compareTo(a.weight));
+    return InterestProfile(items: out, sampleSize: sample);
+  }
+}
+
+/// The result of `POST /upload` (ADR-0029): the created event + hero media id and the
+/// moderation [status] (`pending` until the queue clears, then `visible`).
+class UploadResult {
+  UploadResult({this.eventId, this.mediaId, this.status = 'pending', this.event});
+  final String? eventId;
+  final String? mediaId;
+  final String status;
+  final EventRead? event;
+
+  bool get isPending => status == 'pending';
+
+  factory UploadResult.fromJson(Map<String, dynamic> j) {
+    final ev = j['event'] is Map<String, dynamic>
+        ? EventRead.fromJson(j['event'] as Map<String, dynamic>)
+        : null;
+    return UploadResult(
+      eventId: (j['event_id'] ?? ev?.id) as String?,
+      mediaId: (j['media_id'] ?? j['hero_media_id']) as String?,
+      status: (j['status'] as String?) ?? 'pending',
+      event: ev,
+    );
+  }
+}
+
 // ── Auth & account (Phase 4-G, ADR-0026). Mirror the live /auth + /account DTOs. ──
 
 /// A sign-in provider offered by the backend (`GET /auth/providers`). The set is

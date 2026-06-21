@@ -69,9 +69,12 @@ class _HomeWithAccount extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The feed home owns the upload (+) and profile affordances now that AuthState is
+    // threaded into it (IU2). The minimal top-right account/sign-in shortcut stays as a
+    // quick always-reachable entry to the account/GDPR settings.
     return Stack(
       children: [
-        FeedHome(api: api),
+        FeedHome(api: api, auth: auth),
         SafeArea(
           child: Align(
             alignment: Alignment.topRight,

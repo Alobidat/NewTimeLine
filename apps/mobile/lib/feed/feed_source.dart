@@ -1,19 +1,15 @@
 /// The feed data contract for the TikTok-style client (ADR-0027, social-and-feed §4/§5).
 ///
 /// The product feed is **video-first**: each tab (For You / Following / Discover) returns a
-/// ranked list of clip-bearing events. The real ranking endpoints
-/// (`/feed/foryou|following|discover`, social-and-feed §4) are built by the backend in a
-/// parallel wave and are **NOT live yet** — so this source is a thin shim over the existing
-/// public endpoints (`/timeline`, `/search`) that returns the same shape the UI needs.
+/// ranked list of clip-bearing events from the live recommendation API (social-and-feed §4):
 ///
-/// A [FeedItem] is an [EventRead] plus an optional already-known hero clip. When the real
-/// `/feed` lands the events arrive pre-ranked and already carry a hero media id, so the only
-/// change here is the fetch call — the rest of the UI consumes [FeedItem] unchanged.
-///
-/// TODO(phase-4-B / IU2): swap [FeedSource.page] to call
 ///   GET /feed/{foryou|following|discover}?cursor=…&limit=…
-/// which returns `{items:[{event, hero_media_id, score}], next_cursor}`. Keep [FeedItem] and
-/// [FeedTab] as-is; delete the `_fallback*` methods below.
+///     → {tab, items:[{event, hero_media_id, score}], next_cursor}
+///
+/// A [FeedItem] is an [EventRead] plus the already-known hero clip id; pages are cursor-
+/// paginated via the opaque `next_cursor` (null when the feed is exhausted). [FeedSource]
+/// owns only the mapping from the wire shape to [FeedItem] — the rest of the UI consumes
+/// [FeedItem]/[FeedPage] unchanged.
 library;
 
 import '../api/client.dart';
@@ -30,7 +26,7 @@ enum FeedTab {
   /// The human tab label.
   final String label;
 
-  /// The path segment for the (future) `/feed/{slug}` endpoint.
+  /// The path segment for the `/feed/{slug}` endpoint.
   final String slug;
 }
 
@@ -58,46 +54,23 @@ class FeedPage {
   final String? nextCursor;
 }
 
-/// Fetches pages of [FeedItem]s for a tab. Backed today by existing endpoints; swap to
-/// `/feed/{slug}` when the rec API lands (see file header TODO).
+/// Fetches pages of [FeedItem]s for a tab from the live `/feed/{slug}` ranking endpoint.
 class FeedSource {
   FeedSource(this.api);
   final ApiClient api;
 
   /// Fetch one page for [tab]. [cursor] is the opaque token from the previous [FeedPage]
-  /// (null for the first page). [limit] caps the page size.
+  /// (null for the first page). [limit] caps the page size. Maps the live
+  /// `{items:[{event, hero_media_id, score}], next_cursor}` response to [FeedItem]s.
   Future<FeedPage> page(FeedTab tab, {String? cursor, int limit = 20}) async {
-    // TODO(phase-4-B): replace this whole body with a single GET /feed/{tab.slug}.
-    // Until then, derive a video-first list from the public endpoints so the shell is
-    // fully exercisable against a live backend without the rec API.
-    final events = await _fallbackEvents(limit: limit);
-    // The shim has no real pagination, so it returns a single page (nextCursor == null).
-    // The real endpoint will thread `next_cursor` through unchanged.
+    final json = await api.feedPage(tab.slug, cursor: cursor, limit: limit);
+    final rawItems = (json['items'] as List?) ?? const [];
     return FeedPage(
-      items: [for (final e in events) FeedItem(event: e)],
-      nextCursor: null,
+      items: [
+        for (final it in rawItems)
+          FeedItem.fromJson(it as Map<String, dynamic>),
+      ],
+      nextCursor: json['next_cursor'] as String?,
     );
-  }
-
-  /// TODO(phase-4-B): delete. Pulls a broad, recent-leaning event window from /timeline as a
-  /// stand-in for a ranked feed. Falls back to a wide search if the window is empty.
-  Future<List<EventRead>> _fallbackEvents({required int limit}) async {
-    try {
-      final resp = await api.timeline(
-        t0: -5000,
-        t1: 3000,
-        maxEvents: limit,
-        buckets: limit,
-      );
-      if (resp.events.isNotEmpty) return resp.events.take(limit).toList();
-    } catch (_) {
-      // fall through to search
-    }
-    try {
-      final res = await api.search(q: 'history', limit: limit, collect: false);
-      return res.events.take(limit).toList();
-    } catch (_) {
-      return const [];
-    }
   }
 }

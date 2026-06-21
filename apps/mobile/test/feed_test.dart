@@ -15,6 +15,7 @@ import 'package:chronos_app/feed/event_graph_view.dart';
 import 'package:chronos_app/feed/feed_source.dart';
 import 'package:chronos_app/feed/overlay_rail.dart';
 import 'package:chronos_app/feed/video_feed.dart';
+import 'package:chronos_app/state/auth_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -45,20 +46,24 @@ Map<String, dynamic> _relJson(
   'direction': direction,
 };
 
-/// A MockClient serving a small /timeline window and a fixed /related payload.
+/// A MockClient serving the ranked `/feed/{tab}` and a fixed /related payload.
 ApiClient _api({
   List<Map<String, dynamic>>? timelineEvents,
   List<Map<String, dynamic>>? related,
+  String? feedNextCursor,
 }) {
   final mock = MockClient((req) async {
     final path = req.url.path;
-    if (path == '/timeline') {
+    if (path.startsWith('/feed/')) {
+      final tab = path.substring('/feed/'.length);
       return http.Response(
         jsonEncode({
-          'mode': 'events',
-          't0': -5000,
-          't1': 3000,
-          'events': timelineEvents ?? const [],
+          'tab': tab,
+          'items': [
+            for (final e in timelineEvents ?? const [])
+              {'event': e, 'hero_media_id': null, 'score': 1.0},
+          ],
+          'next_cursor': feedNextCursor,
         }),
         200,
         headers: {'content-type': 'application/json'},
@@ -82,7 +87,7 @@ ApiClient _api({
 
 void main() {
   group('FeedSource', () {
-    test('shims /timeline into video-first FeedItems', () async {
+    test('maps a /feed page into video-first FeedItems', () async {
       final api = _api(timelineEvents: [
         _eventJson('e1', 'First', 2001),
         _eventJson('e2', 'Second', 2002),
@@ -91,34 +96,18 @@ void main() {
       final page = await FeedSource(api).page(FeedTab.forYou);
       expect(page.items.length, 2);
       expect(page.items.first.event.id, 'e1');
-      expect(page.nextCursor, isNull); // shim returns a single page
+      expect(page.nextCursor, isNull); // last page → no cursor
     });
 
-    test('falls back to /search when the timeline window is empty', () async {
-      final mock = MockClient((req) async {
-        if (req.url.path == '/timeline') {
-          return http.Response(
-              jsonEncode({'mode': 'events', 't0': 0, 't1': 1, 'events': []}),
-              200,
-              headers: {'content-type': 'application/json'});
-        }
-        if (req.url.path == '/search') {
-          return http.Response(
-            jsonEncode({
-              'subject': 'history',
-              'events': [_eventJson('s1', 'From search', 1990)],
-            }),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response('[]', 200,
-            headers: {'content-type': 'application/json'});
-      });
-      final api = ApiClient(baseUrl: 'http://test', client: mock);
+    test('threads the opaque next_cursor through for paging', () async {
+      final api = _api(
+        timelineEvents: [_eventJson('e1', 'First', 2001)],
+        feedNextCursor: 'cursor-2',
+      );
       addTearDown(api.close);
       final page = await FeedSource(api).page(FeedTab.discover);
-      expect(page.items.single.event.id, 's1');
+      expect(page.items.single.event.id, 'e1');
+      expect(page.nextCursor, 'cursor-2');
     });
 
     test('each tab maps to its future /feed slug', () {
@@ -135,6 +124,7 @@ void main() {
           home: Scaffold(
             body: VideoFeed(
               api: api,
+              auth: AuthState(api: api),
               source: FeedSource(api),
               tab: FeedTab.forYou,
             ),

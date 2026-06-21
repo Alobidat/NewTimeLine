@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import uuid
 
+import httpx
 import redis as redislib
 from chronos_core import config_service, objectstore, upload as upload_core
 from chronos_core.run_queue import push_job
@@ -73,9 +74,34 @@ def _enqueue_geocode() -> None:
         log.warning("upload: failed to enqueue geocode job", exc_info=True)
 
 
+async def _fetch_source(url: str, max_bytes: int) -> tuple[bytes, str]:
+    """Download a clip from an external [url] (the no-file-picker path used by web clients).
+
+    Returns ``(bytes, mime)``; raises a 4xx/5xx ``HTTPException`` on a bad URL, an oversize
+    body, or a transport error so the caller surfaces it like any other upload failure.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), follow_redirects=True) as c:
+            resp = await c.get(url)
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"could not fetch source_url: {exc}"
+        ) from exc
+    data = resp.content
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"source exceeds the {max_bytes}-byte limit",
+        )
+    mime = (resp.headers.get("content-type") or "application/octet-stream").split(";")[0].strip()
+    return data, mime
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_video(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(default=None),
+    source_url: str | None = Form(default=None),
     title: str = Form(...),
     t_start: float | None = Form(default=None),
     actors: str | None = Form(default=None),
@@ -114,15 +140,24 @@ async def upload_video(
             status.HTTP_400_BAD_REQUEST, "at least one linked event id is required"
         )
 
-    # --- size / type limits (config-tunable) ------------------------------------------
+    # --- the clip binary: an uploaded file, or an external source_url (no-picker path) ---
     max_bytes = int(await config_service.get(session, "upload.max_bytes", _DEFAULT_MAX_BYTES))
     allowed = await config_service.get(session, "upload.allowed_mime", _DEFAULT_ALLOWED)
-    mime = file.content_type or "application/octet-stream"
+    if file is not None:
+        data = await file.read()
+        mime = file.content_type or "application/octet-stream"
+    elif source_url and source_url.strip():
+        data, mime = await _fetch_source(source_url.strip(), max_bytes)
+    else:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "a clip file or source_url is required"
+        )
+
+    # --- size / type limits (config-tunable) ------------------------------------------
     if allowed and mime not in allowed:
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"unsupported content type: {mime}"
         )
-    data = await file.read()
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload")
     if len(data) > max_bytes:

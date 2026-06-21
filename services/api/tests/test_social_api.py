@@ -272,6 +272,65 @@ def test_upload_happy_path_stores_and_creates_event(client, monkeypatch):
     assert created["user_id"] == get_actor(None)
 
 
+def test_upload_from_source_url_when_no_file(client, monkeypatch):
+    """The no-file-picker path: the clip is fetched server-side from `source_url`."""
+    created = {}
+
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    async def fake_fetch(url, max_bytes):
+        created["fetched_url"] = url
+        return b"\x00\x01fakevideo", "video/mp4"
+
+    def fake_put(key, data, *, content_type=None):
+        created["key"] = key
+        return key
+
+    class _Ev:
+        id = uuid.uuid4()
+
+        class _S:
+            value = "pending"
+
+        status = _S()
+
+    async def fake_create(session, **kw):
+        created.update(kw)
+        return _Ev()
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    monkeypatch.setattr("chronos_api.routers.upload._fetch_source", fake_fetch)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.put_bytes", fake_put)
+    monkeypatch.setattr(upload_core, "create_video_event", fake_create)
+    monkeypatch.setattr("chronos_api.routers.upload._enqueue_geocode", lambda: None)
+
+    resp = client.post(
+        "/upload",
+        data={
+            "title": "Remote clip", "t_start": "2024.0",
+            "actors": "Alice", "locations": "Cairo", "links": str(uuid.uuid4()),
+            "source_url": "https://example.com/clip.mp4",
+        },
+    )
+    assert resp.status_code == 201
+    assert created["fetched_url"] == "https://example.com/clip.mp4"
+    assert created["key"].startswith("uploads/")
+
+
+def test_upload_without_file_or_source_url_is_400(client, monkeypatch):
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    resp = client.post(
+        "/upload",
+        data={"title": "x", "t_start": "1.0", "actors": "A", "locations": "B",
+              "links": str(uuid.uuid4())},
+    )
+    assert resp.status_code == 400
+
+
 def test_upload_rejects_bad_content_type(client, monkeypatch):
     async def fake_cfg(session, key, default=None):
         if key == "upload.allowed_mime":

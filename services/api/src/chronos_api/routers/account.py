@@ -17,12 +17,15 @@ import uuid
 from chronos_core import accounts_repo, objectstore
 from chronos_core.models.user import User
 from chronos_core.schemas.auth import PurgeResult, UserMe
+from chronos_core.schemas.event import EventRead
 from chronos_core.settings import get_settings
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_api.auth_stub import get_actor
 from chronos_api.deps import get_session
+from chronos_api.queries import _EVENT_COLS, _event_read
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -56,6 +59,34 @@ async def export(
     if not archive:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "account not found")
     return archive
+
+
+@router.get("/uploads", response_model=list[EventRead])
+async def my_uploads(
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> list[EventRead]:
+    """The caller's own uploaded video events, newest upload first (ADR-0029).
+
+    Sourced from the ``activity_log`` (``kind='upload'``) rather than an event column so it
+    stays correct even though uploads are authored through the agent pipeline. Includes
+    ``pending`` (not-yet-moderated) events so the uploader can see their own submissions.
+    """
+    _require_signed_in(actor)
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_EVENT_COLS} FROM events e "
+                "JOIN (SELECT target_id, max(created_at) AS up_at FROM activity_log "
+                "      WHERE user_id = :uid AND kind = 'upload' AND target_type = 'event' "
+                "      GROUP BY target_id) up ON up.target_id = e.id "
+                "ORDER BY up.up_at DESC LIMIT :limit"
+            ),
+            {"uid": actor, "limit": limit},
+        )
+    ).all()
+    return [_event_read(r) for r in rows]
 
 
 @router.delete("", response_model=PurgeResult)

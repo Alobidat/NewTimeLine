@@ -370,22 +370,99 @@ class ApiClient {
     });
   }
 
-  // ── Social graph + promotion (social-and-feed §2, Phase 4-B). These endpoints are NOT
-  // live yet — the backend builds them in a parallel wave. The feed shell calls them and
-  // tolerates failure gracefully (the UI shows a snackbar). The signatures match the
-  // documented contract so wiring is a no-op once the routes exist.
+  // ── Feed / recommendations (social-and-feed §4, ADR-0028). The ranked video-first feed.
 
-  /// Follow a user/entity (social-and-feed §2). TODO(phase-4-B): backend route lands later;
-  /// throws [ApiException] until then (callers catch + snackbar).
-  Future<void> followAuthor(String authorId) async {
-    await _postJson('/follows', {'target_id': authorId, 'target_kind': 'user'});
+  /// One ranked page of [tab] (`GET /feed/{foryou|following|discover}`). [cursor] is the
+  /// opaque token from the previous page (null for the first); [limit] caps the page size.
+  /// Returns the decoded `{tab, items:[{event, hero_media_id, score}], next_cursor}` body —
+  /// [FeedSource] maps it to the UI's `FeedItem`s (keeping this client layer feed-agnostic).
+  Future<Map<String, dynamic>> feedPage(
+    String tabSlug, {
+    String? cursor,
+    int limit = 20,
+  }) async {
+    return await _getJson('/feed/$tabSlug', {
+      'cursor': ?cursor,
+      'limit': limit.toString(),
+    }) as Map<String, dynamic>;
   }
 
-  /// Promote (up) or demote (down) an event (social-and-feed §2). TODO(phase-4-B): until the
-  /// dedicated promote route lands, the feed maps this to the live reaction substrate
-  /// ([toggleReaction]); this method targets the future endpoint.
-  Future<void> promoteEvent(String eventId, {required bool up}) async {
-    await _postJson('/events/$eventId/promote', {'direction': up ? 'up' : 'down'});
+  // ── Social graph + promotion (social-and-feed §2). Promote/demote events, links, sources,
+  // and actors; follow users/entities/events. All are interaction-gated (Bearer required).
+
+  /// Follow a [targetType] (`user`|`entity`|`event`) by [targetId] (`POST /follow`).
+  Future<void> follow(String targetType, String targetId) async {
+    await _postJson('/follow', const {}, query: {
+      'target_type': targetType,
+      'target_id': targetId,
+    });
+  }
+
+  /// Unfollow a [targetType] by [targetId] (`DELETE /follow`).
+  Future<void> unfollow(String targetType, String targetId) async {
+    await _delete('/follow', query: {
+      'target_type': targetType,
+      'target_id': targetId,
+    });
+  }
+
+  /// Whether the signed-in user follows [targetId] (`GET /follow/state`). False when anonymous.
+  Future<bool> followState(String targetType, String targetId) async {
+    final j = await _getJson('/follow/state', {
+      'target_type': targetType,
+      'target_id': targetId,
+    });
+    if (j is Map) return (j['following'] as bool?) ?? false;
+    return false;
+  }
+
+  /// Follower/following counts for [targetType]/[targetId] (`GET /follow/counts`). When both
+  /// are null the counts are for the signed-in user.
+  Future<FollowCounts> followCounts({String? targetType, String? targetId}) async {
+    return FollowCounts.fromJson(
+      await _getJson('/follow/counts', {
+        'target_type': ?targetType,
+        'target_id': ?targetId,
+      }) as Map<String, dynamic>,
+    );
+  }
+
+  /// Promote (+1) / demote (-1) / clear (0) a [targetType]
+  /// (`event`|`relation`|`source`|`entity`) by [targetId] (`POST /promote`). Returns the
+  /// fresh `{mine, score, up, down}` tally.
+  Future<PromoteResult> promote(
+    String targetType,
+    String targetId,
+    int value,
+  ) async {
+    return PromoteResult.fromJson(
+      await _postJson('/promote', {
+        'target_type': targetType,
+        'target_id': targetId,
+        'value': value,
+      }) as Map<String, dynamic>,
+    );
+  }
+
+  /// The signed-in user's interest profile (`GET /me/interests`): weighted entities/
+  /// categories/places the recommender learned from their activity.
+  Future<InterestProfile> interests() async => InterestProfile.fromJson(
+    await _getJson('/me/interests', const {}) as Map<String, dynamic>,
+  );
+
+  /// The signed-in user's uploaded events (`GET /account/uploads`). Best-effort: tolerates a
+  /// list payload or a `{items|uploads|events:[…]}` envelope; callers degrade to "none yet".
+  Future<List<EventRead>> myUploads({int limit = 50}) async {
+    final j = await _getJson('/account/uploads', {'limit': limit.toString()});
+    final list = (j is Map
+            ? (j['items'] ?? j['uploads'] ?? j['events'])
+            : j) as List? ??
+        const [];
+    return list
+        .map((e) => EventRead.fromJson(
+            (e is Map && e['event'] is Map ? e['event'] : e)
+                as Map<String, dynamic>))
+        .toList();
   }
 
   // ── Auth & account (Phase 4-G, ADR-0026). The login flow is OAuth2/OIDC auth-code+PKCE;
@@ -477,6 +554,58 @@ class ApiClient {
 
   /// Absolute URL for a media item's bytes (streamed/redirected by the API).
   String mediaUrl(String mediaId) => '$baseUrl/media/$mediaId/raw';
+
+  // ── User-generated video events (social-and-feed §3, ADR-0029). Write-gated; the server
+  // returns 400 when the metadata-complete invariant (time/location/actors/link) is unmet.
+
+  /// Upload a clip as a new event (`POST /upload`, multipart). Requires [title] + the
+  /// metadata-complete fields: [tStart] (signed year), [geoLabel], at least one [actorNames]
+  /// entry, and at least one [linkEventIds] target. The clip is supplied either as in-memory
+  /// [fileBytes] (+ [filename]) or, when the platform can't read bytes, an external
+  /// [sourceUrl]. Returns the decoded `{event, media, status}` response.
+  Future<UploadResult> upload({
+    required String title,
+    required double tStart,
+    double? tEnd,
+    String timePrecision = 'day',
+    required String geoLabel,
+    required List<String> actorNames,
+    required List<String> linkEventIds,
+    List<int>? fileBytes,
+    String? filename,
+    String? sourceUrl,
+  }) async {
+    final uri = Uri.parse('$baseUrl/upload');
+    final req = http.MultipartRequest('POST', uri)
+      ..headers.addAll(_authHeaders())
+      ..fields['title'] = title
+      ..fields['t_start'] = tStart.toString()
+      ..fields['t_end'] = (tEnd ?? tStart).toString()
+      ..fields['time_precision'] = timePrecision
+      ..fields['geo_label'] = geoLabel
+      ..fields['actors'] = actorNames.join(',')
+      ..fields['links'] = linkEventIds.join(',');
+    if (sourceUrl != null && sourceUrl.isNotEmpty) {
+      req.fields['source_url'] = sourceUrl;
+    }
+    if (fileBytes != null) {
+      req.files.add(http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: filename ?? 'clip.mp4',
+      ));
+    }
+    final streamed = await _http.send(req);
+    final resp = await http.Response.fromStream(streamed);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw ApiException('POST $uri → ${resp.statusCode}: ${resp.body}');
+    }
+    return UploadResult.fromJson(
+      resp.body.isEmpty
+          ? const {}
+          : jsonDecode(resp.body) as Map<String, dynamic>,
+    );
+  }
 
   void close() => _http.close();
 }

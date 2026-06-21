@@ -10,15 +10,24 @@ library;
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
+import '../profile/profile_screen.dart';
 import '../shell/experience_screen.dart';
+import '../state/auth_state.dart';
+import '../upload/upload_screen.dart';
 import 'feed_source.dart';
 import 'video_feed.dart';
 
 class FeedHome extends StatefulWidget {
-  const FeedHome({super.key, this.api});
+  const FeedHome({super.key, this.api, this.auth});
 
   /// Injectable for tests; defaults to a real [ApiClient].
   final ApiClient? api;
+
+  /// App-wide session state (IU2). Threaded into the feed so overlay writes gate through
+  /// `ensureCanInteract` and the upload/profile affordances know the signed-in user. When
+  /// null (older test harnesses) a local in-memory [AuthState] is created so the feed still
+  /// runs anonymously.
+  final AuthState? auth;
 
   @override
   State<FeedHome> createState() => _FeedHomeState();
@@ -28,6 +37,8 @@ class _FeedHomeState extends State<FeedHome>
     with SingleTickerProviderStateMixin {
   late final ApiClient _api = widget.api ?? ApiClient();
   late final bool _ownsApi = widget.api == null;
+  late final AuthState _auth = widget.auth ?? AuthState(api: _api);
+  late final bool _ownsAuth = widget.auth == null;
   late final FeedSource _source = FeedSource(_api);
   late final TabController _tabs =
       TabController(length: FeedTab.values.length, vsync: this);
@@ -35,8 +46,25 @@ class _FeedHomeState extends State<FeedHome>
   @override
   void dispose() {
     _tabs.dispose();
+    if (_ownsAuth) _auth.dispose();
     if (_ownsApi) _api.close();
     super.dispose();
+  }
+
+  void _openUpload() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => UploadScreen(api: _api, auth: _auth),
+      ),
+    );
+  }
+
+  void _openProfile() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfileScreen(api: _api, auth: _auth),
+      ),
+    );
   }
 
   @override
@@ -55,6 +83,7 @@ class _FeedHomeState extends State<FeedHome>
                   VideoFeed(
                     key: ValueKey('videofeed-${tab.slug}'),
                     api: _api,
+                    auth: _auth,
                     source: _source,
                     tab: tab,
                   ),
@@ -79,6 +108,13 @@ class _FeedHomeState extends State<FeedHome>
                     ],
                   ),
                 ),
+                // Upload a clip (+) — gated on sign-in inside the upload screen (IU2).
+                IconButton(
+                  key: const Key('feed-upload'),
+                  tooltip: 'Upload a clip',
+                  icon: const Icon(Icons.add_circle_outline, color: Colors.white),
+                  onPressed: _openUpload,
+                ),
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, color: Colors.white),
                   onSelected: (v) {
@@ -88,9 +124,30 @@ class _FeedHomeState extends State<FeedHome>
                           builder: (_) => const ExperienceScreen(),
                         ),
                       );
+                    } else if (v == 'profile') {
+                      _openProfile();
+                    } else if (v == 'upload') {
+                      _openUpload();
                     }
                   },
                   itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      key: Key('feed-menu-profile'),
+                      value: 'profile',
+                      child: ListTile(
+                        leading: Icon(Icons.person_outline),
+                        title: Text('Profile'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'upload',
+                      child: ListTile(
+                        leading: Icon(Icons.upload_outlined),
+                        title: Text('Upload a clip'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
                     PopupMenuItem(
                       value: 'experience',
                       child: ListTile(

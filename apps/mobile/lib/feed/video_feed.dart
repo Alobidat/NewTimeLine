@@ -12,14 +12,17 @@
 ///     staying immersive.
 ///
 /// The list grows by paging the [FeedSource]; reaching the end fetches the next page. The
-/// overlay actions are wired to the live interaction client where it exists and degrade to a
-/// snackbar for not-yet-built actions (follow/share/promote — see [OverlayRail] header).
+/// overlay actions (promote/react/comment/follow) are wired to the live interaction API and
+/// each write is gated through `ensureCanInteract` (IU2): an anonymous tap walks the user
+/// through sign-in → consent → verify, then resumes the pending action.
 library;
 
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../auth/interaction_gate.dart';
+import '../state/auth_state.dart';
 import 'event_graph_view.dart';
 import 'feed_info_sheet.dart';
 import 'feed_item.dart';
@@ -30,11 +33,13 @@ class VideoFeed extends StatefulWidget {
   const VideoFeed({
     super.key,
     required this.api,
+    required this.auth,
     required this.source,
     required this.tab,
   });
 
   final ApiClient api;
+  final AuthState auth;
   final FeedSource source;
   final FeedTab tab;
 
@@ -117,6 +122,7 @@ class _VideoFeedState extends State<VideoFeed>
           backgroundColor: Colors.black,
           body: VideoFeed(
             api: widget.api,
+            auth: widget.auth,
             source: _SeededSource(widget.source, seed),
             tab: widget.tab,
           ),
@@ -156,9 +162,15 @@ class _VideoFeedState extends State<VideoFeed>
   }
 
   // ── Overlay actions ───────────────────────────────────────────────────────────────────
+  //
+  // Every write goes through `ensureCanInteract` first (ADR-0026): an anonymous tap walks
+  // sign-in → consent → verify and only then resumes the action. Reads (info) never gate.
 
-  void _react(FeedItem item) =>
-      showReactionSheet(context, widget.api, item.event.id);
+  Future<void> _react(FeedItem item) async {
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    if (!mounted) return;
+    showReactionSheet(context, widget.api, item.event.id);
+  }
 
   void _info(FeedItem item) => showFeedInfoSheet(
         context,
@@ -178,30 +190,29 @@ class _VideoFeedState extends State<VideoFeed>
   void _comment(FeedItem item) => _info(item);
 
   Future<void> _promote(FeedItem item, bool up) async {
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     try {
-      await widget.api.promoteEvent(item.event.id, up: up);
-      _toast(up ? 'Promoted' : 'Demoted');
+      // Toggle: a second tap of the same direction clears the vote (value 0).
+      final res = await widget.api.promote('event', item.event.id, up ? 1 : -1);
+      _toast(res.mine > 0
+          ? 'Promoted'
+          : res.mine < 0
+              ? 'Demoted'
+              : 'Vote cleared');
     } catch (_) {
-      // TODO(phase-4-B): the promote endpoint isn't live; fall back to the reaction
-      // substrate (like/dislike) which IS live, so the gesture still records signal.
-      try {
-        await widget.api
-            .toggleReaction(item.event.id, up ? 'like' : 'dislike');
-        _toast(up ? 'Promoted' : 'Demoted');
-      } catch (_) {
-        _toast('Could not record your vote.');
-      }
+      _toast('Could not record your vote.');
     }
   }
 
   Future<void> _follow(FeedItem item) async {
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     try {
-      // TODO(phase-4-B): author id isn't on EventRead yet; the follow endpoint also isn't
-      // live. Use the event id as a placeholder target so the call path is exercised.
-      await widget.api.followAuthor(item.event.id);
-      _toast('Following');
+      // EventRead carries no author id yet, so we follow the event itself (a valid follow
+      // target) — the feed's "Following" tab then surfaces its related/updated events.
+      await widget.api.follow('event', item.event.id);
+      _toast('Following this event');
     } catch (_) {
-      _toast('Follow is coming soon.');
+      _toast('Could not follow.');
     }
   }
 
