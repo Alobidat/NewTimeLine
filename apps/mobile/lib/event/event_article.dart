@@ -87,9 +87,7 @@ class _EventArticleState extends State<EventArticle> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final e = widget.detail;
-    final media = e.media
-        .where((m) => m.kind == 'image' || m.kind == 'video')
-        .toList();
+    final media = e.media.where(isShowableMedia).toList();
 
     return ListView(
       controller: widget.scrollController,
@@ -117,16 +115,21 @@ class _EventArticleState extends State<EventArticle> {
           widget.footerExtra!,
         ],
 
-        // 3. Summary.
+        // 3. Summary — the short lead, given a touch more weight than body prose so the
+        // eye lands on it first after the media (ADR-0024).
         if (e.summary != null && e.summary!.isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text(e.summary!, style: theme.textTheme.bodyMedium),
+          Text(
+            e.summary!,
+            style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
+          ),
         ],
 
-        // 4. Subject / body, with inline links to named related events.
+        // 4. Subject / body, with inline links to named related events. Long bodies are
+        // collapsed behind a "Read more" expander so prose never dominates the fold.
         if (e.body != null && e.body!.isNotEmpty) ...[
           const SizedBox(height: 12),
-          _BodyWithLinks(
+          _ExpandableBody(
             body: e.body!,
             relatedFuture: _related,
             style: theme.textTheme.bodyMedium,
@@ -248,11 +251,19 @@ class _MetaRow extends StatelessWidget {
   );
 }
 
-/// Body paragraph that turns any mention of a related event's title into a tappable
-/// inline link. Matching is case-insensitive on whole-title occurrences; longest titles
-/// win so nested names don't double-link.
-class _BodyWithLinks extends StatelessWidget {
-  const _BodyWithLinks({
+/// How many characters of body prose count as "long" — past this, the body collapses
+/// behind a "Read more" expander so media stays above the fold (ADR-0024). Exposed pure
+/// for tests.
+const int kBodyCollapseChars = 280;
+
+bool bodyNeedsExpander(String body) => body.trim().length > kBodyCollapseChars;
+
+/// Body paragraph that (a) turns any mention of a related event's title into a tappable
+/// inline link, and (b) collapses long prose behind a "Read more" / "Show less" toggle.
+/// Matching is case-insensitive on whole-title occurrences; longest titles win so nested
+/// names don't double-link.
+class _ExpandableBody extends StatefulWidget {
+  const _ExpandableBody({
     required this.body,
     required this.relatedFuture,
     required this.style,
@@ -267,18 +278,63 @@ class _BodyWithLinks extends StatelessWidget {
   final void Function(String eventId) onSelect;
 
   @override
+  State<_ExpandableBody> createState() => _ExpandableBodyState();
+}
+
+class _ExpandableBodyState extends State<_ExpandableBody> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final long = bodyNeedsExpander(widget.body);
+    final collapsed = long && !_expanded;
+
     return FutureBuilder<List<RelatedEvent>>(
-      future: relatedFuture,
+      future: widget.relatedFuture,
       builder: (context, snap) {
         final related = snap.data ?? const <RelatedEvent>[];
         final spans = buildBodySpans(
-          body: body,
+          body: widget.body,
           related: related,
-          linkColor: linkColor,
-          onSelect: onSelect,
+          linkColor: widget.linkColor,
+          onSelect: widget.onSelect,
         );
-        return Text.rich(TextSpan(style: style, children: spans));
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text.rich(
+              TextSpan(style: widget.style, children: spans),
+              maxLines: collapsed ? 4 : null,
+              overflow:
+                  collapsed ? TextOverflow.ellipsis : TextOverflow.clip,
+            ),
+            if (long)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: InkWell(
+                  onTap: () => setState(() => _expanded = !_expanded),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _expanded ? 'Show less' : 'Read more',
+                        style: theme.textTheme.labelLarge
+                            ?.copyWith(color: widget.linkColor),
+                      ),
+                      Icon(
+                        _expanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 18,
+                        color: widget.linkColor,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
       },
     );
   }

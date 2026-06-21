@@ -8,8 +8,8 @@ import 'dart:convert';
 import 'package:chronos_app/api/client.dart';
 import 'package:chronos_app/api/models.dart';
 import 'package:chronos_app/domain/time_format.dart';
-import 'package:chronos_app/event/detail_widgets.dart';
 import 'package:chronos_app/event/event_article.dart';
+import 'package:chronos_app/event/media_gallery.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,17 +86,20 @@ Map<String, dynamic> _relJson(EventRead e, String kind, String direction) => {
   'direction': direction,
 };
 
+MediaRead _media(String id, String kind, {String role = 'gallery'}) => MediaRead(
+  id: id,
+  kind: kind,
+  role: role,
+  disposition: 'archive',
+  sensitivity: 0,
+  locallyStored: true,
+  status: 'ready',
+);
+
 void main() {
   group('orderMediaClipsFirst', () {
-    MediaRead m(String id, String kind, String role) => MediaRead(
-      id: id,
-      kind: kind,
-      role: role,
-      disposition: 'archive',
-      sensitivity: 0,
-      locallyStored: true,
-      status: 'ready',
-    );
+    MediaRead m(String id, String kind, String role) =>
+        _media(id, kind, role: role);
 
     test('puts a video clip first even when an image is hero-role', () {
       final ordered = orderMediaClipsFirst([
@@ -112,6 +115,22 @@ void main() {
         m('h', 'image', 'hero'),
       ]);
       expect(ordered.first.id, 'h');
+    });
+  });
+
+  group('isShowableMedia', () {
+    test('image and video are showable; audio/embed are not', () {
+      expect(isShowableMedia(_media('a', 'image')), isTrue);
+      expect(isShowableMedia(_media('b', 'video')), isTrue);
+      expect(isShowableMedia(_media('c', 'audio')), isFalse);
+      expect(isShowableMedia(_media('d', 'embed')), isFalse);
+    });
+  });
+
+  group('bodyNeedsExpander', () {
+    test('short bodies render inline; long bodies collapse', () {
+      expect(bodyNeedsExpander('A short paragraph.'), isFalse);
+      expect(bodyNeedsExpander('x' * (kBodyCollapseChars + 1)), isTrue);
     });
   });
 
@@ -187,5 +206,100 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('A report'), findsOneWidget);
+  });
+
+  testWidgets('long body collapses behind "Read more" and expands', (
+    tester,
+  ) async {
+    final api = _apiWithRelated(const []);
+    addTearDown(api.close);
+
+    final longBody = 'The crisis escalated. ' * 30; // well past the collapse cap
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EventArticle(
+            api: api,
+            detail: EventDetail(
+              id: 'e1',
+              title: 'Long event',
+              body: longBody,
+              tStart: 2011,
+              tEnd: 2011,
+              precision: TimePrecision.year,
+              severity: 50,
+              confidence: 80,
+              sourceCount: 1,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Collapsed by default: "Read more" present, "Show less" absent.
+    expect(find.text('Read more'), findsOneWidget);
+    expect(find.text('Show less'), findsNothing);
+
+    await tester.tap(find.text('Read more'));
+    await tester.pumpAndSettle();
+
+    // Expanded: toggle flips.
+    expect(find.text('Show less'), findsOneWidget);
+    expect(find.text('Read more'), findsNothing);
+  });
+
+  testWidgets('MediaGallery shows a "+N" overflow affordance', (tester) async {
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((req) async => http.Response('', 404)),
+    );
+    addTearDown(api.close);
+
+    // 1 hero + 6 gallery images → strip caps at 4, so the 4th tile shows "+3".
+    final items = [
+      _media('hero', 'image', role: 'hero'),
+      for (var i = 0; i < 6; i++) _media('g$i', 'image'),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 600,
+            child: MediaGallery(api: api, items: items),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(); // let the network images fail to errorBuilder
+
+    // 7 showable items, hero + 3 strip tiles visible, 3 hidden behind "+N".
+    expect(find.text('+3'), findsOneWidget);
+  });
+
+  testWidgets('MediaGallery renders nothing for audio-only media', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((req) async => http.Response('', 404)),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MediaGallery(
+            api: api,
+            items: [_media('a', 'audio'), _media('e', 'embed')],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(MediaFrame), findsNothing);
   });
 }
