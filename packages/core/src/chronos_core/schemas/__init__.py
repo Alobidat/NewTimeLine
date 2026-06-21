@@ -21,6 +21,16 @@ from chronos_core.schemas.interaction import (
     SourceVoteResult,
     SourceVoteSummary,
 )
+from chronos_core.schemas.social import (
+    FeedItem,
+    FeedResponse,
+    FollowCounts,
+    FollowResult,
+    InterestProfile,
+    PromoteCast,
+    PromoteResult,
+    PromoteSummary,
+)
 from chronos_core.schemas.timeline import TimelineBucket, TimelineResponse
 
 __all__ = [
@@ -43,4 +53,12 @@ __all__ = [
     "SourceVoteSummary",
     "EventLinkCreate",
     "EventLinkResult",
+    "FollowResult",
+    "FollowCounts",
+    "PromoteCast",
+    "PromoteResult",
+    "PromoteSummary",
+    "InterestProfile",
+    "FeedItem",
+    "FeedResponse",
 ]

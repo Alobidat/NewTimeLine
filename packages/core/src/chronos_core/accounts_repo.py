@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from chronos_core.models.interaction import Comment, Reaction, SourceVote
 from chronos_core.models.media import EventMedia
 from chronos_core.models.relation import EventRelation
+from chronos_core.models.social import ActivityLog, Follow, Promote
 from chronos_core.models.user import User, UserAgreement, UserIdentity
 
 log = logging.getLogger("chronos.accounts")
@@ -179,6 +180,12 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
     media_links = (
         await session.scalars(select(EventMedia).where(EventMedia.added_by == sub))
     ).all()
+    follows = (
+        await session.scalars(select(Follow).where(Follow.user_id == user_id))
+    ).all()
+    promotes = (
+        await session.scalars(select(Promote).where(Promote.user_id == user_id))
+    ).all()
 
     return {
         "schema": "chronos.user_export.v1",
@@ -222,6 +229,13 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
             {"event_id": str(m.event_id), "media_id": str(m.media_id), "role": m.role}
             for m in media_links
         ],
+        "follows": [
+            {"target_type": f.target_type, "target_id": str(f.target_id)} for f in follows
+        ],
+        "promotes": [
+            {"target_type": p.target_type, "target_id": str(p.target_id), "value": p.value}
+            for p in promotes
+        ],
     }
 
 
@@ -258,6 +272,15 @@ async def purge_user(session: AsyncSession, user_id: uuid.UUID, *, objectstore=N
     ).rowcount or 0
     counts["media_links"] = (
         await session.execute(delete(EventMedia).where(EventMedia.added_by == sub))
+    ).rowcount or 0
+    counts["follows"] = (
+        await session.execute(delete(Follow).where(Follow.user_id == user_id))
+    ).rowcount or 0
+    counts["promotes"] = (
+        await session.execute(delete(Promote).where(Promote.user_id == user_id))
+    ).rowcount or 0
+    counts["activity"] = (
+        await session.execute(delete(ActivityLog).where(ActivityLog.user_id == user_id))
     ).rowcount or 0
     # identities + agreements cascade off users; deleting the user removes them.
     counts["user"] = (

@@ -250,6 +250,31 @@ SPECS: list[ConfigSpec] = [
        help="Gate writes on a verified email (ADR-0026). Providers asserting a verified "
             "email satisfy it; otherwise the user verifies via emailed code."),
 
+    # Feed / recommendations (ADR-0028, social-and-feed §4-5). Owned by the API feed surface
+    # (no component manifest) → component_id None.
+    _i("feed.page_size", 10, "Feed page size",
+       scope="feed", component_id=None, minimum=1, maximum=50,
+       help="Events per /feed/{tab} page (the swipe feed preloads neighbours)."),
+    ConfigSpec(key="rec.foryou_weights", type="json", scope="feed", component_id=None,
+               default={"recency": 1.0, "popularity": 0.6, "media": 0.8,
+                        "interest": 1.2, "seen": 2.0},
+               label="For-You blend weights",
+               help="Term weights for the For-You score: recency + popularity (votes/views) "
+                    "+ media-richness (clips first) + interest-match − already-seen (ADR-0028)."),
+    ConfigSpec(key="rec.decay_half_life_days", type="float", scope="feed", component_id=None,
+               default=14.0, label="Interest decay half-life (days)",
+               minimum=0.5, maximum=365.0,
+               help="Age at which an activity's contribution to the interest profile halves."),
+
+    # Upload (ADR-0029). Owned by the API upload surface → component_id None.
+    _i("upload.max_bytes", 209_715_200, "Max upload size (bytes)",
+       scope="upload", component_id=None, minimum=1_000_000, maximum=2_147_483_647,
+       help="Largest user video accepted by POST /upload (default 200 MB)."),
+    ConfigSpec(key="upload.allowed_mime", type="list", scope="upload", component_id=None,
+               default=["video/mp4", "video/webm", "video/quicktime", "video/ogg"],
+               label="Allowed upload MIME types",
+               help="Content types accepted by POST /upload; others are rejected (415)."),
+
     # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
     ConfigSpec(key="llm.embedding.base_url", type="string",
                scope="llm", component_id="service:llm",

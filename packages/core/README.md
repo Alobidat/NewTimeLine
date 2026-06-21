@@ -12,6 +12,10 @@ backend service (so logic is defined once; token-economy rule).
 | `chronos_core.schemas` | Pydantic API DTOs (EventRead/Detail/Create, Timeline*, Source*) | pydantic |
 | `chronos_core.db` | Async engine + `session_scope()` | SQLAlchemy[asyncio], asyncpg |
 | `chronos_core.config_service` | DB-backed runtime config: `get/get_many/set_value/ensure_defaults` (ADR-0006) | models |
+| `chronos_core.interactions_repo` | Comments / reactions / source-votes / user event-links write+read helpers (ADR-0025) | models |
+| `chronos_core.social_repo` | Follow/unfollow, promote/demote, activity-log recording + follower/following counts (ADR-0025/0028) | models |
+| `chronos_core.interest` | Decayed weighted **interest profile** from the activity log (ADR-0028) | models, config_service |
+| `chronos_core.upload` | Create a pending user **video event** (hero media + entities + links) from an uploaded clip (ADR-0029) | models, repository |
 | `chronos_core.settings` | Env-based `Settings` (connection URLs) | pydantic-settings |
 
 ## Notes

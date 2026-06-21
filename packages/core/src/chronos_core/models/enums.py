@@ -32,6 +32,9 @@ class EventStatus(StrEnum):
     PUBLISHED = "published"
     MERGED = "merged"
     RETRACTED = "retracted"
+    # User-uploaded events land here pending the moderation stub (ADR-0029). Held out of the
+    # public feed (which filters status='published') until promoted to PUBLISHED.
+    PENDING = "pending"
 
 
 class IngestState(StrEnum):

@@ -21,12 +21,15 @@ from chronos_api.routers import (
     auth,
     entities,
     events,
+    feed,
     health,
     interactions,
     links,
     media,
     search,
+    social,
     timeline,
+    upload,
 )
 
 
@@ -62,6 +65,9 @@ def create_app() -> FastAPI:
     app.include_router(media.router)
     app.include_router(interactions.router)
     app.include_router(links.router)
+    app.include_router(social.router)
+    app.include_router(feed.router)
+    app.include_router(upload.router)
     app.include_router(auth.router)
     app.include_router(account.router)
     app.include_router(admin.router)
