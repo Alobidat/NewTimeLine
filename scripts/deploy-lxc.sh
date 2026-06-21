@@ -20,10 +20,11 @@ if git rev-parse --verify -q HEAD~1 >/dev/null; then
 else
   CHANGED="$(git ls-files)"
 fi
-BACKEND=false; WEB=false
+BACKEND=false; WEB=false; ADMIN=false
 echo "$CHANGED" | grep -qE '^(services|packages|db)/' && BACKEND=true
 echo "$CHANGED" | grep -qE '^apps/mobile/' && WEB=true
-log "changed -> backend=$BACKEND web=$WEB"
+echo "$CHANGED" | grep -qE '^apps/admin/' && ADMIN=true
+log "changed -> backend=$BACKEND web=$WEB admin=$ADMIN"
 
 # 1. Best-effort push to GitHub (source of truth); never blocks the deploy.
 if git push origin "$BRANCH" >>"$LOG" 2>&1; then log "pushed $BRANCH"; else log "push skipped/failed (deploy key may be unset)"; fi
@@ -43,6 +44,24 @@ if $WEB; then
     log "webdist updated (hard-refresh to drop the old service worker)"
   else
     log "web build/ship FAILED"
+  fi
+fi
+
+# 3b. Admin Portal bundle: build same-origin (API under /api) into webdist-admin; ensure the
+# adminapp container is up. The Admin API is open in dev — bake an ADMIN_TOKEN to lock it.
+if $ADMIN; then
+  log "build Admin Portal web"
+  if ( cd apps/admin && "$FLUTTER" build web --dart-define=API_BASE_URL=/api \
+        --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
+    sudo mkdir -p "$LIVE"/webdist-admin
+    sudo rm -rf "$LIVE"/webdist-admin/*
+    sudo cp -a apps/admin/build/web/. "$LIVE"/webdist-admin/
+    sudo find "$LIVE"/webdist-admin -type d -exec chmod 755 {} +
+    sudo find "$LIVE"/webdist-admin -type f -exec chmod 644 {} +
+    ( cd "$LIVE" && docker compose up -d adminapp ) >>"$LOG" 2>&1
+    log "webdist-admin updated + adminapp up (hard-refresh to drop the old service worker)"
+  else
+    log "admin build/ship FAILED"
   fi
 fi
 

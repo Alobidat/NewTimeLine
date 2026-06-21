@@ -158,6 +158,18 @@ services:
       # Serve the SPA + reverse-proxy /api → the api service (same-origin; no hardcoded API IP).
       - ./infra/webapp/default.conf:/etc/nginx/conf.d/default.conf:ro
 
+  adminapp:
+    # Serves the pre-built Admin Portal Flutter web bundle (./webdist-admin). Same nginx config
+    # as webapp: SPA + same-origin /api proxy to the api service. The Admin API is currently
+    # open in dev (no admin_token) — set ADMIN_TOKEN + rebuild the bundle to lock it down.
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_WEB_PORT:-8081}:80"
+    volumes:
+      - ./webdist-admin:/usr/share/nginx/html:ro
+      - ./infra/webapp/default.conf:/etc/nginx/conf.d/default.conf:ro
+
 volumes:
   pgdata:
   redisdata:
