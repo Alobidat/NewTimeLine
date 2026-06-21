@@ -55,3 +55,4 @@ Thumbs.db
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+deploy.log

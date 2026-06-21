@@ -1,0 +1,12 @@
+#!/bin/sh
+# Auto-deploy every commit to the on-site LXC. Runs detached (does not block the commit);
+# progress is written to deploy.log at the repo root.
+#
+# Active only when git is told to use this hooks dir:
+#   git config core.hooksPath .githooks
+ROOT="$(git rev-parse --show-toplevel)"
+PS1="$(cygpath -w "$ROOT/scripts/deploy-lxc.ps1" 2>/dev/null || echo "$ROOT/scripts/deploy-lxc.ps1")"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+  "Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','$PS1')" \
+  >/dev/null 2>&1
+exit 0
