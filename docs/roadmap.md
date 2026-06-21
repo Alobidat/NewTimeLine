@@ -137,7 +137,7 @@ live. 123 backend + 21 Flutter tests pass; analyze clean.
 or more countries on the map, and a search returns existing results while live-collecting and
 streaming in new ones.
 
-## Phase 3d — Media-forward presentation + interaction foundations 🟡 IN PROGRESS
+## Phase 3d — Media-forward presentation + interaction foundations ✅ DONE
 **Goal:** make the event experience media-first (clips > images > text) and tidy, and build the
 foundations for user interaction (threaded comments, reactions, votes, user-created event links)
 ahead of the full auth stack. Design: [interactions-and-media.md](interactions-and-media.md)
