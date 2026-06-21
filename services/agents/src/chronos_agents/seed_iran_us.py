@@ -241,26 +241,28 @@ async def _upsert_event(session, client: httpx.AsyncClient, ev: _Ev, weights) ->
         )
         await repository.link_entity(session, event, entity, role=e.role, added_by=AGENT)
     if ev.sources:
-        image = await wikimedia.wiki_image(client, ev.sources[0][0])
-        if image:
-            await repository.discover_media(
-                session, event, url=image, kind="image",
-                source_kind=ev.image_origin, role="hero", added_by=AGENT,
-            )
-        # Real video clip from the same Wikipedia article, when one exists (WebM only).
+        # Real video clip from the Wikipedia article, when one exists → hero (WebM only).
         clip = await wikimedia.wiki_video(client, ev.sources[0][0])
         if clip:
-            url, caption = clip
             media = await repository.discover_media(
-                session, event, url=url, kind="video", mime="video/webm",
-                source_kind="encyclopedia", role="gallery", added_by=AGENT,
+                session, event, url=clip.url, kind="video", mime="video/webm",
+                role="hero", rank=0, width=clip.width, height=clip.height,
+                duration_s=clip.duration_s, caption=clip.caption,
+                source_kind="encyclopedia", added_by=AGENT,
             )
             # Wikimedia is a durable, CORS-friendly host, so let the client play the clip
             # directly (instant, no wait on the fetch worker); media-fetch may still archive
             # the bytes per ADR-0018.
-            media.embed_url = url
-            if caption:
-                media.caption = caption
+            media.embed_url = clip.url
+        image = await wikimedia.wiki_image(client, ev.sources[0][0])
+        if image:
+            # The clip (if any) is the hero; otherwise the high-res lead image is.
+            role = "gallery" if clip else "hero"
+            await repository.discover_media(
+                session, event, url=image.url, kind="image", role=role, rank=10,
+                width=image.width, height=image.height,
+                source_kind=ev.image_origin, added_by=AGENT,
+            )
     return event
 
 

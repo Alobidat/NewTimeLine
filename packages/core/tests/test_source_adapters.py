@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import respx
 
-from chronos_agents.sources import registry
+from chronos_agents.sources import registry, wikimedia
 from chronos_agents.sources.base import SubjectQuery
 from chronos_agents.sources.wikipedia import WikipediaAdapter
 
@@ -40,7 +40,10 @@ async def test_wikipedia_adapter_parses_hit_with_image_hero_and_webm_clip():
     respx.get(url__startswith=_SUMMARY).mock(
         return_value=httpx.Response(
             200,
-            json={"originalimage": {"source": "https://upload.wikimedia.org/lead.jpg"}},
+            json={"originalimage": {
+                "source": "https://upload.wikimedia.org/lead.jpg",
+                "width": 1024, "height": 768,
+            }},
         )
     )
     respx.get(url__startswith=_MEDIA).mock(
@@ -51,9 +54,10 @@ async def test_wikipedia_adapter_parses_hit_with_image_hero_and_webm_clip():
                     {
                         "type": "video",
                         "caption": {"text": "Aftermath footage"},
+                        "duration": 42,
                         "sources": [
                             {"mime": "video/webm", "url": "//upload.wikimedia.org/clip.webm",
-                             "width": 480},
+                             "width": 480, "height": 360},
                             {"mime": "application/ogg", "url": "//upload.wikimedia.org/x.ogv",
                              "width": 720},
                         ],
@@ -73,11 +77,17 @@ async def test_wikipedia_adapter_parses_hit_with_image_hero_and_webm_clip():
     # snippet HTML stripped into the summary
     assert "searchmatch" not in (ev.summary or "")
     assert "strike" in (ev.summary or "")
-    # media: first is the image hero, then the WebM clip (https-normalized, Ogg skipped)
+    # media: clip FIRST (clips-first hero, ADR-0024), then the high-res image; Ogg skipped.
     kinds = [(m.kind, m.url) for m in ev.media]
-    assert kinds[0] == ("image", "https://upload.wikimedia.org/lead.jpg")
-    assert ("video", "https://upload.wikimedia.org/clip.webm") in kinds
+    assert kinds[0] == ("video", "https://upload.wikimedia.org/clip.webm")
+    assert ("image", "https://upload.wikimedia.org/lead.jpg") in kinds
     assert all(not m.url.endswith(".ogv") for m in ev.media)
+    # dimensions + duration captured so the client can pick a rendition + rank the clip
+    clip = next(m for m in ev.media if m.kind == "video")
+    assert (clip.width, clip.height, clip.duration_s) == (480, 360, 42)
+    assert clip.caption == "Aftermath footage"
+    image = next(m for m in ev.media if m.kind == "image")
+    assert (image.width, image.height) == (1024, 768)
 
 
 @respx.mock
@@ -123,6 +133,53 @@ async def test_enabled_adapters_filters_by_config():
     assert "wikidata" not in ids        # explicitly disabled → filtered out
     assert "wikipedia" in ids           # unset → default True
     assert "rss" in ids
+
+
+# --- media quality helpers (ADR-0024): higher-res image, best clip + cap ---
+
+
+def test_upscale_thumb_url_requests_a_wider_rendition():
+    thumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/120px-X.jpg"
+    bigger = wikimedia.upscale_thumb_url(thumb, target_width=1280)
+    assert "/1280px-" in bigger and "/120px-" not in bigger
+    # never shrinks an already-large rendition, and leaves non-thumb URLs untouched
+    assert wikimedia.upscale_thumb_url(thumb.replace("120px", "2000px"), 1280).count("2000px") == 1
+    assert wikimedia.upscale_thumb_url("https://example.com/orig.jpg", 1280) == \
+        "https://example.com/orig.jpg"
+
+
+@respx.mock
+async def test_wiki_image_falls_back_to_upsized_thumbnail():
+    # No originalimage → take the thumbnail but request a larger width (ADR-0024).
+    respx.get(url__startswith=_SUMMARY).mock(
+        return_value=httpx.Response(200, json={"thumbnail": {
+            "source": "https://upload.wikimedia.org/thumb/a/ab/X.jpg/240px-X.jpg",
+        }})
+    )
+    async with httpx.AsyncClient() as client:
+        res = await wikimedia.wiki_image(
+            client, "https://en.wikipedia.org/wiki/X", target_width=1280
+        )
+    assert res is not None and "/1280px-" in res.url
+
+
+def test_best_webm_picks_largest_under_the_width_cap():
+    item = {"sources": [
+        {"mime": "video/webm", "url": "//w/240.webm", "width": 240},
+        {"mime": "video/webm", "url": "//w/480.webm", "width": 480},
+        {"mime": "video/webm", "url": "//w/1080.webm", "width": 1080},
+        {"mime": "application/ogg", "url": "//w/x.ogv", "width": 720},
+    ]}
+    # cap 720 → 480 is the biggest webm at/under the cap; 1080 excluded, ogg never considered
+    assert wikimedia.best_webm(item, max_width=720)["url"] == "//w/480.webm"
+    # raising the cap lets the bigger (higher-quality) rendition through
+    assert wikimedia.best_webm(item, max_width=2000)["url"] == "//w/1080.webm"
+
+
+def test_best_webm_returns_none_without_a_playable_source():
+    assert wikimedia.best_webm({"sources": [
+        {"mime": "application/ogg", "url": "//w/x.ogv", "width": 720},
+    ]}) is None
 
 
 async def test_all_adapters_lists_every_source_with_wikipedia_first():

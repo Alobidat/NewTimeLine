@@ -20,11 +20,18 @@ _WD_TIME_RE = re.compile(r"^([+-]?)(\d{1,11})-(\d{2})-(\d{2})T")
 
 @dataclass
 class CandidateMedia:
-    """A media URL found on a feed item (image/video/audio), pre-archival-decision."""
+    """A media URL found on a feed item (image/video/audio), pre-archival-decision.
+
+    ``width``/``height``/``duration_s`` are captured when the source reports them so the
+    client can pick a good rendition and a clip can be ranked ahead of images (ADR-0024)."""
 
     kind: str  # image | video | audio
     url: str
     mime: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_s: int | None = None
+    caption: str | None = None
 
 
 @dataclass

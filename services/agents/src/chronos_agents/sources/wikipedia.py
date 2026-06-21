@@ -49,11 +49,15 @@ def _article_url(title: str) -> str:
 
 
 class WikipediaAdapter(SourceAdapter):
-    """Full-text Wikipedia search with lead-image hero + WebM clip per hit."""
+    """Full-text Wikipedia search with a WebM-clip hero + high-res lead image per hit."""
 
     id = "wikipedia"
     title = "Wikipedia (full-text)"
     capabilities = Capabilities(yields_clips=True, media_rich=True)
+
+    def __init__(self, *, max_clip_width: int = wikimedia.DEFAULT_MAX_CLIP_WIDTH):
+        # Largest browser-playable clip width to fetch (ADR-0024); from config via registry.
+        self.max_clip_width = max_clip_width
 
     async def _search(
         self, client: httpx.AsyncClient, query: str, limit: int
@@ -76,6 +80,7 @@ class WikipediaAdapter(SourceAdapter):
         query = subject.text()
         if not query:
             return []
+        max_clip_width = self.max_clip_width
         now = datetime.now(UTC)
         out: list[CandidateEvent] = []
         async with httpx.AsyncClient(headers={"User-Agent": wikimedia.USER_AGENT}) as client:
@@ -90,21 +95,31 @@ class WikipediaAdapter(SourceAdapter):
                     continue
                 source_url = _article_url(title)
                 media: list[CandidateMedia] = []
-                # Lead image → hero (publish.publish_candidate makes the first image the hero).
+                # WebM clip first — publish.attach_media ranks a clip as the hero (ADR-0024).
+                try:
+                    clip = await wikimedia.wiki_video(client, source_url, max_width=max_clip_width)
+                except Exception:
+                    clip = None
+                if clip:
+                    media.append(
+                        CandidateMedia(
+                            "video", clip.url, "video/webm",
+                            width=clip.width, height=clip.height,
+                            duration_s=clip.duration_s, caption=clip.caption,
+                        )
+                    )
+                # Lead image — high-res original/upsized thumbnail (hero only if no clip).
                 try:
                     image = await wikimedia.wiki_image(client, source_url)
                 except Exception:
                     image = None
                 if image:
-                    media.append(CandidateMedia("image", image))
-                # WebM clip → gallery (clips-first, ADR-0023).
-                try:
-                    clip = await wikimedia.wiki_video(client, source_url)
-                except Exception:
-                    clip = None
-                if clip:
-                    clip_url, _caption = clip
-                    media.append(CandidateMedia("video", clip_url, "video/webm"))
+                    media.append(
+                        CandidateMedia(
+                            "image", image.url,
+                            width=image.width, height=image.height,
+                        )
+                    )
                 out.append(
                     CandidateEvent(
                         title=title,

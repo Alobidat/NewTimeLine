@@ -24,8 +24,16 @@ automatically, widening both background and search-driven collection.
 | `wikidata`  | dated/geolocated SPARQL events, label-filtered | no | no |
 | `rss`       | configured RSS feeds, title/summary match | partial | no |
 
-`wikimedia.py` holds the shared Wikipedia REST helpers (`wiki_image`, `wiki_video`,
-`best_webm`) reused by the Wikipedia adapter **and** the US–Iran PoC seeder.
+`wikimedia.py` holds the shared Wikipedia REST helpers reused by the Wikipedia adapter
+**and** the US–Iran PoC seeder. Media quality (clips > images > text, ADR-0024):
+
+- `wiki_image` returns an `ImageResult(url, width, height)` — the full-res `originalimage`
+  when present, else the article thumbnail **upsized** (`upscale_thumb_url`) to a wider
+  rendition so we never attach a tiny image.
+- `wiki_video` returns a `VideoResult(url, caption, width, height, duration_s)` — the largest
+  browser-playable WebM up to `agents.media.max_clip_width` (`best_webm`).
+- Captured dimensions/duration ride on `CandidateMedia` and are persisted, so the client can
+  pick a rendition and `publish.attach_media` can rank a **clip as the hero** when one exists.
 
 ## Registry + collector
 

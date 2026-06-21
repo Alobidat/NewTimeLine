@@ -121,6 +121,19 @@ SPECS: list[ConfigSpec] = [
        scope="agent:media", component_id="agent:media.check", minimum=0, maximum=100,
        help="persistence_confidence at/above which a durable archive may be released."),
 
+    # Media quality (clips > images > text, ADR-0024). Tunes what collectors fetch + attach.
+    _b("agents.media.prefer_clips", True, "Prefer clips as hero",
+       scope="agent:media", component_id="agent:collect",
+       help="Rank a video clip ahead of images so the event hero is a clip when one exists."),
+    _i("agents.media.min_image_width", 200, "Min image width (px)",
+       scope="agent:media", component_id="agent:collect", minimum=0, maximum=4096,
+       help="Drop images whose known width is below this (icons/placeholders) so a real "
+            "picture is attached, not a logo. Unknown widths are kept (measured on fetch)."),
+    _i("agents.media.max_clip_width", 720, "Max clip width (px)",
+       scope="agent:media", component_id="agent:collect", minimum=120, maximum=3840,
+       help="Largest browser-playable WebM rendition to fetch — higher = better quality, "
+            "heavier. Source adapters pick the biggest clip up to this width."),
+
     # Deduper (pgvector cosine similarity, Phase 3b)
     _b("agents.dedup.enabled", True, "Enabled",
        scope="agent:dedup", component_id="agent:dedup"),

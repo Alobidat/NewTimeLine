@@ -33,6 +33,39 @@ def has_required_media(image_count: int, clip_count: int) -> bool:
     return image_count >= 1
 
 
+# Below this width an image is treated as an icon/placeholder, not a real picture — so we
+# never make a tiny logo the hero. Module default; collectors may override from config.
+MIN_IMAGE_WIDTH = 200
+
+
+def is_decent_image(width: int | None, *, min_width: int = MIN_IMAGE_WIDTH) -> bool:
+    """Whether an image is large enough to attach as real media (not an icon/placeholder).
+
+    Unknown width passes (we can't measure a remote image pre-download, so we don't reject
+    it on a missing signal — the media-fetcher records real dimensions later). A *known*
+    width below ``min_width`` fails (ADR-0024 quality floor).
+    """
+    return width is None or width >= min_width
+
+
+def media_role_rank(kind: str, index: int, *, prefer_clips: bool = True) -> tuple[str, int]:
+    """Pick the ``(role, rank)`` for one media item so a **clip is the hero** when present.
+
+    ``index`` is the item's position within its own kind (0 = first clip / first image).
+    With ``prefer_clips`` (ADR-0024), the first video becomes the ``hero`` and ranks ahead
+    of images; the first image is the hero only when there's no clip. Pure — the caller
+    decides ordering by passing kinds in clip-first order.
+    """
+    is_clip = kind in CLIP_KINDS
+    if prefer_clips and is_clip and index == 0:
+        return ("hero", 0)
+    if not prefer_clips and kind == "image" and index == 0:
+        return ("hero", 0)
+    # Clips rank just under the hero; images and other media follow.
+    base = 1 if is_clip else 10
+    return ("gallery", base + index)
+
+
 def media_richness(image_count: int, clip_count: int) -> str:
     """Classify an event's media richness: ``none`` | ``image`` | ``clip``.
 

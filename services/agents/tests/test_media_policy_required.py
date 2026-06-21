@@ -23,3 +23,26 @@ def test_media_richness_classifies_none_image_clip():
 def test_clip_kinds_is_video():
     assert "video" in mp.CLIP_KINDS
     assert "image" not in mp.CLIP_KINDS
+
+
+# --- media quality: hero ranking + image quality floor (ADR-0024) ---
+
+
+def test_media_role_rank_makes_the_first_clip_the_hero():
+    # prefer_clips: a video at index 0 is the hero and outranks images.
+    assert mp.media_role_rank("video", 0) == ("hero", 0)
+    role, rank = mp.media_role_rank("image", 0)
+    assert role == "gallery" and rank > 0          # image is NOT hero when a clip leads
+    # a clip still ranks ahead of images even past the hero slot
+    assert mp.media_role_rank("video", 1)[1] < mp.media_role_rank("image", 0)[1]
+
+
+def test_media_role_rank_image_hero_when_clips_disabled():
+    assert mp.media_role_rank("image", 0, prefer_clips=False) == ("hero", 0)
+    assert mp.media_role_rank("video", 0, prefer_clips=False)[0] == "gallery"
+
+
+def test_is_decent_image_rejects_known_tiny_widths_keeps_unknown():
+    assert mp.is_decent_image(800) is True
+    assert mp.is_decent_image(50, min_width=200) is False     # icon/placeholder
+    assert mp.is_decent_image(None) is True                   # unknown → keep (measure later)

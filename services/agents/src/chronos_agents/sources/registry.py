@@ -24,8 +24,10 @@ def _enabled_key(adapter_id: str) -> str:
 async def all_adapters(session: AsyncSession) -> list[SourceAdapter]:
     """Every registered adapter, fully constructed (RSS needs its feed list from config)."""
     feeds = await config_service.get(session, "agents.ingest.rss.feeds", []) or []
+    max_clip_width = int(await config_service.get(session, "agents.media.max_clip_width", 720))
     return [
-        WikipediaAdapter(),       # media-rich, clip-bearing → collector prefers it first
+        # media-rich, clip-bearing → collector prefers it first (clips-first, ADR-0023/0024)
+        WikipediaAdapter(max_clip_width=max_clip_width),
         WikidataAdapter(),
         RssAdapter(feeds=feeds),
     ]

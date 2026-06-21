@@ -280,6 +280,11 @@ async def discover_media(
     kind: str,
     mime: str | None = None,
     role: str = "gallery",
+    rank: int = 0,
+    width: int | None = None,
+    height: int | None = None,
+    duration_s: int | None = None,
+    caption: str | None = None,
     source_kind: str | None = None,
     source_id=None,
     added_by: str | None = None,
@@ -295,8 +300,19 @@ async def discover_media(
 
     existing = await session.scalar(select(Media).where(Media.source_url == url))
     if existing is not None:
-        await link_event_media(session, event.id, existing, role=role, added_by=added_by)
+        await link_event_media(
+            session, event.id, existing, role=role, rank=rank, added_by=added_by
+        )
         await add_media_source(session, existing, url, source_id=source_id, is_stable=is_stable)
+        # Backfill dimensions/caption if a later sighting carries them and we lacked them.
+        if width and not existing.width:
+            existing.width = width
+        if height and not existing.height:
+            existing.height = height
+        if duration_s and not existing.duration_s:
+            existing.duration_s = duration_s
+        if caption and not existing.caption:
+            existing.caption = caption
         return existing
 
     sensitivity = media_policy.score_sensitivity(
@@ -312,6 +328,10 @@ async def discover_media(
         source_url=url,
         embed_url=url if disposition == "link" else None,
         mime=mime,
+        width=width,
+        height=height,
+        duration_s=duration_s,
+        caption=caption,
         status=status,
         disposition=disposition,
         sensitivity=sensitivity,
@@ -320,7 +340,9 @@ async def discover_media(
     )
     session.add(media)
     await session.flush()
-    await link_event_media(session, event.id, media, role=role, added_by=added_by)
+    await link_event_media(
+        session, event.id, media, role=role, rank=rank, added_by=added_by
+    )
     await add_media_source(session, media, url, source_id=source_id, is_stable=is_stable)
     return media
 
