@@ -155,6 +155,32 @@ SPECS: list[ConfigSpec] = [
        help="Last resort: place the event at the source/news-agency's country when nothing "
             "else resolves. Weakest signal; disable to leave such events unresolved."),
 
+    # On-demand collection agent (event-presentation.md §5.2 / §6)
+    _b("agents.collect.enabled", True, "Enabled",
+       scope="agent:collect", component_id="agent:collect",
+       help="On-demand collection from all enabled source adapters for a searched subject."),
+    _i("agents.collect.max_per_adapter", 10, "Max events / adapter",
+       scope="agent:collect", component_id="agent:collect", minimum=1, maximum=100,
+       help="Per-adapter cap on candidates fetched per collection run."),
+
+    # Source adapters (per-adapter on/off; the collector queries all that are enabled)
+    _b("agents.sources.wikipedia.enabled", True, "Wikipedia source",
+       scope="agent:collect", component_id="agent:collect",
+       help="Full-text Wikipedia search with lead image + WebM clip (media-rich, clips-first)."),
+    _b("agents.sources.wikidata.enabled", True, "Wikidata source",
+       scope="agent:collect", component_id="agent:collect",
+       help="Dated, geolocated SPARQL events filtered by the subject label."),
+    _b("agents.sources.rss.enabled", True, "RSS source",
+       scope="agent:collect", component_id="agent:collect",
+       help="Subject-matched entries from the configured RSS feed set."),
+
+    # Media-gap agent (no-text-only / clips-first enforcement, ADR-0023)
+    _b("agents.media.gap.enabled", True, "Gap enabled",
+       scope="agent:media", component_id="agent:media.gap",
+       help="Re-collect media for published events that have no image (text-only)."),
+    _i("agents.media.gap.batch_size", 20, "Gap batch size",
+       scope="agent:media", component_id="agent:media.gap", minimum=1, maximum=200),
+
     # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
     ConfigSpec(key="llm.embedding.base_url", type="string",
                scope="llm", component_id="service:llm",

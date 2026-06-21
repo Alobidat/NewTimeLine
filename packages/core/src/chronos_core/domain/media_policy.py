@@ -18,6 +18,34 @@ All scores are 0–100. Thresholds are module defaults; workers may override fro
 
 from __future__ import annotations
 
+# Clips-first / no-text-only policy (ADR-0023, event-presentation.md §4). Media kinds that
+# count as a "clip" — the format we most prefer. Images are the floor; an event with neither
+# image nor clip is "text-only" and held back / flagged for media acquisition.
+CLIP_KINDS = {"video"}
+
+
+def has_required_media(image_count: int, clip_count: int) -> bool:
+    """Whether an event meets the clips-first floor: **at least one image** (ADR-0023).
+
+    Clips are preferred but optional; an image is the minimum so no event is text-only.
+    Pure — callers pass counts of image-kind and clip-kind ``event_media``.
+    """
+    return image_count >= 1
+
+
+def media_richness(image_count: int, clip_count: int) -> str:
+    """Classify an event's media richness: ``none`` | ``image`` | ``clip``.
+
+    ``clip`` (best) when a video is present, ``image`` when only images, ``none`` when
+    neither. Drives clips-first ordering and the media-gap worklist.
+    """
+    if clip_count >= 1:
+        return "clip"
+    if image_count >= 1:
+        return "image"
+    return "none"
+
+
 PIN_SENSITIVITY = 60          # at/above this, pin locally and never auto-release
 LINK_MAX_SENSITIVITY = 30     # below this, a durable host may be linked instead of stored
 RELEASE_THRESHOLD = 70        # persistence_confidence at/above which an archive may release

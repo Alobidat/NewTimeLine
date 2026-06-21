@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from urllib.parse import unquote
 
 import httpx
 from chronos_core import repository
@@ -33,96 +32,13 @@ from chronos_core.schemas.event import EventCreate, GeoPoint
 from sqlalchemy import select
 
 from chronos_agents.publish import load_weights
+from chronos_agents.sources import wikimedia
 
 log = logging.getLogger("chronos.agents.seed_iran_us")
 AGENT = "seed:iran-us"
 
 # Wikimedia requires a descriptive User-Agent (a generic one gets 403'd).
-_UA = "ChronosBot/0.1 (+https://github.com/Alobidat/NewTimeLine) PoC seeder"
-
-
-def _wiki_article(source_url: str) -> str | None:
-    """Extract the article title from an en.wikipedia.org/wiki/<Title> URL."""
-    marker = "/wiki/"
-    if "wikipedia.org" not in source_url or marker not in source_url:
-        return None
-    return source_url.split(marker, 1)[1]
-
-
-async def _wiki_image(client: httpx.AsyncClient, source_url: str) -> str | None:
-    """Resolve an event's lead image URL from its Wikipedia article (REST summary)."""
-    title = _wiki_article(source_url)
-    if title is None:
-        return None
-    try:
-        resp = await client.get(
-            f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}", timeout=15.0
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        log.warning("no wiki summary for %s", unquote(title))
-        return None
-    img = (data.get("originalimage") or data.get("thumbnail") or {}).get("source")
-    return img
-
-
-def _best_webm(item: dict) -> dict | None:
-    """Pick the best browser-playable WebM source from a media-list video item.
-
-    Wikimedia exposes the original plus transcodes; we want a ``video/webm`` (VP8/VP9 —
-    what Chrome plays) and prefer the largest one up to ~640px so it stays light."""
-    webms = [
-        s for s in item.get("sources", [])
-        if (s.get("mime") or "").startswith("video/webm") and s.get("url")
-    ]
-    if not webms:
-        return None
-
-    def width(s: dict) -> int:
-        try:
-            return int(s.get("width") or 0)
-        except (TypeError, ValueError):
-            return 0
-
-    capped = [s for s in webms if width(s) <= 640]
-    pool = capped or webms
-    return max(pool, key=width)
-
-
-async def _wiki_video(
-    client: httpx.AsyncClient, source_url: str
-) -> tuple[str, str | None] | None:
-    """Find a real, playable video clip for an event from its Wikipedia article.
-
-    Uses the REST ``media-list`` endpoint (the same Wikimedia source as the lead image) and
-    returns ``(url, caption)`` for the first article video that has a WebM rendition, or
-    ``None``. WebM-only on purpose: Wikimedia's other format (Ogg/Theora) won't play in most
-    browsers, so we skip it rather than attach an unplayable clip."""
-    title = _wiki_article(source_url)
-    if title is None:
-        return None
-    try:
-        resp = await client.get(
-            f"https://en.wikipedia.org/api/rest_v1/page/media-list/{title}", timeout=15.0
-        )
-        resp.raise_for_status()
-        items = resp.json().get("items", [])
-    except Exception:
-        log.warning("no wiki media-list for %s", unquote(title))
-        return None
-    for item in items:
-        if item.get("type") != "video":
-            continue
-        src = _best_webm(item)
-        if src is None:
-            continue
-        url = src["url"]
-        if url.startswith("//"):
-            url = "https:" + url
-        caption = (item.get("caption") or {}).get("text")
-        return url, caption
-    return None
+_UA = wikimedia.USER_AGENT
 
 
 @dataclass(frozen=True)
@@ -325,14 +241,14 @@ async def _upsert_event(session, client: httpx.AsyncClient, ev: _Ev, weights) ->
         )
         await repository.link_entity(session, event, entity, role=e.role, added_by=AGENT)
     if ev.sources:
-        image = await _wiki_image(client, ev.sources[0][0])
+        image = await wikimedia.wiki_image(client, ev.sources[0][0])
         if image:
             await repository.discover_media(
                 session, event, url=image, kind="image",
                 source_kind=ev.image_origin, role="hero", added_by=AGENT,
             )
         # Real video clip from the same Wikipedia article, when one exists (WebM only).
-        clip = await _wiki_video(client, ev.sources[0][0])
+        clip = await wikimedia.wiki_video(client, ev.sources[0][0])
         if clip:
             url, caption = clip
             media = await repository.discover_media(

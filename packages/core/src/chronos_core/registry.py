@@ -119,6 +119,29 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:collect", kind="agent", title="On-demand Collector",
+        description="Queries all enabled source adapters (Wikipedia/Wikidata/RSS) for a "
+                    "searched subject and publishes candidates; prefers media-rich, "
+                    "clip-bearing sources first (event-presentation §5.2/§6).",
+        command="collect", config_prefix="agents.collect",
+        enabled_key="agents.collect.enabled",
+        capabilities=["source-adapters", "discover-media", "on-demand"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["adapters", "collected", "published", "skipped"],
+        doc="docs/event-presentation.md",
+    ),
+    ComponentManifest(
+        id="agent:media.gap", kind="agent", title="Media-gap Filler",
+        description="Finds text-only published events (no image) and re-collects media via the "
+                    "clip-bearing adapters — the no-text-only / clips-first policy (ADR-0023).",
+        command="media-gap", config_prefix="agents.media.gap",
+        enabled_key="agents.media.gap.enabled",
+        capabilities=["media-gap", "discover-media", "clips-first"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["candidates", "recollected", "published", "skipped"],
+        doc="docs/event-presentation.md",
+    ),
+    ComponentManifest(
         id="service:llm", kind="service", title="LLM Router",
         description="Provider-agnostic, budget-aware LLM routing (vLLM/Ollama/OpenAI + Claude).",
         config_prefix="llm",

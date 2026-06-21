@@ -7,6 +7,8 @@
     python -m chronos_agents.run dedup
     python -m chronos_agents.run media-fetch
     python -m chronos_agents.run media-check
+    python -m chronos_agents.run media-gap
+    python -m chronos_agents.run collect --keyword "..." --location "..." --actor "..."
     python -m chronos_agents.run worker   # long-running queue consumer
 """
 
@@ -26,11 +28,25 @@ from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.media_check import check_media
 from chronos_agents.media_fetch import fetch_pending
+from chronos_agents.media_gap import flag_media_gaps
 from chronos_agents.relate import link_relations
 from chronos_agents.seed_iran_us import seed_iran_us
 from chronos_agents.seed_wikidata import seed_wikidata
+from chronos_agents.sources.base import SubjectQuery
+from chronos_agents.sources.collect import run_collect
+
+
+def _subject_from_args(a) -> SubjectQuery:
+    """Build a SubjectQuery from CLI args OR queue-job args (both expose the same names)."""
+    return SubjectQuery(
+        keyword=getattr(a, "keyword", None),
+        location=getattr(a, "location", None),
+        actor=getattr(a, "actor", None),
+    )
+
 
 # command → (component id, coroutine factory). One place to map CLI ↔ registry component.
+# Factories take the parsed args namespace, so queue jobs can pass their args through too.
 _COMMANDS = {
     "ingest-rss": ("agent:ingest.rss", lambda a: ingest_rss()),
     "seed-wikidata": ("agent:seed.wikidata", lambda a: seed_wikidata(limit=a.limit)),
@@ -40,6 +56,8 @@ _COMMANDS = {
     "geocode": ("agent:geocode", lambda a: run_geocode()),
     "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
     "media-check": ("agent:media.check", lambda a: check_media()),
+    "media-gap": ("agent:media.gap", lambda a: flag_media_gaps()),
+    "collect": ("agent:collect", lambda a: run_collect(_subject_from_args(a))),
     "seed-iran-us": ("agent:seed.iran-us", lambda a: seed_iran_us()),
 }
 
@@ -57,6 +75,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
     sub.add_parser("seed-iran-us", help="Seed the curated US–Iran PoC history web")
     sub.add_parser("geocode", help="Geocode events + place entities via Nominatim (OSM)")
+    sub.add_parser("media-gap", help="Re-collect media for text-only events (clips-first)")
+    collect = sub.add_parser(
+        "collect", help="On-demand collect events for a subject from all enabled adapters"
+    )
+    collect.add_argument("--keyword", default=None, help="Event keyword to search")
+    collect.add_argument("--location", default=None, help="Location (country/city/area)")
+    collect.add_argument("--actor", default=None, help="Actor name(s)")
     sub.add_parser("worker", help="Long-running queue worker (consumes admin run-now jobs)")
     return parser
 

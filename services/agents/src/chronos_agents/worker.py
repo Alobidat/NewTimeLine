@@ -23,8 +23,14 @@ from chronos_core.settings import get_settings
 
 log = logging.getLogger(__name__)
 
-# Default args for queue-triggered runs (no interactive CLI to supply them).
-_DEFAULT_ARGS = argparse.Namespace(limit=300)
+# Baseline args for queue-triggered runs (no interactive CLI). The job's own ``args`` are
+# layered on top so subject fields (keyword/location/actor) reach the collect agent.
+_BASE_ARGS = {"limit": 300, "keyword": None, "location": None, "actor": None}
+
+
+def _args_from_job(job: dict) -> argparse.Namespace:
+    """Build the factory args namespace from baseline + the job's ``args`` payload."""
+    return argparse.Namespace(**{**_BASE_ARGS, **(job.get("args") or {})})
 
 
 async def run_worker() -> None:
@@ -50,7 +56,7 @@ async def run_worker() -> None:
             component_id, factory = _COMMANDS[command]
             try:
                 async with record_run(component_id, command) as rec:
-                    result = await factory(_DEFAULT_ARGS)
+                    result = await factory(_args_from_job(job))
                     rec.set_stats(result)
                 log.info("Completed %r → %s", command, result)
             except Exception:
