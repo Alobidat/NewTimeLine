@@ -60,6 +60,14 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/poc-iran-us.md",
     ),
     ComponentManifest(
+        id="agent:seed.video", kind="agent", title="Video Seeder",
+        description="Seeds video-hero events (news/history clips) from Wikimedia Commons so the "
+                    "video-first feed has real clips, relations, and history for new users.",
+        command="seed-video", capabilities=["seed-curated", "seed-media"],
+        actions=["run-now"], stat_keys=["events", "chain_edges", "topics"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="agent:enrich", kind="agent", title="Enricher (Tier-2)",
         description="LLM enrichment: summary/category/tags/impact + entities + deep-time refs.",
         command="enrich", config_prefix="agents.enrich",

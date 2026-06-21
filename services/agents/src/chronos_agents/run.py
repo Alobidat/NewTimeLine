@@ -31,6 +31,7 @@ from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.media_gap import flag_media_gaps
 from chronos_agents.relate import link_relations
 from chronos_agents.seed_iran_us import seed_iran_us
+from chronos_agents.seed_video import seed_video
 from chronos_agents.seed_wikidata import seed_wikidata
 from chronos_agents.sources.base import SubjectQuery
 from chronos_agents.sources.collect import run_collect
@@ -59,6 +60,10 @@ _COMMANDS = {
     "media-gap": ("agent:media.gap", lambda a: flag_media_gaps()),
     "collect": ("agent:collect", lambda a: run_collect(_subject_from_args(a))),
     "seed-iran-us": ("agent:seed.iran-us", lambda a: seed_iran_us()),
+    "seed-video": (
+        "agent:seed.video",
+        lambda a: seed_video(per_topic=a.per_topic, max_total=a.max_total),
+    ),
 }
 
 
@@ -74,6 +79,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("media-fetch", help="Download media flagged for local capture (ADR-0018)")
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
     sub.add_parser("seed-iran-us", help="Seed the curated US–Iran PoC history web")
+    sv = sub.add_parser("seed-video", help="Seed video-hero events from Wikimedia Commons")
+    sv.add_argument("--per-topic", type=int, default=6, help="Clips to pull per topic")
+    sv.add_argument("--max-total", type=int, default=100, help="Max events to seed")
     sub.add_parser("geocode", help="Geocode events + place entities via Nominatim (OSM)")
     sub.add_parser("media-gap", help="Re-collect media for text-only events (clips-first)")
     collect = sub.add_parser(

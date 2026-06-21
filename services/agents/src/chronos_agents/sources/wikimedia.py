@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -59,6 +59,122 @@ class VideoResult:
     width: int | None = None
     height: int | None = None
     duration_s: int | None = None
+
+
+_COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+# Browser-playable container types we accept from Commons (Ogg/Theora is skipped — see header).
+_PLAYABLE_VIDEO_MIME = {"video/webm", "video/mp4"}
+# Skip clips whose binary is larger than this — /media/raw proxy-fetches them into memory.
+_MAX_CLIP_BYTES = 80 * 1024 * 1024
+_YEAR_RE = re.compile(r"(\d{4})")
+
+
+@dataclass(frozen=True)
+class CommonsVideo:
+    """A freely-licensed Commons video file: direct URL + display/provenance metadata."""
+
+    url: str            # direct upload.wikimedia.org file URL (browser-playable)
+    page_url: str       # the Commons ``File:`` description page (used as the event source)
+    title: str          # human title (filename, de-prefixed/de-extensioned)
+    mime: str
+    width: int | None = None
+    height: int | None = None
+    duration_s: int | None = None
+    year: float | None = None   # parsed from DateTimeOriginal, when present
+    description: str | None = None
+    license: str | None = None
+    credit: str | None = None
+
+
+def _clean_title(file_title: str) -> str:
+    """``File:Restored Apollo 11 Moonwalk.webm`` → ``Restored Apollo 11 Moonwalk``."""
+    name = re.sub(r"^File:", "", file_title)
+    name = re.sub(r"\.[A-Za-z0-9]+$", "", name)          # drop the extension
+    name = name.replace("_", " ").strip()
+    return name
+
+
+def _meta(extmeta: dict, key: str) -> str | None:
+    raw = (extmeta.get(key) or {}).get("value")
+    if not raw:
+        return None
+    # extmetadata values are often small HTML fragments; strip tags for plain text.
+    return re.sub(r"<[^>]+>", "", str(raw)).strip() or None
+
+
+async def commons_videos(
+    client: httpx.AsyncClient,
+    query: str,
+    *,
+    limit: int = 10,
+    max_width: int = DEFAULT_MAX_CLIP_WIDTH,
+) -> list[CommonsVideo]:
+    """Search Wikimedia Commons for browser-playable video files matching ``query``.
+
+    Commons is a durable, CORS-friendly host of freely-licensed (CC / public-domain) media —
+    unlike YouTube/TikTok/Instagram, whose clips can't be served to ``video_player`` and whose
+    terms forbid download. Returns up to ``limit`` :class:`CommonsVideo` (WebM/MP4 only, under a
+    size cap), newest-search-rank first. Best-effort: any transport/parse error yields ``[]``."""
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "search",
+        "gsrsearch": f"{query} filetype:video",
+        "gsrnamespace": "6",          # the File: namespace
+        "gsrlimit": str(min(limit * 3, 50)),  # over-fetch; we filter by mime/size below
+        "prop": "imageinfo",
+        "iiprop": "url|size|mime|extmetadata",
+        "iiextmetadatafilter": "DateTimeOriginal|ImageDescription|LicenseShortName|Artist",
+    }
+    try:
+        resp = await client.get(_COMMONS_API, params=params, timeout=20.0)
+        resp.raise_for_status()
+        pages = resp.json().get("query", {}).get("pages", {})
+    except Exception:
+        log.warning("commons video search failed for %r", query)
+        return []
+
+    out: list[CommonsVideo] = []
+    for page in pages.values():
+        info = (page.get("imageinfo") or [None])[0]
+        if not info:
+            continue
+        mime = info.get("mime")
+        if mime not in _PLAYABLE_VIDEO_MIME:
+            continue
+        if (info.get("size") or 0) > _MAX_CLIP_BYTES:
+            continue
+        w = _as_int(info.get("width"))
+        if w and w < 320:                          # skip thumbnail-sized clips
+            continue
+        if w and max_width and w > max_width * 3:  # skip very large renditions
+            continue
+        extmeta = info.get("extmetadata") or {}
+        year = None
+        dto = _meta(extmeta, "DateTimeOriginal")
+        if dto:
+            m = _YEAR_RE.search(dto)
+            if m:
+                year = float(m.group(1))
+        file_title = page.get("title", "")
+        out.append(
+            CommonsVideo(
+                url=info["url"],
+                page_url=f"https://commons.wikimedia.org/wiki/{quote(file_title.replace(' ', '_'))}",
+                title=_clean_title(file_title),
+                mime=mime,
+                width=w,
+                height=_as_int(info.get("height")),
+                duration_s=_as_int(info.get("duration")),
+                year=year,
+                description=_meta(extmeta, "ImageDescription"),
+                license=_meta(extmeta, "LicenseShortName"),
+                credit=_meta(extmeta, "Artist"),
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
 
 
 def wiki_article(source_url: str) -> str | None:
