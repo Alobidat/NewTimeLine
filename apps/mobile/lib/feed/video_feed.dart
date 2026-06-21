@@ -29,6 +29,8 @@ import 'feed_info_sheet.dart';
 import 'feed_item.dart';
 import 'feed_source.dart';
 import 'overlay_rail.dart';
+import 'prefetch.dart';
+import 'share.dart';
 
 class VideoFeed extends StatefulWidget {
   const VideoFeed({
@@ -87,11 +89,27 @@ class _VideoFeedState extends State<VideoFeed>
         _exhausted = pageResult.nextCursor == null;
         _error = null;
       });
+      _prefetchUpcoming();
     } catch (e) {
       if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Warm the next two clips (FR-1.3) so a swipe lands on an already-buffered video. The
+  /// visible player still renders one clip at a time (platform-view constraint); this only
+  /// pre-fetches the upcoming urls into cache. No-op off the web (see [prefetchClips]).
+  void _prefetchUpcoming() {
+    final urls = <String>[];
+    for (var k = 1; k <= 2; k++) {
+      final j = _current + k;
+      if (j < _items.length) {
+        final id = _items[j].heroMediaId;
+        if (id != null) urls.add(widget.api.mediaUrl(id));
+      }
+    }
+    prefetchClips(urls);
   }
 
   // ── Lateral navigation ────────────────────────────────────────────────────────────────
@@ -124,7 +142,7 @@ class _VideoFeedState extends State<VideoFeed>
           body: VideoFeed(
             api: widget.api,
             auth: widget.auth,
-            source: _SeededSource(widget.source, seed),
+            source: SeededFeedSource(widget.source, seed),
             tab: widget.tab,
           ),
         ),
@@ -217,8 +235,10 @@ class _VideoFeedState extends State<VideoFeed>
     }
   }
 
-  // TODO(IU2): real share intent (share_plus is not a dependency yet) — for now confirm.
-  void _share(FeedItem item) => _toast('Share is coming soon.');
+  /// Share this clip: opens the share sheet (OS share sheet on the web, with a Copy-link
+  /// fallback) for a deep link back onto this deployment (see `share.dart`). A read, so it
+  /// never gates on sign-in.
+  void _share(FeedItem item) => showShareSheet(context, item.event);
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -274,6 +294,8 @@ class _VideoFeedState extends State<VideoFeed>
           itemCount: _items.length,
           onPageChanged: (i) {
             setState(() => _current = i);
+            // Warm the next two clips so the following swipes start instantly (FR-1.3).
+            _prefetchUpcoming();
             // Page near the end → fetch the next page.
             if (i >= _items.length - 2) _loadMore();
           },
@@ -301,28 +323,6 @@ class _VideoFeedState extends State<VideoFeed>
           },
         ),
       ],
-    );
-  }
-}
-
-/// A [FeedSource] decorator whose first page is prefixed with a seed event.
-class _SeededSource extends FeedSource {
-  _SeededSource(this._inner, this._seed) : super(_inner.api);
-  final FeedSource _inner;
-  final EventRead _seed;
-  bool _seeded = false;
-
-  @override
-  Future<FeedPage> page(FeedTab tab, {String? cursor, int limit = 20}) async {
-    final base = await _inner.page(tab, cursor: cursor, limit: limit);
-    if (_seeded) return base;
-    _seeded = true;
-    return FeedPage(
-      items: [
-        FeedItem(event: _seed),
-        ...base.items.where((i) => i.id != _seed.id),
-      ],
-      nextCursor: base.nextCursor,
     );
   }
 }

@@ -24,4 +24,17 @@ class AppConfig {
     if (_override.isNotEmpty) return _override;
     return kIsWeb ? '/api' : 'http://192.168.2.45:8000';
   }
+
+  /// Public web origin used to build shareable deep links (`<origin>/?event=<id>`).
+  ///
+  /// - An explicit `--dart-define=SHARE_BASE_URL=https://…` always wins.
+  /// - On the **web**, default to the current origin (`Uri.base.origin`) so a shared link
+  ///   always points back at the very deployment the user is on — no hardcoded domain.
+  /// - On native builds there is no origin; without an override we return empty and callers
+  ///   degrade to sharing the bare event id / title.
+  static String get shareBaseUrl {
+    const override = String.fromEnvironment('SHARE_BASE_URL', defaultValue: '');
+    if (override.isNotEmpty) return override;
+    return kIsWeb ? Uri.base.origin : '';
+  }
 }

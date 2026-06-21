@@ -74,3 +74,27 @@ class FeedSource {
     );
   }
 }
+
+/// A [FeedSource] decorator whose **first page is prefixed with a seed event**, so an
+/// immersive feed can open focused on one specific event (a graph-node tap, a related-event
+/// pivot, or a shared deep link) and still keep paging the underlying ranked feed afterwards.
+class SeededFeedSource extends FeedSource {
+  SeededFeedSource(this._inner, this._seed) : super(_inner.api);
+  final FeedSource _inner;
+  final EventRead _seed;
+  bool _seeded = false;
+
+  @override
+  Future<FeedPage> page(FeedTab tab, {String? cursor, int limit = 20}) async {
+    final base = await _inner.page(tab, cursor: cursor, limit: limit);
+    if (_seeded) return base;
+    _seeded = true;
+    return FeedPage(
+      items: [
+        FeedItem(event: _seed),
+        ...base.items.where((i) => i.id != _seed.id),
+      ],
+      nextCursor: base.nextCursor,
+    );
+  }
+}

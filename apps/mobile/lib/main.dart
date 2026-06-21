@@ -14,6 +14,8 @@ import 'package:flutter/material.dart';
 import 'account/account_screen.dart';
 import 'api/client.dart';
 import 'feed/feed_home.dart';
+import 'feed/feed_source.dart';
+import 'feed/video_feed.dart';
 import 'state/auth_state.dart';
 
 void main() => runApp(const ChronosApp());
@@ -61,14 +63,59 @@ class _ChronosAppState extends State<ChronosApp> {
 /// The feed home with a minimal, always-reachable account/sign-in affordance overlaid in the
 /// top-right safe area. Keeps the feed-owned [FeedHome] untouched (Phase 4-G fence) while
 /// satisfying the "profile/account entry point + sign-in affordance" requirement.
-class _HomeWithAccount extends StatelessWidget {
+///
+/// Also handles **share deep links**: when the app is opened with `?event=<id>` (the link
+/// shape produced by the feed's share sheet, see `feed/share.dart`), it fetches that event
+/// once the first frame is up and opens it in a focused immersive feed — so a shared link
+/// lands the recipient on the clip rather than a generic feed.
+class _HomeWithAccount extends StatefulWidget {
   const _HomeWithAccount({required this.api, required this.auth});
 
   final ApiClient api;
   final AuthState auth;
 
   @override
+  State<_HomeWithAccount> createState() => _HomeWithAccountState();
+}
+
+class _HomeWithAccountState extends State<_HomeWithAccount> {
+  @override
+  void initState() {
+    super.initState();
+    final eventId = Uri.base.queryParameters['event'];
+    if (eventId != null && eventId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openSharedEvent(eventId));
+    }
+  }
+
+  /// Open a shared-link event in a focused immersive feed seeded with it. Best-effort: a bad
+  /// or unknown id silently leaves the user on the normal feed.
+  Future<void> _openSharedEvent(String eventId) async {
+    try {
+      final event = await widget.api.event(eventId);
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => Scaffold(
+            backgroundColor: Colors.black,
+            body: VideoFeed(
+              api: widget.api,
+              auth: widget.auth,
+              source: SeededFeedSource(FeedSource(widget.api), event),
+              tab: FeedTab.forYou,
+            ),
+          ),
+        ),
+      );
+    } catch (_) {
+      // Unknown/garbage id — stay on the feed.
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final api = widget.api;
+    final auth = widget.auth;
     // The feed home owns the upload (+) and profile affordances now that AuthState is
     // threaded into it (IU2). The minimal top-right account/sign-in shortcut stays as a
     // quick always-reachable entry to the account/GDPR settings.

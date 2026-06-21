@@ -11,7 +11,8 @@
 ///               ADR-0025) until the dedicated promote endpoint lands (social-and-feed §2).
 ///   • follow  → STUB: no follow endpoint yet (Phase 4-B). Calls a thin client method and
 ///               tolerates failure with a snackbar. TODO: wire to POST /follows.
-///   • share   → STUB: copies/► a share intent is platform work (IU2). Shows a snackbar.
+///   • share   → live: opens a share sheet (Web Share API + Copy-link fallback) for a deep
+///               link back onto this deployment (see `share.dart`). A read — never gated.
 library;
 
 import 'package:flutter/material.dart';
