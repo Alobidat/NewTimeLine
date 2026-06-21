@@ -224,7 +224,9 @@ async def fetch_discover(
                 "    + COALESCE((SELECT count(*) FROM reactions r WHERE r.event_id = e.id),0) "
                 "    + COALESCE((SELECT GREATEST(sum(p.value),0) FROM promotes p "
                 "                WHERE p.target_type='event' AND p.target_id=e.id),0)) "
-                "  + 0.5 * (('x' || substr(md5(e.id::text || :uid::text),1,8))::bit(32)::int "
+                # CAST(:uid AS text) — not `:uid::text`: a bind param immediately followed by a
+                # `::` cast is misparsed by SQLAlchemy's text() and sends a stray ':' to Postgres.
+                "  + 0.5 * (('x' || substr(md5(e.id::text || CAST(:uid AS text)),1,8))::bit(32)::int "
                 "           / 2147483647.0) "  # deterministic per (event,user) serendipity jitter
                 ") AS score "
                 f"FROM events e {_HERO_JOIN} "
