@@ -254,6 +254,49 @@ wants the data set to "always be expanding as we add more sources," and every se
 "initiate a search to collect events" immediately. Background collect (not synchronous block)
 keeps the UX responsive. Detail in [event-presentation.md §5](event-presentation.md).
 
+### ADR-0026 — Social-first accounts: multi-provider auth, mandatory email verify, agreement, GDPR self-service
+*2026-06-21* · accepted · implements ADR-0007
+No registration form — the user picks a provider (Google/Apple/Facebook/X, **config-driven** so
+the set grows without code) and authorizes (OAuth2/OIDC auth-code + PKCE). First login
+auto-provisions `users` + links `user_identities` (account linkage across providers); the API
+then issues a signed-JWT session and `get_actor` (ADR-0025) resolves it (anonymous still reads).
+**Email verification is REQUIRED to interact** (providers asserting a verified email satisfy it;
+else verify by emailed link). **Agreement acceptance** (versioned Terms/use/privacy) is required
+and re-prompted on version change. **GDPR self-service from day one:** *delete my account*
+(irreversible purge of all the user's data incl. object-store uploads) and *download my data*
+(portable JSON+manifest export). Secrets (provider id/secret, JWT key, SMTP) via env/Settings;
+toggles via Config Service. Migration 0006. Detail in [social-and-feed.md §1](social-and-feed.md).
+
+### ADR-0027 — TikTok-style video feed with swipe navigation (For You / Following / Discover)
+*2026-06-21* · accepted · supersedes the map/timeline-first default for the client home
+The client home becomes a **vertical full-screen video feed** under three tabs **For You /
+Following / Discover**. **Swipe up/down** = next/previous event video; **swipe right** = the
+event's graph/timeline web (node-link on the time axis; select a node → videos at that location/
+time/actors, reusing the atlas + `event_relations` + `/related`/`/chain`); **swipe left** = next
+related event in the current timeline. TikTok-style **overlay rail** for react/comment/promote/
+follow/share + an **info affordance** for event metadata. The existing map/timeline becomes the
+swipe-right graph surface rather than the default home. Detail in
+[social-and-feed.md §5](social-and-feed.md).
+
+### ADR-0028 — Activity-driven interest profile + heuristic recommendations (Phase-5 slice)
+*2026-06-21* · accepted
+Pull a recommendation slice forward so we can tune from real usage. Every meaningful action is
+written to an **activity log**; an **interest profile** is a decayed weighted count over the
+entities/categories/places/authors a user engages with. **For You** ranks by a blend of recency,
+popularity (votes/views/watch-through), media-richness (clips first), and interest match, minus
+seen. No ML training yet — the activity log + existing `interest_vector`/`embedding` columns are
+the substrate for a later embedding pass. Feeds: For You (ranked), Following (followed users/
+entities), Discover (trending). Detail in [social-and-feed.md §4](social-and-feed.md).
+
+### ADR-0029 — User-generated video events: MVP upload, metadata-complete, moderation stub
+*2026-06-21* · accepted
+Email-verified users upload a clip; the client **requires time + location + actors + link(s)**
+before submit (the ADR-0020 every-event invariant). The server stores the binary via the existing
+media pipeline/archival policy (ADR-0018), creates the video `media` (hero) + `event`, tags
+entities, geocodes (ADR-0020 cascade), and records the user links. **Moderation is a flag/queue
+stub** (status pending/visible/removed) now; transcode + LLM-assisted moderation are a later pass.
+Detail in [social-and-feed.md §3](social-and-feed.md).
+
 ### ADR-0024 — Media-forward presentation (clips > images > text)
 *2026-06-21* · accepted · extends ADR-0021/0023
 The event experience leads with media because users give more time to a clip than an image and

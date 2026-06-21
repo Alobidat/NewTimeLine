@@ -154,8 +154,27 @@ ahead of the full auth stack. Design: [interactions-and-media.md](interactions-a
 **Done when:** events present media-first and tidy, and a (stub) user can comment in threads,
 react, vote, and link events — ready for Phase 4 to attach real accounts.
 
-## Phase 4 — Social layer + accounts
-**Goal:** users, reactions, comments, and the source-validation system.
+## Phase 4 — Accounts, social graph & the video feed 🟡 IN PROGRESS
+**Goal:** real accounts + a TikTok-style video-first client where users follow each other,
+interact, upload, and get a personalized feed. Design: [social-and-feed.md](social-and-feed.md)
+(ADR-0026…0029); pulls the Phase-5 recommendation slice (ADR-0028) forward. Builds on the
+interaction substrate (ADR-0025) and media-forward UI (ADR-0024).
+- **A — Accounts/auth/GDPR (backend):** multi-provider social login (config-driven), JWT
+  sessions, **mandatory email verification**, **agreement acceptance**, **delete-account** +
+  **download-my-data**; replaces the `get_actor` stub. Migration 0006. (ADR-0026)
+- **F — TikTok feed client:** For You / Following / Discover, vertical video feed, swipe
+  up·down (feed) / right (graph-timeline web) / left (next related), overlay rail + info. (ADR-0027)
+- **B — Social/feed/rec/upload (backend):** follow users+entities, promote events/links/sources/
+  actors, activity log + interest profile + heuristic feed/rec API, MVP video upload. Migration
+  0007. (ADR-0028/0029)
+- **G — Auth UI:** provider-choice login, consent, email-verify, account settings (delete/export).
+- **IU2 — Integration:** wire feed/overlay/upload to the live APIs; profile screen; polish.
+**Done when:** a user signs in with a major provider, verifies email, accepts terms, follows
+others, swipes a TikTok-style feed, interacts/uploads, gets a personalized For-You feed, and can
+export or delete all their data.
+
+### Phase 4 (later passes — deferred from this slice)
+**Goal:** the remaining moderation + validation depth.
 - **Social login (OIDC):** Google, Facebook, **Apple** (iOS-required), email; first login
   auto-provisions the account (no registration form); **account linkage** across providers.
 - Public-read / **auth-gated-write** enforcement; in-client sign-in prompt on interaction,
