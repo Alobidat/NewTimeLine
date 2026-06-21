@@ -181,6 +181,22 @@ SPECS: list[ConfigSpec] = [
     _i("agents.media.gap.batch_size", 20, "Gap batch size",
        scope="agent:media", component_id="agent:media.gap", minimum=1, maximum=200),
 
+    # Faceted search + live collection (event-presentation.md §5 / ADR-0022).
+    # Owned by the API surface (no component manifest), so component_id stays None.
+    _b("search.live_collection.enabled", True, "Search triggers live collection",
+       scope="search", component_id=None,
+       help="Each /search enqueues a 'collect' job onto the Redis run-queue so the corpus "
+            "expands on demand (ADR-0022). Disable to make search read-only."),
+    _i("search.facet_limit", 10, "Facet result limit",
+       scope="search", component_id=None, minimum=1, maximum=50,
+       help="Max actors and max places returned per faceted /search response."),
+    _i("search.stream.poll_seconds", 3, "Search stream poll interval (s)",
+       scope="search", component_id=None, minimum=1, maximum=30,
+       help="How often the /search/stream SSE endpoint polls for newly-collected matches."),
+    _i("search.stream.max_seconds", 120, "Search stream lifetime (s)",
+       scope="search", component_id=None, minimum=5, maximum=900,
+       help="Upper bound on a single /search/stream connection before the client reconnects."),
+
     # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
     ConfigSpec(key="llm.embedding.base_url", type="string",
                scope="llm", component_id="service:llm",

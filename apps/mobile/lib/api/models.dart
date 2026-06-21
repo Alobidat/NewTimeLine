@@ -325,6 +325,41 @@ class EventDetail extends EventRead {
   }
 }
 
+/// Faceted search response (event-presentation.md §5.1, ADR-0022): events plus actor
+/// (person/org) and place facets, and whether a live-collection job was enqueued for
+/// [subject] (the client then follows /search/stream to refresh as results land).
+class SearchResults {
+  SearchResults({
+    required this.subject,
+    this.collecting = false,
+    this.events = const [],
+    this.actors = const [],
+    this.places = const [],
+  });
+
+  final String subject;
+  final bool collecting;
+  final List<EventRead> events;
+  final List<EntityRead> actors;
+  final List<EntityRead> places;
+
+  bool get isEmpty => events.isEmpty && actors.isEmpty && places.isEmpty;
+
+  factory SearchResults.fromJson(Map<String, dynamic> j) => SearchResults(
+    subject: (j['subject'] as String?) ?? '',
+    collecting: (j['collecting'] as bool?) ?? false,
+    events: ((j['events'] as List?) ?? [])
+        .map((e) => EventRead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    actors: ((j['actors'] as List?) ?? [])
+        .map((e) => EntityRead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    places: ((j['places'] as List?) ?? [])
+        .map((e) => EntityRead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
 class TimelineBucket {
   TimelineBucket({
     required this.tStart,

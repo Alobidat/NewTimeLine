@@ -8,6 +8,7 @@ all return the same ``EventRead`` shape.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from chronos_core.schemas.event import EventRead, GeoPoint
 from chronos_core.schemas.graph import (
@@ -57,10 +58,14 @@ async def search_events(
     t0: float | None = None,
     t1: float | None = None,
     category: str | None = None,
+    since: datetime | None = None,
     limit: int = 50,
 ) -> list[EventRead]:
     """Find events by free text (title OR a linked entity name) within an optional time
-    range. Backs the "search a location / event title / date" entry point."""
+    range. Backs the "search a location / event title / date" entry point.
+
+    ``since`` restricts to events created at/after a wall-clock instant and orders newest-
+    first — the search SSE stream uses it to surface freshly-collected matches as they land."""
     clauses = ["e.status = 'published'"]
     params: dict = {"limit": limit}
     if q:
@@ -75,7 +80,11 @@ async def search_events(
     if category:
         clauses.append("e.category = :category")
         params["category"] = category
+    if since is not None:
+        clauses.append("e.created_at >= :since")
+        params["since"] = since
     where = " AND ".join(clauses)
+    order = "created_at DESC" if since is not None else "t_start"
     # Match (title OR linked-entity name) in a CTE, then project event columns alone — keeps
     # the shared _EVENT_COLS (unqualified id/geom) unambiguous despite the entity join.
     rows = (
@@ -87,7 +96,7 @@ async def search_events(
                 "  LEFT JOIN entities en ON en.id = ee.entity_id "
                 f"  WHERE {where}"
                 f") SELECT {_EVENT_COLS} FROM events e JOIN matched m ON m.event_id = e.id "
-                "ORDER BY t_start LIMIT :limit"
+                f"ORDER BY {order} LIMIT :limit"
             ),
             params,
         )
@@ -119,6 +128,39 @@ async def search_entities(
         )
     ).all()
     return [_entity_read(r) for r in rows]
+
+
+async def search_entities_by_kinds(
+    session: AsyncSession, *, q: str | None = None, kinds: tuple[str, ...], limit: int = 30
+) -> list[EntityRead]:
+    """Find entities of any of the given ``kinds`` by name, busiest first.
+
+    Backs the faceted-search "actors" (person/org) and "places" (place) panels — the same
+    shape as :func:`search_entities` but filtered to a set of kinds in one query."""
+    if not kinds:
+        return []
+    clauses = ["en.kind = ANY(:kinds)"]
+    params: dict = {"limit": limit, "kinds": list(kinds)}
+    if q:
+        clauses.append("en.name ILIKE :qlike")
+        params["qlike"] = f"%{q}%"
+    where = " AND ".join(clauses)
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_ENTITY_COLS}, count(ee.event_id) AS event_count FROM entities en "
+                "LEFT JOIN event_entities ee ON ee.entity_id = en.id "
+                f"WHERE {where} GROUP BY en.id ORDER BY event_count DESC, en.name LIMIT :limit"
+            ),
+            params,
+        )
+    ).all()
+    return [_entity_read(r) for r in rows]
+
+
+# Facet kinds: which entity kinds each search facet draws from.
+ACTOR_KINDS = ("person", "org")
+PLACE_KINDS = ("place",)
 
 
 async def events_for_entities(

@@ -26,7 +26,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (q.isEmpty) return;
     setState(() {
       _query = q;
-      _results = widget.api.search(q: q, limit: 100);
+      // Faceted search also triggers live collection; this screen shows the event facet.
+      _results = widget.api.search(q: q, limit: 100).then((r) => r.events);
     });
   }
 

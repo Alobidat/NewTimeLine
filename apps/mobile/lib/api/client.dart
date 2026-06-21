@@ -98,15 +98,81 @@ class ApiClient {
     await _getJson('/events/$id', const {}) as Map<String, dynamic>,
   );
 
-  /// Search events by free text (title or linked entity name) + optional year range.
-  Future<List<EventRead>> search({String? q, double? t0, double? t1, int limit = 50}) async {
-    final list = await _getJson('/search', {
-      'q': ?q,
-      't0': ?t0?.toString(),
-      't1': ?t1?.toString(),
-      'limit': limit.toString(),
-    }) as List;
-    return list.map((e) => EventRead.fromJson(e as Map<String, dynamic>)).toList();
+  /// Faceted search (events + actors + places) that also triggers live collection
+  /// (ADR-0022). The response's `collecting` flag tells the UI to follow [searchStream]
+  /// for results landing as the on-demand collector publishes them.
+  Future<SearchResults> search({
+    String? q,
+    String? location,
+    String? actor,
+    double? t0,
+    double? t1,
+    int limit = 50,
+    bool collect = true,
+  }) async {
+    return SearchResults.fromJson(
+      await _getJson('/search', {
+        'q': ?q,
+        'location': ?location,
+        'actor': ?actor,
+        't0': ?t0?.toString(),
+        't1': ?t1?.toString(),
+        'limit': limit.toString(),
+        'collect': collect.toString(),
+      }) as Map<String, dynamic>,
+    );
+  }
+
+  /// Server-Sent Events stream of *newly-collected* events matching a search subject
+  /// (ADR-0022). Yields each fresh [EventRead] as the collector publishes it, so the
+  /// search view can refresh live ("showing N results, collecting more…"). The stream
+  /// ends when the server caps the connection or the subscription is cancelled.
+  Stream<EventRead> searchStream({
+    String? q,
+    String? location,
+    String? actor,
+    double? t0,
+    double? t1,
+    int limit = 50,
+  }) async* {
+    final uri = Uri.parse('$baseUrl/search/stream').replace(
+      queryParameters: {
+        'q': ?q,
+        'location': ?location,
+        'actor': ?actor,
+        't0': ?t0?.toString(),
+        't1': ?t1?.toString(),
+        'limit': limit.toString(),
+      },
+    );
+    final req = http.Request('GET', uri)
+      ..headers['Accept'] = 'text/event-stream';
+    final resp = await _http.send(req);
+    if (resp.statusCode != 200) {
+      throw ApiException('GET $uri → ${resp.statusCode}');
+    }
+    // Parse the SSE frames line-by-line: accumulate `event:`/`data:` until a blank line.
+    final lines = resp.stream.transform(utf8.decoder).transform(const LineSplitter());
+    String? event;
+    final data = StringBuffer();
+    await for (final line in lines) {
+      if (line.isEmpty) {
+        // End of one frame: emit only `event` frames carrying a real EventRead.
+        if (event == 'event' && data.isNotEmpty) {
+          final json = jsonDecode(data.toString()) as Map<String, dynamic>;
+          yield EventRead.fromJson(json);
+        }
+        event = null;
+        data.clear();
+        continue;
+      }
+      if (line.startsWith('event:')) {
+        event = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        if (data.isNotEmpty) data.write('\n');
+        data.write(line.substring(5).trim());
+      }
+    }
   }
 
   /// Entity lookup by name (busiest first).
