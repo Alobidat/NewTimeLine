@@ -46,10 +46,11 @@ if $WEB; then
   fi
 fi
 
-# 4. Backend images.
+# 4. Backend images. Rebuild migrate too — it carries the Alembic scripts, so a new
+# migration must land in its image or `up -d api` (which runs migrate) fails to reach head.
 if $BACKEND; then
-  log "rebuild api+agents, restart api"
-  if ( cd "$LIVE" && docker compose build api agents && docker compose up -d api ) >>"$LOG" 2>&1; then
+  log "rebuild migrate+api+agents, restart api"
+  if ( cd "$LIVE" && docker compose build migrate api agents && docker compose up -d api ) >>"$LOG" 2>&1; then
     log "backend redeployed"
   else
     log "backend redeploy FAILED"
