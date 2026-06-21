@@ -11,8 +11,11 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+
+import 'web_video.dart';
 
 /// A muted, looping clip filling its box, with cover-fit (BoxFit.cover semantics) so it
 /// behaves like a TikTok video. [active] drives autoplay; [preload] keeps the controller
@@ -47,7 +50,10 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   bool _failed = false;
   bool _muted = true;
 
-  bool get _wanted => widget.url != null && (widget.active || widget.preload);
+  // On the web the clip is rendered by a raw HTML <video> (see build) — never the
+  // video_player controller, whose platform view can't be cover-fit.
+  bool get _wanted =>
+      !kIsWeb && widget.url != null && (widget.active || widget.preload);
 
   @override
   void initState() {
@@ -130,6 +136,15 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    // Web: a full-bleed HTML <video> (object-fit: cover), muted-autoplay-loop. No controller,
+    // no FittedBox — the element styles itself, so it fills the page instead of a top strip.
+    if (kIsWeb) {
+      final url = widget.url;
+      return Container(
+        color: Colors.black,
+        child: url == null ? _glyph() : webVideoView(url, muted: true),
+      );
+    }
     return GestureDetector(
       onTap: _onTap,
       behavior: HitTestBehavior.opaque,

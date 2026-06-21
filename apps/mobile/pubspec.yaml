@@ -45,6 +45,9 @@ dependencies:
   # Inline video playback for event media clips (web + mobile + desktop).
   video_player: ^2.9.2
 
+  # Raw HTML <video> for the web feed (full-bleed object-fit: cover; feed/web_video_web.dart).
+  web: ^1.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
