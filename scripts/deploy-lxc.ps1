@@ -60,9 +60,14 @@ if ($web) {
     (flutter build web --no-tree-shake-icons --no-wasm-dry-run 2>&1) |
       Select-Object -Last 2 | ForEach-Object { Log "  $_" }
     Pop-Location
-    $tgz = Join-Path $env:TEMP "webdist-deploy.tgz"
-    tar -czf $tgz -C (Join-Path $root "apps\mobile\build\web") .
-    Log "ship webdist bundle"
+    # Keep the tarball in the repo root (gitignored) — $env:TEMP can differ in the detached
+    # post-commit context, which left scp with nothing to send.
+    $webDir = Join-Path $root "apps\mobile\build\web"
+    $tgz = Join-Path $root "webdist-deploy.tgz"
+    Remove-Item $tgz -ErrorAction SilentlyContinue
+    & tar.exe -czf $tgz -C $webDir .
+    if (-not (Test-Path $tgz)) { throw "tar produced no bundle at $tgz" }
+    Log ("bundle {0:N1} MB; ship to webdist" -f ((Get-Item $tgz).Length / 1MB))
     (scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $tgz "${lxc}:$remote/webdist-deploy.tgz" 2>&1) |
       ForEach-Object { Log "  $_" }
     (ssh @sshArgs "cd $remote && find webdist -mindepth 1 -delete && tar --no-same-owner -xzf webdist-deploy.tgz -C webdist && rm -f webdist-deploy.tgz && find webdist -type d -exec chmod 755 {} + && find webdist -type f -exec chmod 644 {} +" 2>&1) |

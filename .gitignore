@@ -56,3 +56,4 @@ Thumbs.db
 *.tfvars
 !*.tfvars.example
 deploy.log
+webdist-deploy.tgz
