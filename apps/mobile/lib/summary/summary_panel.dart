@@ -10,6 +10,7 @@ import '../api/client.dart';
 import '../api/models.dart';
 import '../domain/time_format.dart';
 import '../event/detail_widgets.dart';
+import '../shell/morph_host.dart';
 import '../theme/severity.dart';
 
 class SummaryPanel extends StatelessWidget {
@@ -139,51 +140,72 @@ class _Montage extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         itemCount: reps.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final r = reps[i];
-          return GestureDetector(
-            onTap: () => onSelect(r.id),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 160,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.network(
-                      api.mediaUrl(r.heroMediaId!),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => ColoredBox(
-                        color: severityColor(r.severity).withValues(alpha: 0.3),
-                        child: const Center(
-                          child: Icon(Icons.image_not_supported_outlined),
-                        ),
-                      ),
-                      loadingBuilder: (ctx, child, p) =>
-                          p == null ? child : const ColoredBox(color: Colors.black26),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                        color: Colors.black54,
-                        child: Text(
-                          r.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                      ),
-                    ),
-                  ],
+        itemBuilder: (_, i) => _MontageTile(
+          api: api,
+          rep: reps[i],
+          onSelect: onSelect,
+        ),
+      ),
+    );
+  }
+}
+
+/// A single montage tile. Uses its own build context as the flight origin so the morph
+/// lifts off from *this* tile rather than the whole strip.
+class _MontageTile extends StatelessWidget {
+  const _MontageTile({
+    required this.api,
+    required this.rep,
+    required this.onSelect,
+  });
+  final ApiClient api;
+  final SummaryRep rep;
+  final void Function(String eventId) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        MorphScope.maybeOf(context)?.fly(context, api.mediaUrl(rep.heroMediaId!));
+        onSelect(rep.id);
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 160,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                api.mediaUrl(rep.heroMediaId!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => ColoredBox(
+                  color: severityColor(rep.severity).withValues(alpha: 0.3),
+                  child: const Center(
+                    child: Icon(Icons.image_not_supported_outlined),
+                  ),
+                ),
+                loadingBuilder: (ctx, child, p) =>
+                    p == null ? child : const ColoredBox(color: Colors.black26),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  color: Colors.black54,
+                  child: Text(
+                    rep.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }

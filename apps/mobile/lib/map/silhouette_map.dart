@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../shell/morph_host.dart';
 import '../theme/severity.dart';
 import 'country_atlas.dart';
 
@@ -22,6 +23,7 @@ class MapPin {
     required this.onTap,
     this.label,
     this.selected = false,
+    this.imageUrl,
   });
 
   final String id;
@@ -30,6 +32,9 @@ class MapPin {
   final VoidCallback onTap;
   final String? label;
   final bool selected;
+
+  /// When set, tapping the pin launches a flying-media morph from here into the panel.
+  final String? imageUrl;
 }
 
 class SilhouetteMap extends StatelessWidget {
@@ -136,39 +141,55 @@ class _Pin extends StatelessWidget {
   const _Pin({required this.pin});
   final MapPin pin;
 
+  void _handleTap(BuildContext context) {
+    final url = pin.imageUrl;
+    if (url != null) MorphScope.maybeOf(context)?.fly(context, url);
+    pin.onTap();
+  }
+
   @override
   Widget build(BuildContext context) {
     final color = severityColor(pin.severity);
     final size = pin.selected ? 22.0 : 10.0 + (pin.severity.clamp(0, 100) / 100.0) * 10.0;
     return GestureDetector(
-      onTap: pin.onTap,
+      onTap: () => _handleTap(context),
       behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: pin.selected ? 1 : 0.85),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white,
-                width: pin.selected ? 2.5 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: pin.selected ? 0.9 : 0.5),
-                  blurRadius: pin.selected ? 18 : 8,
-                  spreadRadius: pin.selected ? 2 : 0,
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (pin.selected) _PulseHalo(color: color),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  width: size,
+                  height: size,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: pin.selected ? 1 : 0.85),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white,
+                      width: pin.selected ? 2.5 : 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: pin.selected ? 0.9 : 0.5),
+                        blurRadius: pin.selected ? 18 : 8,
+                        spreadRadius: pin.selected ? 2 : 0,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
           if (pin.label != null)
             Container(
-              margin: const EdgeInsets.only(top: 3),
+              margin: const EdgeInsets.only(top: 1),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.45),
@@ -183,6 +204,50 @@ class _Pin extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// A soft ring that pulses outward behind the selected pin (a quiet "you are here" beat).
+class _PulseHalo extends StatefulWidget {
+  const _PulseHalo({required this.color});
+  final Color color;
+
+  @override
+  State<_PulseHalo> createState() => _PulseHaloState();
+}
+
+class _PulseHaloState extends State<_PulseHalo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) {
+        final t = _c.value;
+        return Container(
+          width: 14 + t * 14,
+          height: 14 + t * 14,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: widget.color.withValues(alpha: (1 - t) * 0.7),
+              width: 2,
+            ),
+          ),
+        );
+      },
     );
   }
 }

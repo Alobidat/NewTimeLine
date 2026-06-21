@@ -63,8 +63,10 @@ class _DetailPanelState extends State<DetailPanel> {
         .where((m) => m.kind == 'image' || m.kind == 'video')
         .toList();
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
+        // Hero media on top so the flying-media morph lands here.
+        if (gallery.isNotEmpty) MediaGallery(api: widget.api, items: gallery),
         Row(
           children: [
             Expanded(
@@ -78,8 +80,7 @@ class _DetailPanelState extends State<DetailPanel> {
               ),
           ],
         ),
-        const SizedBox(height: 12),
-        if (gallery.isNotEmpty) MediaGallery(api: widget.api, items: gallery),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 8,

@@ -21,6 +21,7 @@ import '../summary/summary_model.dart';
 import '../summary/summary_panel.dart';
 import '../timeline/timeline_controller.dart';
 import '../timeline/timeline_panel.dart';
+import 'morph_host.dart';
 
 const _kWideBreakpoint = 900.0;
 
@@ -212,6 +213,7 @@ class _ExperienceScreenState extends State<ExperienceScreen>
             point: LatLng(r.geo!.lat, r.geo!.lon),
             severity: r.severity,
             label: r.geoLabel,
+            imageUrl: r.heroMediaId != null ? _api.mediaUrl(r.heroMediaId!) : null,
             onTap: () => _select(r.id, point: LatLng(r.geo!.lat, r.geo!.lon)),
           ),
     ];
@@ -282,17 +284,39 @@ class _ExperienceScreenState extends State<ExperienceScreen>
       onMapReady: _onMapReady,
     );
 
-    return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth >= _kWideBreakpoint;
-            return wide ? _wide(map) : _narrow(map);
-          },
-        ),
+    // MorphHost provides the flying-media overlay + the landing target the panel registers.
+    return MorphHost(
+      child: Builder(
+        builder: (ctx) {
+          final targetKey = MorphScope.maybeOf(ctx)?.targetKey ?? GlobalKey();
+          return Scaffold(
+            body: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= _kWideBreakpoint;
+                  return wide ? _wide(map, targetKey) : _narrow(map, targetKey);
+                },
+              ),
+            ),
+          );
+        },
       ),
     );
   }
+
+  /// The panel content with an invisible landing box at the top where a flown image lands.
+  Widget _panelWithTarget(GlobalKey targetKey) => Stack(
+    children: [
+      Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 210,
+        child: IgnorePointer(child: SizedBox(key: targetKey)),
+      ),
+      Positioned.fill(child: _panel()),
+    ],
+  );
 
   Widget _searchBar() => Align(
     alignment: Alignment.topCenter,
@@ -322,7 +346,7 @@ class _ExperienceScreenState extends State<ExperienceScreen>
     );
   }
 
-  Widget _wide(Widget map) {
+  Widget _wide(Widget map, GlobalKey targetKey) {
     final scheme = Theme.of(context).colorScheme;
     final mapStack = Expanded(
       child: Stack(
@@ -338,7 +362,7 @@ class _ExperienceScreenState extends State<ExperienceScreen>
       child: Material(
         elevation: 3,
         color: scheme.surface,
-        child: _panel(),
+        child: _panelWithTarget(targetKey),
       ),
     );
     return Row(
@@ -346,28 +370,78 @@ class _ExperienceScreenState extends State<ExperienceScreen>
     );
   }
 
-  Widget _narrow(Widget map) {
+  /// Phone layout: the map fills, the timeline pins to the very bottom, and the panel is a
+  /// sheet that *morphs* its height between summary (a peek) and detail (most of the screen).
+  Widget _narrow(Widget map, GlobalKey targetKey) {
+    const timelineH = 132.0;
+    final detail = _selection.mode == ViewMode.detail;
     return Column(
       children: [
         Expanded(
-          flex: 3,
-          child: Stack(
-            children: [
-              Positioned.fill(child: map),
-              Positioned(left: 0, right: 0, top: 0, child: _searchBar()),
-            ],
+          child: LayoutBuilder(
+            builder: (ctx, c) {
+              final sheetH = (detail ? 0.62 : 0.40) * c.maxHeight;
+              return Stack(
+                children: [
+                  Positioned.fill(child: map),
+                  Positioned(left: 0, right: 0, top: 0, child: _searchBar()),
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 350),
+                    curve: Curves.easeOutCubic,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: sheetH,
+                    child: _sheet(targetKey, detail),
+                  ),
+                ],
+              );
+            },
           ),
         ),
-        Expanded(
-          flex: 2,
-          child: Material(
-            elevation: 3,
-            color: Theme.of(context).colorScheme.surface,
-            child: _panel(),
-          ),
-        ),
-        _timelineBar(height: 150),
+        _timelineBar(height: timelineH),
       ],
+    );
+  }
+
+  Widget _sheet(GlobalKey targetKey, bool detail) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 10,
+      color: scheme.surface,
+      clipBehavior: Clip.antiAlias,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: detail ? _clearSelection : null,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  if (detail)
+                    Text(
+                      'tap to return to the overview',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(child: _panelWithTarget(targetKey)),
+        ],
+      ),
     );
   }
 }
