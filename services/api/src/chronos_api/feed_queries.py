@@ -224,9 +224,10 @@ async def fetch_discover(
                 "    + COALESCE((SELECT count(*) FROM reactions r WHERE r.event_id = e.id),0) "
                 "    + COALESCE((SELECT GREATEST(sum(p.value),0) FROM promotes p "
                 "                WHERE p.target_type='event' AND p.target_id=e.id),0)) "
-                # CAST(:uid AS text) — not `:uid::text`: a bind param immediately followed by a
-                # `::` cast is misparsed by SQLAlchemy's text() and sends a stray ':' to Postgres.
-                "  + 0.5 * (('x' || substr(md5(e.id::text || CAST(:uid AS text)),1,8))::bit(32)::int "
+                # Use a *separate* text param for the hash (:uid_text), not :uid: the same bind
+                # can't be both text (here) and uuid (the a.user_id filter below) — asyncpg fails
+                # to unify the param's type. (`:uid::text` also tripped a text() parse bug.)
+                "  + 0.5 * (('x' || substr(md5(e.id::text || :uid_text),1,8))::bit(32)::int "
                 "           / 2147483647.0) "  # deterministic per (event,user) serendipity jitter
                 ") AS score "
                 f"FROM events e {_HERO_JOIN} "
@@ -236,7 +237,7 @@ async def fetch_discover(
                 "ORDER BY (h.media_id IS NOT NULL) DESC, score DESC "
                 "LIMIT :lim OFFSET :off"
             ),
-            {"uid": user_id, "lim": page, "off": offset},
+            {"uid": user_id, "uid_text": str(user_id), "lim": page, "off": offset},
         )
     ).all()
     return FeedResponse(
