@@ -149,6 +149,8 @@ services:
       - "${WEB_PORT:-8080}:80"
     volumes:
       - ./webdist:/usr/share/nginx/html:ro
+      # Serve the SPA + reverse-proxy /api → the api service (same-origin; no hardcoded API IP).
+      - ./infra/webapp/default.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   pgdata:
