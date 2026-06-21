@@ -67,6 +67,64 @@ async def _wiki_image(client: httpx.AsyncClient, source_url: str) -> str | None:
     return img
 
 
+def _best_webm(item: dict) -> dict | None:
+    """Pick the best browser-playable WebM source from a media-list video item.
+
+    Wikimedia exposes the original plus transcodes; we want a ``video/webm`` (VP8/VP9 —
+    what Chrome plays) and prefer the largest one up to ~640px so it stays light."""
+    webms = [
+        s for s in item.get("sources", [])
+        if (s.get("mime") or "").startswith("video/webm") and s.get("url")
+    ]
+    if not webms:
+        return None
+
+    def width(s: dict) -> int:
+        try:
+            return int(s.get("width") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    capped = [s for s in webms if width(s) <= 640]
+    pool = capped or webms
+    return max(pool, key=width)
+
+
+async def _wiki_video(
+    client: httpx.AsyncClient, source_url: str
+) -> tuple[str, str | None] | None:
+    """Find a real, playable video clip for an event from its Wikipedia article.
+
+    Uses the REST ``media-list`` endpoint (the same Wikimedia source as the lead image) and
+    returns ``(url, caption)`` for the first article video that has a WebM rendition, or
+    ``None``. WebM-only on purpose: Wikimedia's other format (Ogg/Theora) won't play in most
+    browsers, so we skip it rather than attach an unplayable clip."""
+    title = _wiki_article(source_url)
+    if title is None:
+        return None
+    try:
+        resp = await client.get(
+            f"https://en.wikipedia.org/api/rest_v1/page/media-list/{title}", timeout=15.0
+        )
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+    except Exception:
+        log.warning("no wiki media-list for %s", unquote(title))
+        return None
+    for item in items:
+        if item.get("type") != "video":
+            continue
+        src = _best_webm(item)
+        if src is None:
+            continue
+        url = src["url"]
+        if url.startswith("//"):
+            url = "https:" + url
+        caption = (item.get("caption") or {}).get("text")
+        return url, caption
+    return None
+
+
 @dataclass(frozen=True)
 class _Ent:
     name: str
@@ -273,6 +331,20 @@ async def _upsert_event(session, client: httpx.AsyncClient, ev: _Ev, weights) ->
                 session, event, url=image, kind="image",
                 source_kind=ev.image_origin, role="hero", added_by=AGENT,
             )
+        # Real video clip from the same Wikipedia article, when one exists (WebM only).
+        clip = await _wiki_video(client, ev.sources[0][0])
+        if clip:
+            url, caption = clip
+            media = await repository.discover_media(
+                session, event, url=url, kind="video", mime="video/webm",
+                source_kind="encyclopedia", role="gallery", added_by=AGENT,
+            )
+            # Wikimedia is a durable, CORS-friendly host, so let the client play the clip
+            # directly (instant, no wait on the fetch worker); media-fetch may still archive
+            # the bytes per ADR-0018.
+            media.embed_url = url
+            if caption:
+                media.caption = caption
     return event
 
 
