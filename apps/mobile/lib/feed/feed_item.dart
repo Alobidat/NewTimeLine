@@ -10,7 +10,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
-import 'feed_clip_player.dart';
 import 'feed_source.dart';
 import 'overlay_rail.dart';
 
@@ -63,10 +62,11 @@ class FeedItemView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final clipUrl =
-        item.heroMediaId != null ? api.mediaUrl(item.heroMediaId!) : null;
-
+    // The clip itself is rendered ONCE behind the PageView by [VideoFeed] (a platform view
+    // inside a PageView mis-positions on CanvasKit web), so a page is just the transparent
+    // overlay layer — scrim + rail + the horizontal-swipe gestures — over that video.
     return GestureDetector(
+      behavior: HitTestBehavior.opaque, // claim the whole page area for horizontal drags
       // Claim horizontal drags only; vertical paging stays with the parent PageView.
       onHorizontalDragEnd: (details) {
         final v = details.primaryVelocity ?? 0;
@@ -78,49 +78,37 @@ class FeedItemView extends StatelessWidget {
           callbacks.onSwipeLeftNext();
         }
       },
-      child: Container(
-        color: Colors.black,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            FeedClipPlayer(
-              url: clipUrl,
-              active: active,
-              preload: preload,
-              // No posterUrl: the hero is a *video*, so its /raw URL isn't a decodable image —
-              // passing it to Image.network just renders a broken image. The player shows a
-              // neutral backdrop while the clip initialises instead.
-              posterUrl: null,
-            ),
-            // Subtle bottom scrim so the caption stays legible over bright clips.
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 220,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [Colors.black54, Colors.transparent],
-                  ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Subtle bottom scrim so the caption stays legible over bright clips.
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 220,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Colors.black54, Colors.transparent],
                 ),
               ),
             ),
-            OverlayRail(
-              api: api,
-              event: item.event,
-              onReact: callbacks.onReact,
-              onComment: callbacks.onComment,
-              onInfo: callbacks.onInfo,
-              onPromote: callbacks.onPromote,
-              onFollow: callbacks.onFollow,
-              onShare: callbacks.onShare,
-              onOpenGraph: callbacks.onSwipeRightGraph,
-            ),
-          ],
-        ),
+          ),
+          OverlayRail(
+            api: api,
+            event: item.event,
+            onReact: callbacks.onReact,
+            onComment: callbacks.onComment,
+            onInfo: callbacks.onInfo,
+            onPromote: callbacks.onPromote,
+            onFollow: callbacks.onFollow,
+            onShare: callbacks.onShare,
+            onOpenGraph: callbacks.onSwipeRightGraph,
+          ),
+        ],
       ),
     );
   }

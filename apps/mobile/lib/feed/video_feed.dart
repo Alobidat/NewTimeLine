@@ -24,6 +24,7 @@ import '../api/models.dart';
 import '../auth/interaction_gate.dart';
 import '../state/auth_state.dart';
 import 'event_graph_view.dart';
+import 'feed_clip_player.dart';
 import 'feed_info_sheet.dart';
 import 'feed_item.dart';
 import 'feed_source.dart';
@@ -247,20 +248,40 @@ class _VideoFeedState extends State<VideoFeed>
       );
     }
 
-    return PageView.builder(
-      controller: _page,
-      scrollDirection: Axis.vertical,
-      itemCount: _items.length,
-      onPageChanged: (i) {
-        setState(() => _current = i);
-        // Page near the end → fetch the next page.
-        if (i >= _items.length - 2) _loadMore();
-      },
-      itemBuilder: (context, i) {
-        final item = _items[i];
-        final active = i == _current;
-        final preload = (i - _current).abs() == 1; // immediate neighbours only.
-        return FeedItemView(
+    // The active clip is rendered ONCE here, behind the PageView. On CanvasKit web a
+    // video_player platform view placed *inside* a PageView is mis-positioned (pinned to the
+    // viewport top as a strip), so we keep a single full-screen player outside the scrollable
+    // and just switch its source as the page settles. The PageView carries the transparent
+    // overlays (scrim + rail + gestures) on top.
+    final current = _items[_current.clamp(0, _items.length - 1)];
+    final clipUrl = current.heroMediaId != null
+        ? widget.api.mediaUrl(current.heroMediaId!)
+        : null;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: FeedClipPlayer(
+            key: ValueKey('clip-${widget.tab.slug}-${current.id}'),
+            url: clipUrl,
+            active: true,
+            posterUrl: null,
+          ),
+        ),
+        PageView.builder(
+          controller: _page,
+          scrollDirection: Axis.vertical,
+          itemCount: _items.length,
+          onPageChanged: (i) {
+            setState(() => _current = i);
+            // Page near the end → fetch the next page.
+            if (i >= _items.length - 2) _loadMore();
+          },
+          itemBuilder: (context, i) {
+            final item = _items[i];
+            final active = i == _current;
+            final preload = (i - _current).abs() == 1; // immediate neighbours only.
+            return FeedItemView(
           key: ValueKey('feed-${widget.tab.slug}-${item.id}'),
           api: widget.api,
           item: item,
@@ -277,7 +298,9 @@ class _VideoFeedState extends State<VideoFeed>
             onShare: () => _share(item),
           ),
         );
-      },
+          },
+        ),
+      ],
     );
   }
 }
