@@ -7,11 +7,13 @@ See docs/admin-portal.md §2.
 
 from __future__ import annotations
 
+import copy
 import uuid
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from chronos_core.config_spec import SPECS
 from chronos_core.models.config import Config, ConfigAudit
@@ -45,9 +47,17 @@ async def set_value(
     """Upsert a config value, recording the change in ``config_audit`` and bumping version.
 
     The caller controls the transaction (commit happens in the session scope).
+
+    Defensive against in-place JSON mutation: callers commonly read a value via :func:`get`,
+    mutate it, and pass it back. The stored value is then the *same object* SQLAlchemy already
+    holds, so a plain ``row.value = value`` assignment isn't seen as a change and the JSON
+    column never flushes. We snapshot ``old_value`` and ``flag_modified`` the column so the new
+    value always persists and the audit captures the genuine before-state.
     """
     row = await session.get(Config, key)
-    old_value = row.value if row is not None else None
+    # Deep-copy the prior value: if the caller mutated the stored object in place, a shallow
+    # reference would make the audit's old_value identical to the new value.
+    old_value = copy.deepcopy(row.value) if row is not None else None
     session.add(
         ConfigAudit(
             key=key, old_value=old_value, new_value=value, changed_by=actor, note=note
@@ -60,6 +70,8 @@ async def set_value(
         row.scope = scope
         row.version += 1
         row.updated_by = actor
+        # Force a dirty flag even when `value is row.value` (in-place mutation) so JSON flushes.
+        flag_modified(row, "value")
 
 
 async def ensure_defaults(session: AsyncSession) -> int:
