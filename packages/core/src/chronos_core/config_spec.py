@@ -139,6 +139,14 @@ SPECS: list[ConfigSpec] = [
                help="Events must be within this many years of each other to be considered "
                     "duplicates (prevents merging same-title events from different eras)."),
 
+    # Geocoder (Nominatim / OSM, Phase 3b)
+    _b("agents.geocode.enabled", True, "Enabled",
+       scope="agent:geocode", component_id="agent:geocode"),
+    _i("agents.geocode.batch_size", 20, "Batch size",
+       scope="agent:geocode", component_id="agent:geocode", minimum=2, maximum=200,
+       help="Events + place entities to geocode per run. Nominatim is rate-limited to "
+            "~1 req/s so keep this low unless running on a private instance."),
+
     # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
     ConfigSpec(key="llm.embedding.base_url", type="string",
                scope="llm", component_id="service:llm",

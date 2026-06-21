@@ -20,6 +20,7 @@ from chronos_core.db import session_scope
 from chronos_core.runs import record_run
 
 from chronos_agents.dedup import run_dedup
+from chronos_agents.geocode import run_geocode
 from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.media_check import check_media
@@ -35,6 +36,7 @@ _COMMANDS = {
     "enrich": ("agent:enrich", lambda a: enrich_pending()),
     "relate": ("agent:relate", lambda a: link_relations()),
     "dedup": ("agent:dedup", lambda a: run_dedup()),
+    "geocode": ("agent:geocode", lambda a: run_geocode()),
     "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
     "media-check": ("agent:media.check", lambda a: check_media()),
     "seed-iran-us": ("agent:seed.iran-us", lambda a: seed_iran_us()),
@@ -53,6 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("media-fetch", help="Download media flagged for local capture (ADR-0018)")
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
     sub.add_parser("seed-iran-us", help="Seed the curated US–Iran PoC history web")
+    sub.add_parser("geocode", help="Geocode events + place entities via Nominatim (OSM)")
     return parser
 
 

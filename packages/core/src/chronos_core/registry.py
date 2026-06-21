@@ -97,6 +97,17 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:geocode", kind="agent", title="Geocoder",
+        description="Resolves geo_label → PostGIS geometry for events and name → geom for "
+                    "place entities via Nominatim (OpenStreetMap). Rate-limited to 1 req/s.",
+        command="geocode", config_prefix="agents.geocode",
+        enabled_key="agents.geocode.enabled",
+        capabilities=["geocode-events", "geocode-entities"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["candidates", "geocoded", "failed"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="agent:dedup", kind="agent", title="Deduper",
         description="Embeds events via pgvector and merges near-duplicate events "
                     "(cosine similarity, configurable threshold + time window).",
