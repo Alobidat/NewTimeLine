@@ -9,10 +9,13 @@ routes needed.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
+import redis as redislib
 from chronos_core import config_service, registry
 from chronos_core.config_spec import SPEC_BY_KEY, validate_value
+from chronos_core.run_queue import push_job
 from chronos_core.runs import recent_runs
 from chronos_core.schemas.admin import (
     ComponentDetail,
@@ -82,7 +85,7 @@ async def component_action(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Run a declared action. enable/disable/pause toggle the component's config flag;
-    run-now is declared but executes only once the scheduler/queue runner is wired."""
+    run-now pushes a job to the Redis queue consumed by the agent worker."""
     m = registry.get(component_id)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown component")
@@ -100,10 +103,17 @@ async def component_action(
         )
         return {"component": component_id, "action": action, "enabled": new_value}
 
-    # run-now: execution wiring (scheduler/queue) is a later pass.
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED, "run-now is not wired to a runner yet"
-    )
+    if action == "run-now":
+        if not m.command:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "component has no runnable command")
+        r = redislib.from_url(get_settings().redis_url)
+        try:
+            await asyncio.to_thread(push_job, r, m.command)
+        finally:
+            await asyncio.to_thread(r.close)
+        return {"component": component_id, "action": "run-now", "queued": True, "command": m.command}
+
+    raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unsupported action: {action}")
 
 
 @router.get("/config", response_model=list[ConfigEntry])

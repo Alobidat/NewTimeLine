@@ -7,6 +7,7 @@
     python -m chronos_agents.run dedup
     python -m chronos_agents.run media-fetch
     python -m chronos_agents.run media-check
+    python -m chronos_agents.run worker   # long-running queue consumer
 """
 
 from __future__ import annotations
@@ -56,10 +57,16 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
     sub.add_parser("seed-iran-us", help="Seed the curated US–Iran PoC history web")
     sub.add_parser("geocode", help="Geocode events + place entities via Nominatim (OSM)")
+    sub.add_parser("worker", help="Long-running queue worker (consumes admin run-now jobs)")
     return parser
 
 
 async def _main(args: argparse.Namespace) -> None:
+    if args.command == "worker":
+        from chronos_agents.worker import run_worker  # noqa: PLC0415
+        await run_worker()
+        return
+
     # Seed Config Service defaults (idempotent) so agents work even if the API hasn't
     # started yet — agents must not depend on the API for their configuration.
     async with session_scope() as session:
