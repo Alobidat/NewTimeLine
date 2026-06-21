@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# LXC-native deploy — runs on the dev box after each commit (see .githooks/post-commit).
+# Syncs the live stack at /opt/newtimeline to THIS dev clone's current commit and rebuilds only
+# what changed. All-local (same host): the web bundle is copied straight into nginx's webdist,
+# no scp. Progress is appended to deploy.log at the repo root.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+LIVE=/opt/newtimeline
+LOG="$ROOT/deploy.log"
+FLUTTER=/opt/flutter/bin/flutter
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG"; }
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+log "=== deploy start: $(git log -1 --format='%h %s') (branch $BRANCH) ==="
+
+if git rev-parse --verify -q HEAD~1 >/dev/null; then
+  CHANGED="$(git diff --name-only HEAD~1 HEAD)"
+else
+  CHANGED="$(git ls-files)"
+fi
+BACKEND=false; WEB=false
+echo "$CHANGED" | grep -qE '^(services|packages|db)/' && BACKEND=true
+echo "$CHANGED" | grep -qE '^apps/mobile/' && WEB=true
+log "changed -> backend=$BACKEND web=$WEB"
+
+# 1. Best-effort push to GitHub (source of truth); never blocks the deploy.
+if git push origin "$BRANCH" >>"$LOG" 2>&1; then log "pushed $BRANCH"; else log "push skipped/failed (deploy key may be unset)"; fi
+
+# 2. Sync the live checkout to THIS commit via a local fetch (no GitHub round-trip needed).
+sudo git -C "$LIVE" fetch -q "$ROOT" "$BRANCH" && sudo git -C "$LIVE" reset --hard -q FETCH_HEAD
+log "live checkout -> $(sudo git -C "$LIVE" rev-parse --short HEAD)"
+
+# 3. Web bundle: build here, copy into nginx's webdist.
+if $WEB; then
+  log "build Flutter web"
+  if ( cd apps/mobile && "$FLUTTER" build web --no-tree-shake-icons --no-wasm-dry-run ) >>"$LOG" 2>&1; then
+    sudo rm -rf "$LIVE"/webdist/*
+    sudo cp -a apps/mobile/build/web/. "$LIVE"/webdist/
+    sudo find "$LIVE"/webdist -type d -exec chmod 755 {} +
+    sudo find "$LIVE"/webdist -type f -exec chmod 644 {} +
+    log "webdist updated (hard-refresh to drop the old service worker)"
+  else
+    log "web build/ship FAILED"
+  fi
+fi
+
+# 4. Backend images.
+if $BACKEND; then
+  log "rebuild api+agents, restart api"
+  if ( cd "$LIVE" && docker compose build api agents && docker compose up -d api ) >>"$LOG" 2>&1; then
+    log "backend redeployed"
+  else
+    log "backend redeploy FAILED"
+  fi
+fi
+
+HEALTH="$(curl -s -o /dev/null -w '%{http_code}' 'http://localhost:8000/timeline/summary?t0=1900&t1=2030')"
+log "api /timeline/summary -> HTTP $HEALTH"
+log "=== deploy done ==="

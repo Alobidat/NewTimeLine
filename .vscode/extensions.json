@@ -1,0 +1,11 @@
+{
+  "// note": "Recommended extensions for developing Chronos on the LXC over Remote-SSH.",
+  "recommendations": [
+    "Dart-Code.flutter",
+    "Dart-Code.dart-code",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-azuretools.vscode-docker",
+    "anthropic.claude-code"
+  ]
+}
