@@ -120,6 +120,40 @@ SPECS: list[ConfigSpec] = [
     _i("agents.media.release_threshold", 70, "Release threshold",
        scope="agent:media", component_id="agent:media.check", minimum=0, maximum=100,
        help="persistence_confidence at/above which a durable archive may be released."),
+
+    # Deduper (pgvector cosine similarity, Phase 3b)
+    _b("agents.dedup.enabled", True, "Enabled",
+       scope="agent:dedup", component_id="agent:dedup"),
+    _i("agents.dedup.batch_size", 50, "Batch size",
+       scope="agent:dedup", component_id="agent:dedup", minimum=1, maximum=500,
+       help="Events to embed (and dedup-check) per run."),
+    ConfigSpec(key="agents.dedup.similarity_threshold", type="float",
+               scope="agent:dedup", component_id="agent:dedup",
+               default=0.95, label="Similarity threshold",
+               minimum=0.5, maximum=1.0,
+               help="Cosine similarity at/above which two events are merged as duplicates."),
+    ConfigSpec(key="agents.dedup.time_window_years", type="float",
+               scope="agent:dedup", component_id="agent:dedup",
+               default=1.0, label="Time window (years)",
+               minimum=0.0, maximum=100.0,
+               help="Events must be within this many years of each other to be considered "
+                    "duplicates (prevents merging same-title events from different eras)."),
+
+    # Embedding provider (used by the Deduper; see chronos_core.llm.embedder)
+    ConfigSpec(key="llm.embedding.base_url", type="string",
+               scope="llm", component_id="service:llm",
+               default="http://host.docker.internal:11434/v1",
+               label="Embedding base URL",
+               help="OpenAI-compatible /embeddings endpoint. Ollama default shown."),
+    ConfigSpec(key="llm.embedding.model", type="string",
+               scope="llm", component_id="service:llm",
+               default="mxbai-embed-large",
+               label="Embedding model",
+               help="Must produce vectors of EMBEDDING_DIM (1024) dimensions."),
+    ConfigSpec(key="llm.embedding.api_key_env", type="string",
+               scope="llm", component_id="service:llm",
+               default=None, label="Embedding API key env var",
+               help="Env var holding the API key (leave empty for local servers)."),
 ]
 
 SPEC_BY_KEY: dict[str, ConfigSpec] = {s.key: s for s in SPECS}

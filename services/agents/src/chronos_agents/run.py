@@ -1,9 +1,10 @@
-"""CLI entrypoint for the Phase-1 agents.
+"""CLI entrypoint for the Phase-1/3 agents.
 
     python -m chronos_agents.run ingest-rss
     python -m chronos_agents.run seed-wikidata --limit 300
     python -m chronos_agents.run enrich
     python -m chronos_agents.run relate
+    python -m chronos_agents.run dedup
     python -m chronos_agents.run media-fetch
     python -m chronos_agents.run media-check
 """
@@ -18,6 +19,7 @@ from chronos_core import config_service
 from chronos_core.db import session_scope
 from chronos_core.runs import record_run
 
+from chronos_agents.dedup import run_dedup
 from chronos_agents.enrich import enrich_pending
 from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.media_check import check_media
@@ -32,6 +34,7 @@ _COMMANDS = {
     "seed-wikidata": ("agent:seed.wikidata", lambda a: seed_wikidata(limit=a.limit)),
     "enrich": ("agent:enrich", lambda a: enrich_pending()),
     "relate": ("agent:relate", lambda a: link_relations()),
+    "dedup": ("agent:dedup", lambda a: run_dedup()),
     "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
     "media-check": ("agent:media.check", lambda a: check_media()),
     "seed-iran-us": ("agent:seed.iran-us", lambda a: seed_iran_us()),
@@ -46,6 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--limit", type=int, default=300)
     sub.add_parser("enrich", help="LLM-enrich a batch of events (Tier-2)")
     sub.add_parser("relate", help="Link events into the history graph from shared entities")
+    sub.add_parser("dedup", help="Embed events + merge near-duplicates via pgvector")
     sub.add_parser("media-fetch", help="Download media flagged for local capture (ADR-0018)")
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
     sub.add_parser("seed-iran-us", help="Seed the curated US–Iran PoC history web")

@@ -97,6 +97,17 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:dedup", kind="agent", title="Deduper",
+        description="Embeds events via pgvector and merges near-duplicate events "
+                    "(cosine similarity, configurable threshold + time window).",
+        command="dedup", config_prefix="agents.dedup",
+        enabled_key="agents.dedup.enabled",
+        capabilities=["embed-events", "merge-duplicates", "vector-search"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["embedded", "pairs_checked", "merged", "skipped"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="service:llm", kind="service", title="LLM Router",
         description="Provider-agnostic, budget-aware LLM routing (vLLM/Ollama/OpenAI + Claude).",
         config_prefix="llm",
