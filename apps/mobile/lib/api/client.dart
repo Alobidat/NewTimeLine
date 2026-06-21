@@ -23,9 +23,23 @@ class ApiClient {
   final String baseUrl;
   final http.Client _http;
 
+  /// The current session JWT (ADR-0026), or null when anonymous. When present it is sent
+  /// as `Authorization: Bearer <token>` on every request so writes resolve the real user;
+  /// anonymous reads keep working when absent. Set by the auth state on sign-in / restore,
+  /// cleared on sign-out and account deletion.
+  String? sessionToken;
+
+  /// Headers for an authenticated request: the optional Bearer plus any [extra].
+  Map<String, String> _authHeaders([Map<String, String>? extra]) {
+    return {
+      if (sessionToken != null) 'authorization': 'Bearer $sessionToken',
+      ...?extra,
+    };
+  }
+
   Future<dynamic> _getJson(String path, Map<String, String> query) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-    final resp = await _http.get(uri);
+    final resp = await _http.get(uri, headers: _authHeaders());
     if (resp.statusCode != 200) {
       throw ApiException('GET $uri → ${resp.statusCode}');
     }
@@ -41,7 +55,8 @@ class ApiClient {
     Map<String, String>? query,
   }) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-    final resp = await _http.post(uri, headers: _jsonHeaders, body: jsonEncode(body));
+    final resp =
+        await _http.post(uri, headers: _authHeaders(_jsonHeaders), body: jsonEncode(body));
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ApiException('POST $uri → ${resp.statusCode}');
     }
@@ -50,7 +65,8 @@ class ApiClient {
 
   Future<dynamic> _patchJson(String path, Object body) async {
     final uri = Uri.parse('$baseUrl$path');
-    final resp = await _http.patch(uri, headers: _jsonHeaders, body: jsonEncode(body));
+    final resp =
+        await _http.patch(uri, headers: _authHeaders(_jsonHeaders), body: jsonEncode(body));
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ApiException('PATCH $uri → ${resp.statusCode}');
     }
@@ -59,7 +75,7 @@ class ApiClient {
 
   Future<dynamic> _delete(String path, {Map<String, String>? query}) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-    final resp = await _http.delete(uri);
+    final resp = await _http.delete(uri, headers: _authHeaders());
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ApiException('DELETE $uri → ${resp.statusCode}');
     }
@@ -370,6 +386,93 @@ class ApiClient {
   /// ([toggleReaction]); this method targets the future endpoint.
   Future<void> promoteEvent(String eventId, {required bool up}) async {
     await _postJson('/events/$eventId/promote', {'direction': up ? 'up' : 'down'});
+  }
+
+  // ── Auth & account (Phase 4-G, ADR-0026). The login flow is OAuth2/OIDC auth-code+PKCE;
+  // the backend mints a session JWT that [sessionToken] then attaches to every request.
+
+  /// The sign-in providers the backend offers (`GET /auth/providers`). Config-driven and
+  /// **may be empty** until credentials are configured — the UI handles that gracefully.
+  Future<List<AuthProvider>> authProviders() async {
+    final j = await _getJson('/auth/providers', const {});
+    final list = (j is Map ? j['providers'] : j) as List? ?? const [];
+    return list
+        .map((e) => AuthProvider.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Begin sign-in: the authorize URL + PKCE/state to round-trip (`GET /auth/{p}/login`).
+  Future<LoginChallenge> loginChallenge(String provider, {String? redirectUri}) async {
+    return LoginChallenge.fromJson(
+      await _getJson('/auth/$provider/login', {'redirect_uri': ?redirectUri})
+          as Map<String, dynamic>,
+    );
+  }
+
+  /// Finish sign-in: exchange the provider [code]+[state] for a session JWT (+ user).
+  /// Echoes the PKCE [codeVerifier] from the challenge when the backend expects it.
+  Future<AuthSession> authCallback(
+    String provider, {
+    required String code,
+    String? state,
+    String? codeVerifier,
+  }) async {
+    final j = await _postJson('/auth/$provider/callback', {
+      'code': code,
+      'state': ?state,
+      'code_verifier': ?codeVerifier,
+    });
+    return AuthSession.fromJson(j as Map<String, dynamic>);
+  }
+
+  /// The current versioned agreement to accept (`GET /auth/agreement`).
+  Future<Agreement> agreement() async => Agreement.fromJson(
+    await _getJson('/auth/agreement', const {}) as Map<String, dynamic>,
+  );
+
+  /// Whether the signed-in user has accepted the current version (`GET /auth/agreement/status`).
+  Future<AgreementStatus> agreementStatus() async => AgreementStatus.fromJson(
+    await _getJson('/auth/agreement/status', const {}) as Map<String, dynamic>,
+  );
+
+  /// Record acceptance of [version] (`POST /auth/agreement/accept`).
+  Future<void> acceptAgreement(String version) async {
+    await _postJson('/auth/agreement/accept', {'version': version});
+  }
+
+  /// Request an email-verification code be sent (`POST /auth/verify/request`).
+  Future<void> requestEmailVerify({String? email}) async {
+    await _postJson('/auth/verify/request', {'email': ?email});
+  }
+
+  /// Confirm email verification with the emailed [code] (`POST /auth/verify/confirm`).
+  Future<void> confirmEmailVerify(String code) async {
+    await _postJson('/auth/verify/confirm', {'code': code});
+  }
+
+  /// The signed-in user (`GET /account/me`). Requires a session.
+  Future<SessionUser> me() async => SessionUser.fromJson(
+    await _getJson('/account/me', const {}) as Map<String, dynamic>,
+  );
+
+  /// Absolute URL for the GDPR data export (`GET /account/export`) — a downloadable JSON
+  /// archive of everything we hold about the user (ADR-0026). The Bearer is attached when
+  /// fetched via [exportData]; this URL is for sharing/opening externally.
+  String exportUrl() => '$baseUrl/account/export';
+
+  /// Fetch the GDPR data export as a JSON string (`GET /account/export`).
+  Future<String> exportData() async {
+    final uri = Uri.parse('$baseUrl/account/export');
+    final resp = await _http.get(uri, headers: _authHeaders());
+    if (resp.statusCode != 200) {
+      throw ApiException('GET $uri → ${resp.statusCode}');
+    }
+    return resp.body;
+  }
+
+  /// Irreversibly delete the account and all the user's data (`DELETE /account`, ADR-0026).
+  Future<void> deleteAccount() async {
+    await _delete('/account');
   }
 
   /// Absolute URL for a media item's bytes (streamed/redirected by the API).

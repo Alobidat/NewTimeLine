@@ -604,6 +604,128 @@ class SourceVotes {
   );
 }
 
+// ── Auth & account (Phase 4-G, ADR-0026). Mirror the live /auth + /account DTOs. ──
+
+/// A sign-in provider offered by the backend (`GET /auth/providers`). The set is
+/// config-driven and **may be empty** until credentials are configured — the login UI
+/// renders that case as "no providers configured".
+class AuthProvider {
+  AuthProvider({required this.name, this.displayName});
+
+  /// The slug used in `/auth/{name}/login` (e.g. `google`, `apple`).
+  final String name;
+
+  /// Human label; falls back to a title-cased [name] when the server omits it.
+  final String? displayName;
+
+  String get label =>
+      displayName ?? (name.isEmpty ? name : name[0].toUpperCase() + name.substring(1));
+
+  factory AuthProvider.fromJson(Map<String, dynamic> j) => AuthProvider(
+    name: j['name'] as String,
+    displayName: j['display_name'] as String?,
+  );
+}
+
+/// The authorize URL + PKCE round-trip material from `GET /auth/{provider}/login`. The
+/// client opens [authorizeUrl] in a browser and echoes [state] (+ [codeVerifier]) back on
+/// the callback so the backend can finish the exchange.
+class LoginChallenge {
+  LoginChallenge({required this.authorizeUrl, this.state, this.codeVerifier});
+  final String authorizeUrl;
+  final String? state;
+  final String? codeVerifier;
+
+  factory LoginChallenge.fromJson(Map<String, dynamic> j) => LoginChallenge(
+    authorizeUrl: (j['authorize_url'] ?? j['url'] ?? j['authorizeUrl']) as String,
+    state: j['state'] as String?,
+    codeVerifier: (j['code_verifier'] ?? j['verifier'] ?? j['pkce_verifier']) as String?,
+  );
+}
+
+/// The signed-in user (`GET /account/me`, also returned by the callback). Reads stay open
+/// for anonymous; this is present only once a session exists.
+class SessionUser {
+  SessionUser({
+    required this.id,
+    this.email,
+    this.displayName,
+    this.avatarUrl,
+    this.emailVerified = false,
+  });
+
+  final String id;
+  final String? email;
+  final String? displayName;
+  final String? avatarUrl;
+  final bool emailVerified;
+
+  String get label => displayName ?? email ?? id;
+
+  factory SessionUser.fromJson(Map<String, dynamic> j) => SessionUser(
+    id: (j['id'] ?? j['user_id'] ?? '') as String,
+    email: j['email'] as String?,
+    displayName: (j['display_name'] ?? j['name']) as String?,
+    avatarUrl: (j['avatar_url'] ?? j['picture']) as String?,
+    emailVerified: (j['email_verified'] as bool?) ??
+        (j['verified'] as bool?) ??
+        false,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'email': ?email,
+    'display_name': ?displayName,
+    'avatar_url': ?avatarUrl,
+    'email_verified': emailVerified,
+  };
+}
+
+/// The result of a completed OAuth callback (`/auth/{provider}/callback`): the session JWT
+/// the client stores + attaches as a Bearer, plus the resolved [user].
+class AuthSession {
+  AuthSession({required this.token, this.user});
+  final String token;
+  final SessionUser? user;
+
+  factory AuthSession.fromJson(Map<String, dynamic> j) => AuthSession(
+    token: (j['token'] ?? j['session_token'] ?? j['access_token'] ?? j['jwt']) as String,
+    user: j['user'] is Map<String, dynamic>
+        ? SessionUser.fromJson(j['user'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
+/// The current versioned agreement (`GET /auth/agreement`): the version the user must
+/// accept and a URL to the full Terms/privacy document.
+class Agreement {
+  Agreement({required this.version, this.url, this.summary});
+  final String version;
+  final String? url;
+  final String? summary;
+
+  factory Agreement.fromJson(Map<String, dynamic> j) => Agreement(
+    version: (j['version'] ?? '') as String,
+    url: j['url'] as String?,
+    summary: j['summary'] as String?,
+  );
+}
+
+/// Whether the signed-in user has accepted the current agreement version
+/// (`GET /auth/agreement/status`). [accepted] gates interaction (re-prompt on version change).
+class AgreementStatus {
+  AgreementStatus({required this.accepted, this.acceptedVersion, this.currentVersion});
+  final bool accepted;
+  final String? acceptedVersion;
+  final String? currentVersion;
+
+  factory AgreementStatus.fromJson(Map<String, dynamic> j) => AgreementStatus(
+    accepted: (j['accepted'] as bool?) ?? false,
+    acceptedVersion: j['accepted_version'] as String?,
+    currentVersion: j['current_version'] as String?,
+  );
+}
+
 class TimelineResponse {
   TimelineResponse({
     required this.mode,
