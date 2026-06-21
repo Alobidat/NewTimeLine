@@ -47,3 +47,21 @@ async def media_raw(media_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     except Exception:
         # Last resort: let the browser try the origin directly.
         return RedirectResponse(target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/{media_id}/thumb")
+async def media_thumb(media_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+    """Serve the pre-generated JPEG thumbnail for an image media item.
+
+    Falls back to a redirect to ``/raw`` for non-image media (video, embed) or items
+    whose thumbnail hasn't been generated yet (e.g. still pending fetch).
+    """
+    media = await session.get(Media, media_id)
+    if media is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "media not found")
+    if media.thumbnail_key:
+        data = await asyncio.to_thread(objectstore.get_bytes, media.thumbnail_key)
+        return Response(content=data, media_type="image/jpeg")
+    return RedirectResponse(
+        f"/media/{media_id}/raw", status_code=status.HTTP_307_TEMPORARY_REDIRECT
+    )

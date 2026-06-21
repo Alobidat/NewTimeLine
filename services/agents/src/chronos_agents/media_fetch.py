@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 import httpx
 from chronos_core import config_service, objectstore
 from chronos_core.db import session_scope
+from chronos_core.domain.thumbnails import is_image_mime, make_thumbnail
 from chronos_core.models.media import Media
 from sqlalchemy import select
 
@@ -59,6 +60,19 @@ async def _store_one(client: httpx.AsyncClient, session, media: Media, max_bytes
     media.mime = content_type
     media.avail_state = "available"
     media.last_available_at = now
+
+    # Generate a thumbnail for stored images so the UI can show previews cheaply.
+    if media.kind == "image" and is_image_mime(content_type) and not media.thumbnail_key:
+        try:
+            thumb_bytes, _ = make_thumbnail(data)
+            thumb_key = f"media/{media.id}_thumb.jpg"
+            await asyncio.to_thread(
+                objectstore.put_bytes, thumb_key, thumb_bytes, content_type="image/jpeg"
+            )
+            media.thumbnail_key = thumb_key
+        except Exception:
+            log.warning("thumbnail generation failed for %s", media.id, exc_info=True)
+
     return "stored"
 
 
