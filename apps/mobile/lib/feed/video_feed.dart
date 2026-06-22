@@ -73,6 +73,14 @@ class _VideoFeedState extends State<VideoFeed>
   Object? _error;
   int _current = 0;
 
+  /// Whether the current event has an earlier / later related event (drives the bottom
+  /// prev/next indicator and tells the user a left/right swipe will land somewhere). Null while
+  /// the one-hop related lookup for the current event is still in flight. [_relCheckedFor] guards
+  /// against re-fetching for an event we've already probed and against stale async results.
+  bool? _hasPrevEvent;
+  bool? _hasNextEvent;
+  String? _relCheckedFor;
+
   @override
   bool get wantKeepAlive => true; // keep each tab's scroll position + controllers.
 
@@ -142,7 +150,35 @@ class _VideoFeedState extends State<VideoFeed>
     if (target == _current) return;
     setState(() => _current = target);
     _prefetchUpcoming();
+    _refreshRelatedIndicator();
     if (target >= _items.length - 2) _loadMore();
+  }
+
+  /// Probe the current event for earlier/later related events (one hop, both directions) so the
+  /// bottom indicator can show whether a left/right swipe will go anywhere. Deduped per event and
+  /// race-guarded: a late response is dropped if the user has since moved to another clip.
+  Future<void> _refreshRelatedIndicator() async {
+    if (_items.isEmpty) return;
+    final id = _items[_current.clamp(0, _items.length - 1)].id;
+    if (_relCheckedFor == id) return;
+    _relCheckedFor = id;
+    setState(() {
+      _hasPrevEvent = null;
+      _hasNextEvent = null;
+    });
+    List<RelatedEvent> rel;
+    try {
+      rel = await widget.api.related(id, direction: 'both');
+    } catch (_) {
+      rel = const [];
+    }
+    if (!mounted) return;
+    // Ignore if the user has paged away while we were fetching.
+    if (_items[_current.clamp(0, _items.length - 1)].id != id) return;
+    setState(() {
+      _hasNextEvent = rel.any((r) => r.direction == 'forward');
+      _hasPrevEvent = rel.any((r) => r.direction == 'back');
+    });
   }
 
   Future<void> _loadMore() async {
@@ -159,6 +195,7 @@ class _VideoFeedState extends State<VideoFeed>
         _error = null;
       });
       _prefetchUpcoming();
+      _refreshRelatedIndicator(); // first page → probe the opening clip's neighbours
     } catch (e) {
       if (mounted) setState(() => _error = e);
     } finally {
@@ -228,7 +265,7 @@ class _VideoFeedState extends State<VideoFeed>
     try {
       related = await widget.api.related(
         item.event.id,
-        direction: forward ? 'forward' : 'backward',
+        direction: forward ? 'forward' : 'back', // API: ^(back|forward|both)$
       );
     } catch (_) {
       related = const [];
@@ -458,8 +495,84 @@ class _VideoFeedState extends State<VideoFeed>
             onShare: () => _share(current),
             onOpenGraph: () => _openGraph(current),
             onAddVideo: widget.onAddVideo,
+            hasPrevEvent: _hasPrevEvent,
+            hasNextEvent: _hasNextEvent,
           ),
         ),
+        // TEMPORARY on-screen D-pad mirroring the swipe actions, so we can agree the mapping
+        // before trusting the gestures. Up = next clip, Down = previous clip, Right = next event
+        // in the timeline, Left = previous event. Remove once the gestures are confirmed.
+        Positioned(
+          left: 8,
+          bottom: 150,
+          child: _SwipeDpad(
+            onUp: () => _goTo(_current + 1),
+            onDown: () => _goTo(_current - 1),
+            onLeft: () => _walkTimeline(current, forward: false),
+            onRight: () => _walkTimeline(current, forward: true),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A temporary directional pad that fires the same actions as the feed's swipes, so the gesture
+/// mapping can be agreed on-screen before the swipe directions are finalised. Labelled so each
+/// button states what it does.
+class _SwipeDpad extends StatelessWidget {
+  const _SwipeDpad({
+    required this.onUp,
+    required this.onDown,
+    required this.onLeft,
+    required this.onRight,
+  });
+  final VoidCallback onUp, onDown, onLeft, onRight;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget btn(String key, IconData icon, String label, VoidCallback onTap) =>
+        Padding(
+          padding: const EdgeInsets.all(2),
+          child: Material(
+            color: Colors.black.withValues(alpha: 0.5),
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: Key('dpad-$key'),
+              onTap: onTap,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, color: Colors.white, size: 16),
+                    const SizedBox(width: 4),
+                    Text(label,
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        btn('up', Icons.keyboard_arrow_up, 'Up · next clip', onUp),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            btn('left', Icons.keyboard_arrow_left, 'Left · prev event', onLeft),
+            btn('right', Icons.keyboard_arrow_right, 'Right · next event',
+                onRight),
+          ],
+        ),
+        btn('down', Icons.keyboard_arrow_down, 'Down · prev clip', onDown),
       ],
     );
   }

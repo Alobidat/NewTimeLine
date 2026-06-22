@@ -93,7 +93,7 @@ ApiClient _api({
       final dir = req.url.queryParameters['direction'];
       final payload = dir == 'forward'
           ? (relatedForward ?? related ?? const [])
-          : dir == 'backward'
+          : dir == 'back'
               ? (relatedBackward ?? related ?? const [])
               : (related ?? const []);
       return http.Response(jsonEncode(payload), 200,

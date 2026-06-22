@@ -53,6 +53,15 @@ _HERO_JOIN = """
 """
 
 
+# Only surface events that actually have something to show: a clip (video/embed) OR an image
+# WITH a description (summary). No hero, or a bare image with no context, would render as a black
+# / empty card — which the feed must never do. Applied as a WHERE fragment on every tab query.
+_DISPLAYABLE = (
+    "h.media_id IS NOT NULL "
+    "AND (h.is_clip OR (e.summary IS NOT NULL AND length(btrim(e.summary)) > 0))"
+)
+
+
 def _parse_cursor(cursor: str | None) -> int:
     """Decode the opaque offset cursor (``o:<n>``). Bad/absent → 0."""
     if not cursor or not cursor.startswith("o:"):
@@ -154,8 +163,8 @@ async def fetch_foryou(
                 "     THEN 1.0 ELSE 0.0 END) "
                 ") AS score "
                 f"FROM events e {_HERO_JOIN} "
-                "WHERE e.status = 'published' "
-                "ORDER BY (h.media_id IS NOT NULL) DESC, score DESC, e.t_start DESC "
+                f"WHERE e.status = 'published' AND {_DISPLAYABLE} "
+                "ORDER BY score DESC, e.t_start DESC "
                 "LIMIT :lim OFFSET :off"
             ),
             {
@@ -202,7 +211,8 @@ async def fetch_following(
                 # event follows → the followed event itself
                 "  OR EXISTS (SELECT 1 FROM follows f WHERE f.user_id = :uid "
                 "          AND f.target_type='event' AND f.target_id = e.id)) "
-                "ORDER BY (h.media_id IS NOT NULL) DESC, e.t_start DESC, e.severity DESC "
+                f"AND {_DISPLAYABLE} "
+                "ORDER BY e.t_start DESC, e.severity DESC "
                 "LIMIT :lim OFFSET :off"
             ),
             {"uid": user_id, "lim": page, "off": offset},
@@ -243,7 +253,8 @@ async def fetch_discover(
                 "WHERE e.status = 'published' AND NOT EXISTS ("
                 "   SELECT 1 FROM activity_log a WHERE a.user_id = :uid "
                 "   AND a.target_type='event' AND a.target_id = e.id) "
-                "ORDER BY (h.media_id IS NOT NULL) DESC, score DESC "
+                f"AND {_DISPLAYABLE} "
+                "ORDER BY score DESC "
                 "LIMIT :lim OFFSET :off"
             ),
             {"uid": user_id, "uid_text": str(user_id), "lim": page, "off": offset},
