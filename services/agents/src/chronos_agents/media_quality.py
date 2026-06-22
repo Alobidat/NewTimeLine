@@ -18,9 +18,11 @@ still can't get a quality hero simply stay filtered out of the feed (never shown
 
 from __future__ import annotations
 
+import io
 import logging
 
 import httpx
+from PIL import Image
 from chronos_core import config_service, repository
 from chronos_core.db import session_scope
 from chronos_core.models.enums import EventStatus
@@ -53,6 +55,47 @@ async def _backfill_widths(session: AsyncSession) -> int:
             await session.execute(update(Media).where(Media.id == mid).values(width=w))
             fixed += 1
     return fixed
+
+
+_MAX_IMAGE_BYTES = 12 * 1024 * 1024  # don't pull more than this just to measure an image
+
+
+async def _measure_widths(client: httpx.AsyncClient, *, limit: int) -> int:
+    """Pass 2: download hero images whose width is still unknown and read their real pixel size
+    with Pillow, so the resolution floor can be enforced on non-Wikimedia (e.g. news) images too.
+    Bounded + best-effort: a fetch/decode failure leaves the row untouched."""
+    async with session_scope() as session:
+        rows = (
+            await session.execute(
+                select(Media.id, Media.source_url)
+                .join(EventMedia, EventMedia.media_id == Media.id)
+                .where(Media.kind == "image", Media.width.is_(None),
+                       EventMedia.role == "hero")
+                .limit(limit)
+            )
+        ).all()
+
+    measured = 0
+    for mid, url in rows:
+        if not url:
+            continue
+        try:
+            resp = await client.get(url, timeout=20.0, follow_redirects=True)
+            resp.raise_for_status()
+            data = resp.content
+            if len(data) > _MAX_IMAGE_BYTES:
+                continue
+            with Image.open(io.BytesIO(data)) as im:
+                w, h = im.size
+        except Exception:
+            continue
+        if w:
+            async with session_scope() as session:
+                await session.execute(
+                    update(Media).where(Media.id == mid).values(width=w, height=h)
+                )
+            measured += 1
+    return measured
 
 
 async def _hero_image(session: AsyncSession, event_id) -> Media | None:
@@ -107,22 +150,27 @@ async def _attach_image(session: AsyncSession, event: Event, *, url: str, width:
 
 async def improve_media(*, batch: int = 200) -> dict:
     """Run the three quality passes over published events. Returns counts."""
-    totals = {"width_backfilled": 0, "upgraded": 0, "filled_gap": 0,
-              "still_low": 0, "scanned": 0}
+    totals = {"width_backfilled": 0, "width_measured": 0, "upgraded": 0,
+              "filled_gap": 0, "still_low": 0, "scanned": 0}
 
     async with session_scope() as session:
         totals["width_backfilled"] = await _backfill_widths(session)
-        events = (
-            await session.execute(
-                select(Event.id, Event.title)
-                .where(Event.status == EventStatus.PUBLISHED)
-                .order_by(Event.updated_at.desc())
-                .limit(batch)
-            )
-        ).all()
-        weights = await load_weights(session)
 
     async with httpx.AsyncClient(headers={"User-Agent": wikimedia.USER_AGENT}) as client:
+        # Measure the rest (news images etc.) by actually decoding them, so the floor is real.
+        totals["width_measured"] = await _measure_widths(client, limit=batch)
+
+        async with session_scope() as session:
+            events = (
+                await session.execute(
+                    select(Event.id, Event.title)
+                    .where(Event.status == EventStatus.PUBLISHED)
+                    .order_by(Event.updated_at.desc())
+                    .limit(batch)
+                )
+            ).all()
+            weights = await load_weights(session)
+
         for event_id, title in events:
             totals["scanned"] += 1
             async with session_scope() as session:
