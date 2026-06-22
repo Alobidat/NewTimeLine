@@ -71,15 +71,39 @@ class _VideoFeedState extends State<VideoFeed>
   bool _loading = false;
   bool _exhausted = false;
   Object? _error;
-  int _current = 0;
 
-  /// Whether the current event has an earlier / later related event (drives the bottom
-  /// prev/next indicator and tells the user a left/right swipe will land somewhere). Null while
-  /// the one-hop related lookup for the current event is still in flight. [_relCheckedFor] guards
-  /// against re-fetching for an event we've already probed and against stale async results.
+  // ── Two independent navigation axes ───────────────────────────────────────────────────
+  //
+  // VERTICAL (up/down) walks the ranked feed [_items]; [_current] is the row. HORIZONTAL
+  // (left/right) walks the CURRENT row event's own timeline, held in [_lateral] with cursor
+  // [_lateralIdx] — a per-row chain seeded with the row event itself. The two never interfere:
+  // a left/right walk only touches [_lateral], and any up/down move resets [_lateral] to the new
+  // row event, so "next/previous video" up/down is always the same regardless of lateral walking.
+  int _current = 0;
+  List<FeedItem> _lateral = [];
+  int _lateralIdx = 0;
+
+  /// The event actually on screen — the current point of the lateral walk (the row event itself
+  /// until the user swipes left/right).
+  FeedItem get _displayed => (_lateral.isEmpty)
+      ? _items[_current.clamp(0, _items.length - 1)]
+      : _lateral[_lateralIdx.clamp(0, _lateral.length - 1)];
+
+  /// Whether the *displayed* event has an earlier / later related event — drives the Left/Right
+  /// button enabled state. Null while the one-hop lookup is in flight. [_relCheckedFor] guards
+  /// against re-probing the same event and against stale async results.
   bool? _hasPrevEvent;
   bool? _hasNextEvent;
   String? _relCheckedFor;
+
+  /// Seed the lateral chain with the current row event (called on first load and every up/down
+  /// move) so horizontal navigation always starts from the feed event.
+  void _resetLateral() {
+    _lateral = _items.isEmpty
+        ? []
+        : [_items[_current.clamp(0, _items.length - 1)]];
+    _lateralIdx = 0;
+  }
 
   @override
   bool get wantKeepAlive => true; // keep each tab's scroll position + controllers.
@@ -113,9 +137,9 @@ class _VideoFeedState extends State<VideoFeed>
     final prev = v > _flingVelocity || _dragDy > threshold;
     _dragDy = 0;
     if (next) {
-      _goTo(_current + 1);
+      _moveFeed(1); // swipe up → next event in the feed
     } else if (prev) {
-      _goTo(_current - 1);
+      _moveFeed(-1); // swipe down → previous event in the feed
     }
   }
 
@@ -124,42 +148,48 @@ class _VideoFeedState extends State<VideoFeed>
   /// Classifies by dominant axis + travel/velocity, mirroring the native gesture thresholds.
   void _onWebSwipe(double dx, double dy, double vx, double vy) {
     if (!mounted || _items.isEmpty) return;
-    final current = _items[_current.clamp(0, _items.length - 1)];
     final size = MediaQuery.sizeOf(context);
     if (dx.abs() > dy.abs()) {
       final hThreshold = size.width * _dragFraction;
       if (dx > hThreshold || vx > _flingVelocity) {
-        _walkTimeline(current, forward: true); // swipe right → next in timeline
+        _walkTimeline(forward: true); // swipe right → next in timeline
       } else if (dx < -hThreshold || vx < -_flingVelocity) {
-        _walkTimeline(current, forward: false); // swipe left → previous in timeline
+        _walkTimeline(forward: false); // swipe left → previous in timeline
       }
     } else {
       final vThreshold = size.height * _dragFraction;
       if (dy < -vThreshold || vy < -_flingVelocity) {
-        _goTo(_current + 1); // swipe up → next clip
+        _moveFeed(1); // swipe up → next event in the feed
       } else if (dy > vThreshold || vy > _flingVelocity) {
-        _goTo(_current - 1); // swipe down → previous clip
+        _moveFeed(-1); // swipe down → previous event in the feed
       }
     }
   }
 
-  /// Activate clip [i] (clamped). Swaps the pinned player + overlay to it and warms the next
-  /// clips; near the end it pages the source. A no-op when already there.
-  void _goTo(int i) {
-    final target = i.clamp(0, _items.length - 1);
-    if (target == _current) return;
-    setState(() => _current = target);
+  /// VERTICAL move: step the feed by [delta] (clamped) and snap back to the main column by
+  /// resetting the lateral chain — so up/down always lands on the next/previous *feed* event,
+  /// independent of any left/right walking the user did on the previous row.
+  void _moveFeed(int delta) {
+    if (_items.isEmpty) return;
+    final target = (_current + delta).clamp(0, _items.length - 1);
+    final atEdge = target == _current;
+    // Nothing to do only if we're already at the row event AND can't move further.
+    if (atEdge && _lateralIdx == 0) return;
+    setState(() {
+      _current = target;
+      _resetLateral();
+    });
     _prefetchUpcoming();
     _refreshRelatedIndicator();
     if (target >= _items.length - 2) _loadMore();
   }
 
-  /// Probe the current event for earlier/later related events (one hop, both directions) so the
-  /// bottom indicator can show whether a left/right swipe will go anywhere. Deduped per event and
-  /// race-guarded: a late response is dropped if the user has since moved to another clip.
+  /// Probe the *displayed* event for earlier/later related events (one hop, both directions) so
+  /// the Left/Right buttons can show whether a lateral move will go anywhere. Deduped per event
+  /// and race-guarded: a late response is dropped if the user has since moved elsewhere.
   Future<void> _refreshRelatedIndicator() async {
     if (_items.isEmpty) return;
-    final id = _items[_current.clamp(0, _items.length - 1)].id;
+    final id = _displayed.id;
     if (_relCheckedFor == id) return;
     _relCheckedFor = id;
     setState(() {
@@ -173,8 +203,8 @@ class _VideoFeedState extends State<VideoFeed>
       rel = const [];
     }
     if (!mounted) return;
-    // Ignore if the user has paged away while we were fetching.
-    if (_items[_current.clamp(0, _items.length - 1)].id != id) return;
+    // Ignore if the user has moved on while we were fetching.
+    if (_displayed.id != id) return;
     setState(() {
       _hasNextEvent = rel.any((r) => r.direction == 'forward');
       _hasPrevEvent = rel.any((r) => r.direction == 'back');
@@ -194,6 +224,7 @@ class _VideoFeedState extends State<VideoFeed>
         _exhausted = pageResult.nextCursor == null;
         _error = null;
       });
+      if (_lateral.isEmpty && _items.isNotEmpty) _resetLateral(); // seed the first row
       _prefetchUpcoming();
       _refreshRelatedIndicator(); // first page → probe the opening clip's neighbours
     } catch (e) {
@@ -257,20 +288,36 @@ class _VideoFeedState extends State<VideoFeed>
     );
   }
 
-  /// Lateral walk along the event's own timeline: [forward] → the next event (swipe right,
-  /// left-to-right), else the previous one (swipe left, right-to-left). Fetches the one-hop
-  /// related event in that direction, appends it to the feed (if new) and advances to it.
-  Future<void> _walkTimeline(FeedItem item, {required bool forward}) async {
+  /// HORIZONTAL move along the current row event's own timeline. [forward] → the next event
+  /// (swipe right), else the previous one (swipe left). This only touches the lateral chain
+  /// [_lateral]/[_lateralIdx] — never [_items]/[_current] — so up/down stays anchored to the
+  /// feed. Already-walked steps are revisited from the chain; new ones are fetched one hop and
+  /// appended/prepended. A no-op (with a toast) when the timeline ends in that direction.
+  Future<void> _walkTimeline({required bool forward}) async {
+    if (_lateral.isEmpty) return;
+    // Re-use the chain if we've already walked this way.
+    if (forward && _lateralIdx + 1 < _lateral.length) {
+      setState(() => _lateralIdx++);
+      _refreshRelatedIndicator();
+      return;
+    }
+    if (!forward && _lateralIdx > 0) {
+      setState(() => _lateralIdx--);
+      _refreshRelatedIndicator();
+      return;
+    }
+    // Otherwise fetch the next/previous hop from the *displayed* event.
+    final from = _displayed.event;
     List<RelatedEvent> related;
     try {
       related = await widget.api.related(
-        item.event.id,
+        from.id,
         direction: forward ? 'forward' : 'back', // API: ^(back|forward|both)$
       );
     } catch (_) {
       related = const [];
     }
-    if (!mounted) return;
+    if (!mounted || _displayed.event.id != from.id) return;
     final next = related.isNotEmpty ? related.first.event : null;
     if (next == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -282,12 +329,17 @@ class _VideoFeedState extends State<VideoFeed>
       );
       return;
     }
-    var idx = _items.indexWhere((i) => i.id == next.id);
-    if (idx < 0) {
-      setState(() => _items.add(FeedItem(event: next)));
-      idx = _items.length - 1;
-    }
-    _goTo(idx);
+    setState(() {
+      final item = FeedItem(event: next);
+      if (forward) {
+        _lateral.add(item);
+        _lateralIdx = _lateral.length - 1;
+      } else {
+        _lateral.insert(0, item);
+        _lateralIdx = 0;
+      }
+    });
+    _refreshRelatedIndicator();
   }
 
   // ── Overlay actions ───────────────────────────────────────────────────────────────────
@@ -416,10 +468,21 @@ class _VideoFeedState extends State<VideoFeed>
     //   • the scrim + action rail + caption are pinned ON TOP, bound to the current clip, so
     //     the buttons stay put between videos (their transparent areas let vertical drags fall
     //     through to the PageView and horizontal flings reach the per-page gesture surface).
-    final current = _items[_current.clamp(0, _items.length - 1)];
+    // The displayed event is the current point of the lateral walk (the feed row event until the
+    // user swipes left/right). Up/down operate on the feed index behind it; left/right on the
+    // lateral chain — see the two-axes note on the state fields.
+    final current = _displayed;
     final clipUrl = current.heroMediaId != null
         ? widget.api.mediaUrl(current.heroMediaId!)
         : null;
+    // Left/Right availability: a lateral move is possible if the chain already has a neighbour
+    // that way, or the displayed event has a related event in that direction.
+    final canPrev = _lateralIdx > 0 || _hasPrevEvent != false;
+    final canNext =
+        _lateralIdx + 1 < _lateral.length || _hasNextEvent != false;
+    // Up/Down availability: down only when there's an earlier feed event; up while more remain.
+    final canUp = _current < _items.length - 1 || !_exhausted;
+    final canDown = _current > 0;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -452,9 +515,9 @@ class _VideoFeedState extends State<VideoFeed>
             onHorizontalDragEnd: (d) {
               final v = d.primaryVelocity ?? 0;
               if (v > _flingVelocity) {
-                _walkTimeline(current, forward: true); // right → next in timeline
+                _walkTimeline(forward: true); // right → next in timeline
               } else if (v < -_flingVelocity) {
-                _walkTimeline(current, forward: false); // left → previous in timeline
+                _walkTimeline(forward: false); // left → previous in timeline
               }
             },
           ),
@@ -505,14 +568,10 @@ class _VideoFeedState extends State<VideoFeed>
           left: 8,
           bottom: 150,
           child: _SwipeDpad(
-            onUp: () => _goTo(_current + 1),
-            onDown: _current > 0 ? () => _goTo(_current - 1) : null,
-            onLeft: _hasPrevEvent == false
-                ? null
-                : () => _walkTimeline(current, forward: false),
-            onRight: _hasNextEvent == false
-                ? null
-                : () => _walkTimeline(current, forward: true),
+            onUp: canUp ? () => _moveFeed(1) : null,
+            onDown: canDown ? () => _moveFeed(-1) : null,
+            onLeft: canPrev ? () => _walkTimeline(forward: false) : null,
+            onRight: canNext ? () => _walkTimeline(forward: true) : null,
           ),
         ),
       ],

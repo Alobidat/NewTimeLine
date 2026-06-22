@@ -263,6 +263,34 @@ void main() {
       expect(find.text('Earlier event'), findsOneWidget);
     });
 
+    testWidgets('up/down stays on the feed, independent of a lateral walk',
+        (tester) async {
+      // Feed: First → Second. First has a forward-related "Sidestep" on its timeline.
+      final api = _api(
+        timelineEvents: [
+          _eventJson('e1', 'First', 2000),
+          _eventJson('e2', 'Second', 2001),
+        ],
+        relatedForward: [
+          _relJson(_eventJson('x1', 'Sidestep', 2000), 'caused', 'forward'),
+        ],
+      );
+      addTearDown(api.close);
+      await pumpFeed(tester, api);
+
+      // Walk RIGHT along First's timeline → now showing the lateral "Sidestep"…
+      await tester.fling(pager(), const Offset(500, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(find.text('Sidestep'), findsOneWidget);
+
+      // …then swipe UP. It must land on the next *feed* event (Second), NOT anything derived
+      // from the lateral position — up/down is independent of left/right.
+      await tester.fling(pager(), const Offset(0, -500), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('Second'), findsOneWidget);
+      expect(find.text('Sidestep'), findsNothing);
+    });
+
     testWidgets('the bottom Timeline-web button opens the event graph',
         (tester) async {
       final api = _api(
