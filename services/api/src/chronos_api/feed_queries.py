@@ -80,7 +80,11 @@ def _next_cursor(offset: int, page: int, got: int) -> str | None:
 async def _weights(session: AsyncSession) -> dict[str, float]:
     """For-You blend weights (config-tunable, ADR-0019)."""
     raw = await config_service.get(session, "rec.foryou_weights", {}) or {}
-    base = {"recency": 1.0, "popularity": 0.6, "media": 0.8, "interest": 1.2, "seen": 2.0}
+    # ``links`` rewards events that sit in the history web (have related events) — the product's
+    # signature is digging back/forward through linked events, so a well-connected event is more
+    # rewarding to land on and surfaces the chains the left/right navigation walks.
+    base = {"recency": 1.0, "popularity": 0.6, "media": 0.8, "interest": 1.2,
+            "seen": 2.0, "links": 0.8}
     base.update({k: float(v) for k, v in raw.items() if k in base})
     return base
 
@@ -157,6 +161,8 @@ async def fetch_foryou(
                 "      + COALESCE((SELECT GREATEST(sum(p.value),0) FROM promotes p "
                 "                  WHERE p.target_type='event' AND p.target_id = e.id), 0)) "
                 "  + :w_media * (CASE WHEN h.is_clip THEN 1.0 ELSE 0.0 END) "
+                "  + :w_links * ln(1 + (SELECT count(*) FROM event_relations rl "
+                "        WHERE rl.src_event = e.id OR rl.dst_event = e.id)) "
                 "  + :w_interest * (CASE WHEN e.id = ANY(:interest) THEN 1.0 ELSE 0.0 END) "
                 "  - :w_seen * (CASE WHEN EXISTS (SELECT 1 FROM activity_log a "
                 "       WHERE a.user_id = :uid AND a.target_type='event' AND a.target_id=e.id) "
@@ -169,7 +175,7 @@ async def fetch_foryou(
             ),
             {
                 "w_recency": w["recency"], "w_pop": w["popularity"], "w_media": w["media"],
-                "w_interest": w["interest"], "w_seen": w["seen"],
+                "w_links": w["links"], "w_interest": w["interest"], "w_seen": w["seen"],
                 "interest": list(interest_ids) or [uuid.UUID(int=0)],
                 "uid": user_id, "lim": page, "off": offset,
             },

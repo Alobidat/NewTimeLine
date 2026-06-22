@@ -10,6 +10,7 @@
 library;
 
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -218,20 +219,38 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
     return _poster();
   }
 
-  /// A full-bleed, cover-fit photo for an image hero (TikTok-style still card). Falls back to
-  /// the neutral glyph if the image can't load, so the page is never a bare black screen.
-  Widget _coverImage(String url) => Container(
-        color: Colors.black,
-        alignment: Alignment.center,
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          errorBuilder: (_, _, _) => _glyph(),
-          loadingBuilder: (ctx, child, p) => p == null ? child : _glyph(),
-        ),
-      );
+  /// A photo hero shown at its TRUE aspect ratio (BoxFit.contain — never cropped or stretched),
+  /// over a blurred, darkened cover of the same image so the letterbox area isn't dead black.
+  /// Falls back to the neutral glyph if the image can't load, so a card is never blank.
+  Widget _coverImage(String url) {
+    final sharp = Image.network(
+      url,
+      fit: BoxFit.contain, // respect the image's aspect ratio
+      errorBuilder: (_, _, _) => _glyph(),
+      loadingBuilder: (ctx, child, p) => p == null ? child : _glyph(),
+    );
+    return ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Blurred + dimmed fill so the bars beside a portrait/landscape photo read as a soft
+          // backdrop rather than black voids (Instagram-style).
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const ColoredBox(color: Colors.black),
+            ),
+          ),
+          const ColoredBox(color: Colors.black38),
+          // The real photo, full aspect ratio, centred.
+          Center(child: sharp),
+        ],
+      ),
+    );
+  }
 
   Widget _poster() {
     final poster = widget.posterUrl;
