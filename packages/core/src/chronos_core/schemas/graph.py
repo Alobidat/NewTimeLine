@@ -55,6 +55,11 @@ class RelatedEvent(BaseModel):
     direction: str           # back (led to) | forward (caused)
     origin: str = "agent"    # user | agent
     added_by: str | None = None
+    # The related event's hero media, so the client can render it full-screen when the user walks
+    # to it (left/right) — without these it had no media and showed a black page. Only events with
+    # a displayable hero are returned, so a lateral walk never lands on an empty card.
+    hero_media_id: uuid.UUID | None = None
+    hero_is_clip: bool = False
 
 
 class ChainEdge(BaseModel):

@@ -318,7 +318,7 @@ class _VideoFeedState extends State<VideoFeed>
       related = const [];
     }
     if (!mounted || _displayed.event.id != from.id) return;
-    final next = related.isNotEmpty ? related.first.event : null;
+    final next = related.isNotEmpty ? related.first : null;
     if (next == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -330,7 +330,12 @@ class _VideoFeedState extends State<VideoFeed>
       return;
     }
     setState(() {
-      final item = FeedItem(event: next);
+      // Carry the related event's hero media so the lateral card shows real media, not a glyph.
+      final item = FeedItem(
+        event: next.event,
+        heroMediaId: next.heroMediaId,
+        heroIsClip: next.heroIsClip,
+      );
       if (forward) {
         _lateral.add(item);
         _lateralIdx = _lateral.length - 1;

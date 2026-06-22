@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_api.queries import _EVENT_COLS, _event_read
+from chronos_api.feed_queries import _HERO_JOIN, _DISPLAYABLE
 
 # Causal kinds that form a *chain* (directed cause→effect). same-place/same-actor are mere
 # co-occurrence and belong in the "related" panel, not the back/forth dig.
@@ -267,14 +268,18 @@ async def fetch_related(
     direction: ``back`` = events that led to this · ``forward`` = events this led to ·
     ``both``.
     """
+    # Only return neighbours that have a displayable hero (clip, or image with a description) and
+    # carry that hero so the client can render it: walking left/right must never land on a black,
+    # media-less card (_HERO_JOIN + _DISPLAYABLE — the same rule the feed uses).
     out: list[RelatedEvent] = []
     if direction in ("back", "both"):
         rows = (
             await session.execute(
                 text(
-                    f"SELECT {_EVENT_COLS}, r.kind, r.weight, r.created_by FROM event_relations r "
-                    "JOIN events e ON e.id = r.src_event "
-                    "WHERE r.dst_event = :id AND e.status = 'published' "
+                    f"SELECT {_EVENT_COLS}, h.media_id AS hero_media_id, "
+                    "h.is_clip AS hero_is_clip, r.kind, r.weight, r.created_by "
+                    f"FROM event_relations r JOIN events e ON e.id = r.src_event {_HERO_JOIN} "
+                    f"WHERE r.dst_event = :id AND e.status = 'published' AND {_DISPLAYABLE} "
                     "ORDER BY r.weight DESC LIMIT :limit"
                 ),
                 {"id": event_id, "limit": limit},
@@ -284,6 +289,7 @@ async def fetch_related(
             RelatedEvent(
                 event=_event_read(r), kind=r.kind, weight=r.weight, direction="back",
                 origin=_link_origin(r.created_by), added_by=r.created_by,
+                hero_media_id=r.hero_media_id, hero_is_clip=r.hero_is_clip,
             )
             for r in rows
         ]
@@ -291,9 +297,10 @@ async def fetch_related(
         rows = (
             await session.execute(
                 text(
-                    f"SELECT {_EVENT_COLS}, r.kind, r.weight, r.created_by FROM event_relations r "
-                    "JOIN events e ON e.id = r.dst_event "
-                    "WHERE r.src_event = :id AND e.status = 'published' "
+                    f"SELECT {_EVENT_COLS}, h.media_id AS hero_media_id, "
+                    "h.is_clip AS hero_is_clip, r.kind, r.weight, r.created_by "
+                    f"FROM event_relations r JOIN events e ON e.id = r.dst_event {_HERO_JOIN} "
+                    f"WHERE r.src_event = :id AND e.status = 'published' AND {_DISPLAYABLE} "
                     "ORDER BY r.weight DESC LIMIT :limit"
                 ),
                 {"id": event_id, "limit": limit},
@@ -303,6 +310,7 @@ async def fetch_related(
             RelatedEvent(
                 event=_event_read(r), kind=r.kind, weight=r.weight, direction="forward",
                 origin=_link_origin(r.created_by), added_by=r.created_by,
+                hero_media_id=r.hero_media_id, hero_is_clip=r.hero_is_clip,
             )
             for r in rows
         ]

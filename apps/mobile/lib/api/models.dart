@@ -227,6 +227,8 @@ class RelatedEvent {
     required this.direction,
     this.origin = 'agent',
     this.addedBy,
+    this.heroMediaId,
+    this.heroIsClip = false,
   });
   final EventRead event;
   final String kind;
@@ -234,6 +236,11 @@ class RelatedEvent {
   final String direction; // back | forward
   final String origin; // user | agent (ADR-0025 §2.4)
   final String? addedBy; // actor id when origin == user
+
+  /// The related event's hero media — so walking left/right to it renders the clip/photo, not a
+  /// black card. The API only returns related events that have a displayable hero.
+  final String? heroMediaId;
+  final bool heroIsClip;
 
   bool get isUserAdded => origin == 'user';
 
@@ -244,6 +251,8 @@ class RelatedEvent {
     direction: j['direction'] as String,
     origin: j['origin'] as String? ?? 'agent',
     addedBy: j['added_by'] as String?,
+    heroMediaId: j['hero_media_id'] as String?,
+    heroIsClip: j['hero_is_clip'] as bool? ?? false,
   );
 }
 
