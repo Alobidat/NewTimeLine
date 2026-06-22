@@ -157,6 +157,28 @@ class _VideoFeedState extends State<VideoFeed>
 
   /// Swipe left: advance to the next forward-related event in the current timeline. Appends
   /// it to the feed (if not already present) and animates to it — a one-hop lateral walk.
+  /// Swipe up → next clip. Animates the (non-scrollable) PageView forward; near the end it
+  /// pages the source so there's always something to advance to.
+  void _next() {
+    if (_current < _items.length - 1) {
+      _page.nextPage(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
+    }
+    if (_current >= _items.length - 2) _loadMore();
+  }
+
+  /// Swipe down → previous clip (clamped at the first).
+  void _prev() {
+    if (_current > 0) {
+      _page.previousPage(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   Future<void> _walkForward(FeedItem item) async {
     List<RelatedEvent> related;
     try {
@@ -329,6 +351,9 @@ class _VideoFeedState extends State<VideoFeed>
         PageView.builder(
           controller: _page,
           scrollDirection: Axis.vertical,
+          // Paging is driven by FeedItemView's swipe handler (low threshold so gentle swipes
+          // advance); the PageView itself doesn't claim drags.
+          physics: const NeverScrollableScrollPhysics(),
           itemCount: _items.length,
           onPageChanged: (i) {
             setState(() => _current = i);
@@ -341,6 +366,8 @@ class _VideoFeedState extends State<VideoFeed>
             final item = _items[i];
             return FeedItemView(
               key: ValueKey('feed-${widget.tab.slug}-${item.id}'),
+              onSwipeUpNext: _next,
+              onSwipeDownPrev: _prev,
               onSwipeRightGraph: () => _openGraph(item),
               onSwipeLeftNext: () => _walkForward(item),
             );

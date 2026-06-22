@@ -1,41 +1,68 @@
 /// The per-page **gesture surface** of the vertical feed (ADR-0027). It is intentionally
 /// transparent and carries no controls: the looping clip is painted ONCE behind the
 /// [PageView] and the action rail + caption are pinned ONCE on top (both by [VideoFeed]), so
-/// neither moves while the user pages between clips. This page only claims the **horizontal
-/// swipe** gestures so they don't fight the parent vertical [PageView]:
-///   • swipe **right** → the event's graph/timeline web,
-///   • swipe **left**  → the next related event in the current timeline.
+/// neither moves while the user pages between clips. This page owns ALL four swipe gestures:
+///   • swipe **up**    → next clip,        • swipe **down** → previous clip,
+///   • swipe **right** → the event graph,  • swipe **left** → next related event.
+///
+/// Vertical paging is driven here (not by the PageView's own physics) so a *gentle* swipe
+/// advances: the default PageView snaps back unless the drag passes ~half the screen or is a
+/// hard fling, which — because the pinned clip doesn't track the finger — feels like nothing
+/// happens. We advance on a small distance OR a light flick instead.
 library;
 
 import 'package:flutter/material.dart';
 
-/// A full-page transparent surface that turns a horizontal fling into a lateral navigation.
-/// Vertical drags fall through to the parent [PageView]; taps/other gestures fall through to
-/// the pinned overlay above and the clip below.
-class FeedItemView extends StatelessWidget {
+class FeedItemView extends StatefulWidget {
   const FeedItemView({
     super.key,
+    required this.onSwipeUpNext,
+    required this.onSwipeDownPrev,
     required this.onSwipeRightGraph,
     required this.onSwipeLeftNext,
   });
 
+  final VoidCallback onSwipeUpNext;
+  final VoidCallback onSwipeDownPrev;
   final VoidCallback onSwipeRightGraph;
   final VoidCallback onSwipeLeftNext;
 
-  /// How far a horizontal drag must travel (px) before it counts as a lateral swipe.
-  static const double _swipeThreshold = 80;
+  @override
+  State<FeedItemView> createState() => _FeedItemViewState();
+}
+
+class _FeedItemViewState extends State<FeedItemView> {
+  // A swipe counts when EITHER the drag travels this far OR the flick is this fast.
+  static const double _distance = 36; // px
+  static const double _velocity = 110; // px/s
+  static const double _hVelocity = 80; // px/s (lateral)
+
+  double _dy = 0; // accumulated vertical drag for the current gesture
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      // Claim horizontal drags only; vertical paging stays with the parent PageView.
       behavior: HitTestBehavior.opaque,
-      onHorizontalDragEnd: (details) {
-        final v = details.primaryVelocity ?? 0;
-        if (v > _swipeThreshold) {
-          onSwipeRightGraph(); // fling right → graph web
-        } else if (v < -_swipeThreshold) {
-          onSwipeLeftNext(); // fling left → next related event
+      // ── Vertical: page the feed (next / previous). Driven manually for a low threshold.
+      onVerticalDragStart: (_) => _dy = 0,
+      onVerticalDragUpdate: (d) => _dy += d.primaryDelta ?? 0,
+      onVerticalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        final dy = _dy;
+        _dy = 0;
+        if (v < -_velocity || dy < -_distance) {
+          widget.onSwipeUpNext(); // up → next
+        } else if (v > _velocity || dy > _distance) {
+          widget.onSwipeDownPrev(); // down → previous
+        }
+      },
+      // ── Horizontal: graph (right) / next related (left).
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v > _hVelocity) {
+          widget.onSwipeRightGraph();
+        } else if (v < -_hVelocity) {
+          widget.onSwipeLeftNext();
         }
       },
       child: const SizedBox.expand(),

@@ -7,6 +7,7 @@
 /// playsinline reproduce the feed behaviour natively (no controller needed for a muted feed).
 library;
 
+import 'dart:js_interop';
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/widgets.dart';
@@ -21,12 +22,13 @@ Widget webVideoView(String url, {required bool muted}) {
   if (_registered.add(viewType)) {
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int _) {
       final v = web.HTMLVideoElement();
-      v.src = url;
-      v.autoplay = true;
-      v.loop = true;
+      // Mute BEFORE src/play so the browser's muted-autoplay allowance applies.
       v.muted = muted;
       v.defaultMuted = muted;
+      v.autoplay = true;
+      v.loop = true;
       v.controls = false;
+      v.src = url;
       // playsInline keeps mobile Safari/Chrome from going fullscreen on autoplay.
       v.setAttribute('playsinline', 'true');
       v.setAttribute('webkit-playsinline', 'true');
@@ -44,7 +46,15 @@ Widget webVideoView(String url, {required bool muted}) {
       // full-screen <video> element captures every touch and the vertical feed can't be paged.
       v.style.setProperty('pointer-events', 'none');
       v.style.setProperty('touch-action', 'none');
-      // Autoplay can be deferred by the browser; kick it (ignore the promise rejection).
+      // Robust autoplay: a play() before the element is attached rejects, and the `autoplay`
+      // attribute isn't always honored for a dynamically-created element. So (re)start playback
+      // whenever the media becomes ready — muted playback is allowed without a user gesture.
+      // Promise rejections are ignored (toDart not awaited).
+      final kick = ((web.Event _) {
+        if (v.paused) v.play();
+      }).toJS;
+      v.addEventListener('loadeddata', kick);
+      v.addEventListener('canplay', kick);
       v.play();
       return v;
     });
