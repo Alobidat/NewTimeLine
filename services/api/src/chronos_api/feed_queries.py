@@ -43,6 +43,7 @@ _HERO_JOIN = """
     LEFT JOIN LATERAL (
         SELECT em.media_id,
                (m.kind IN ('video','embed')) AS is_clip,
+               m.width AS width,
                -- The uploader, only for user-generated clips; cast the text added_by to uuid.
                -- Agent/seed media (origin_kind <> 'user') has a non-uuid added_by → leave null.
                CASE WHEN m.origin_kind = 'user' THEN em.added_by::uuid END AS author_id
@@ -53,12 +54,17 @@ _HERO_JOIN = """
 """
 
 
-# Only surface events that actually have something to show: a clip (video/embed) OR an image
-# WITH a description (summary). No hero, or a bare image with no context, would render as a black
-# / empty card — which the feed must never do. Applied as a WHERE fragment on every tab query.
+# Only surface events with something good to show: a clip (video/embed), OR an image that has a
+# description AND clears the resolution floor (640px). No hero, a context-less image, or a tiny
+# low-res one would render as a black/poor card — which the feed must never do. A NULL width is
+# tolerated (unknown until the media-quality agent back-fills it) so we don't hide good images
+# pending back-fill. Applied as a WHERE fragment on every feed + related query.
+_MIN_IMAGE_WIDTH = 640
 _DISPLAYABLE = (
-    "h.media_id IS NOT NULL "
-    "AND (h.is_clip OR (e.summary IS NOT NULL AND length(btrim(e.summary)) > 0))"
+    "h.media_id IS NOT NULL AND (h.is_clip OR ("
+    "  e.summary IS NOT NULL AND length(btrim(e.summary)) > 0 "
+    f"  AND (h.width IS NULL OR h.width >= {_MIN_IMAGE_WIDTH})"
+    "))"
 )
 
 

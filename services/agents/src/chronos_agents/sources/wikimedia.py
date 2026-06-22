@@ -35,6 +35,9 @@ _REST_BASE = "https://en.wikipedia.org/api/rest_v1/page"
 DEFAULT_MAX_CLIP_WIDTH = 720
 # Target width we upsize a Wikimedia *thumbnail* URL to when no original is available.
 DEFAULT_THUMB_WIDTH = 1280
+# Quality floor (ADR-0024): an image narrower than this is too low-res to be a hero — we fetch a
+# larger rendition or search for a better image rather than attach it.
+MIN_IMAGE_WIDTH = 640
 
 # A Wikimedia thumbnail URL embeds the rendition width as ``/<NNNpx->-<File>``. We rewrite
 # that token to request a larger rendition (still served by Wikimedia, no extra round-trip).
@@ -81,6 +84,20 @@ class CommonsVideo:
     height: int | None = None
     duration_s: int | None = None
     year: float | None = None   # parsed from DateTimeOriginal, when present
+    description: str | None = None
+    license: str | None = None
+    credit: str | None = None
+
+
+@dataclass(frozen=True)
+class CommonsImage:
+    """A freely-licensed Commons still image: direct URL + provenance + pixel dimensions."""
+
+    url: str            # direct upload.wikimedia.org file URL
+    page_url: str       # the Commons ``File:`` description page (used as the event source)
+    title: str
+    width: int | None = None
+    height: int | None = None
     description: str | None = None
     license: str | None = None
     credit: str | None = None
@@ -177,6 +194,67 @@ async def commons_videos(
     return out
 
 
+async def commons_images(
+    client: httpx.AsyncClient,
+    query: str,
+    *,
+    limit: int = 6,
+    min_width: int = MIN_IMAGE_WIDTH,
+) -> list[CommonsImage]:
+    """Search Wikimedia Commons for freely-licensed **still images** matching ``query``.
+
+    Used as the "no good image on the article — search the net" fallback (ADR-0024): Commons is a
+    durable, CORS-friendly host of CC / public-domain photos. Returns the matches at or above
+    ``min_width`` (so we never attach a low-res image), largest first. Best-effort: any
+    transport/parse error yields ``[]``.
+    """
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "search",
+        "gsrsearch": f"{query} filetype:bitmap",
+        "gsrnamespace": "6",          # the File: namespace
+        "gsrlimit": str(min(limit * 4, 50)),  # over-fetch; we filter by size below
+        "prop": "imageinfo",
+        "iiprop": "url|size|mime|extmetadata",
+        "iiextmetadatafilter": "ImageDescription|LicenseShortName|Artist",
+    }
+    try:
+        resp = await client.get(_COMMONS_API, params=params, timeout=20.0)
+        resp.raise_for_status()
+        pages = resp.json().get("query", {}).get("pages", {})
+    except Exception:
+        log.warning("commons image search failed for %r", query)
+        return []
+
+    out: list[CommonsImage] = []
+    for page in pages.values():
+        info = (page.get("imageinfo") or [None])[0]
+        if not info:
+            continue
+        if not (info.get("mime") or "").startswith("image/"):
+            continue
+        w = _as_int(info.get("width"))
+        if not w or w < min_width:                 # enforce the quality floor
+            continue
+        extmeta = info.get("extmetadata") or {}
+        file_title = page.get("title", "")
+        out.append(
+            CommonsImage(
+                url=info["url"],
+                page_url=f"https://commons.wikimedia.org/wiki/{quote(file_title.replace(' ', '_'))}",
+                title=_clean_title(file_title),
+                width=w,
+                height=_as_int(info.get("height")),
+                description=_meta(extmeta, "ImageDescription"),
+                license=_meta(extmeta, "LicenseShortName"),
+                credit=_meta(extmeta, "Artist"),
+            )
+        )
+    out.sort(key=lambda c: c.width or 0, reverse=True)  # best resolution first
+    return out[:limit]
+
+
 def wiki_article(source_url: str) -> str | None:
     """Extract the article title from an en.wikipedia.org/wiki/<Title> URL."""
     marker = "/wiki/"
@@ -200,6 +278,16 @@ def upscale_thumb_url(url: str, target_width: int = DEFAULT_THUMB_WIDTH) -> str:
     return _THUMB_WIDTH_RE.sub(f"/{target_width}px-", url, count=1)
 
 
+def width_from_thumb_url(url: str) -> int | None:
+    """The rendition width encoded in a Wikimedia ``/NNNpx-`` thumb URL, or None if absent.
+
+    Lets us recover an already-attached image's width with no network call (the URL *is* the
+    rendition request), so quality back-fill is cheap for the common thumb case.
+    """
+    m = _THUMB_WIDTH_RE.search(url)
+    return int(m.group(1)) if m else None
+
+
 async def wiki_image(
     client: httpx.AsyncClient, source_url: str, *, target_width: int = DEFAULT_THUMB_WIDTH
 ) -> ImageResult | None:
@@ -207,7 +295,8 @@ async def wiki_image(
 
     Prefers the full-resolution ``originalimage``; falls back to the article ``thumbnail``
     but upsizes its Wikimedia thumb URL to ``target_width`` so we attach a decent image
-    rather than a tiny one (ADR-0024). Returns ``None`` when there's no usable image.
+    rather than a tiny one (ADR-0024). Returns ``None`` when there's no usable image OR the best
+    we can get is below [MIN_IMAGE_WIDTH] (the caller then searches for a better one).
     """
     title = wiki_article(source_url)
     if title is None:
@@ -222,18 +311,20 @@ async def wiki_image(
 
     original = data.get("originalimage") or {}
     thumb = data.get("thumbnail") or {}
-    if original.get("source"):
-        return ImageResult(
-            url=original["source"],
-            width=_as_int(original.get("width")),
-            height=_as_int(original.get("height")),
-        )
+    # The full original is best when it's already big enough.
+    ow = _as_int(original.get("width"))
+    if original.get("source") and (ow is None or ow >= MIN_IMAGE_WIDTH):
+        return ImageResult(url=original["source"], width=ow,
+                           height=_as_int(original.get("height")))
+    # Otherwise request a wide rendition of the thumbnail — its width is exactly what we ask for
+    # (we now record it, rather than leaving it unknown), so quality is enforceable downstream.
     src = thumb.get("source")
-    if not src:
+    if src:
+        return ImageResult(url=upscale_thumb_url(src, target_width), width=target_width)
+    # Only a small original exists and it's below the floor → signal "no good image".
+    if original.get("source") and ow and ow >= 1:
         return None
-    # Upsizing the thumb URL means we no longer know the exact returned dimensions; leave
-    # them unset (the media-fetcher fills real dimensions when it downloads the binary).
-    return ImageResult(url=upscale_thumb_url(src, target_width))
+    return None
 
 
 def best_webm(item: dict, *, max_width: int = DEFAULT_MAX_CLIP_WIDTH) -> dict | None:
