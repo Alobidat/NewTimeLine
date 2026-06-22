@@ -121,7 +121,12 @@ class _HomeWithAccountState extends State<_HomeWithAccount> {
     // quick always-reachable entry to the account/GDPR settings.
     return Stack(
       children: [
-        FeedHome(api: api, auth: auth),
+        // Positioned.fill so the Scaffold gets *tight* full-screen constraints. As a bare
+        // (non-positioned) Stack child it would only get loose constraints and the feed's
+        // Scaffold body collapses to the height of its tab-bar row — the clip then only looks
+        // full because its <video> self-sizes to 100vh, while the Flutter overlays (the action
+        // rail + caption) shrink to a thin strip at the top.
+        Positioned.fill(child: FeedHome(api: api, auth: auth)),
         SafeArea(
           child: Align(
             alignment: Alignment.topRight,

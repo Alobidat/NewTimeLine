@@ -70,9 +70,16 @@ class _FeedHomeState extends State<FeedHome>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      // Transparent (not black): on CanvasKit web the feed clip is an HTML <video> platform
+      // view, and an opaque Flutter background paints *over* it and hides it. The black backdrop
+      // lives at the document level (web/index.html body) instead, below the video.
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
+      // Expand: the Scaffold hands the body *loose* constraints, and this Stack's only
+      // non-positioned child is the floating tab-bar row (~50px) — without expand the body
+      // (and the Positioned.fill feed underneath) collapses to that row's height.
       body: Stack(
+        fit: StackFit.expand,
         children: [
           // The feeds fill the screen behind the floating tab bar.
           Positioned.fill(

@@ -31,6 +31,11 @@
 
   <title>chronos_app</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    /* Black document backdrop, BELOW the Flutter view + the feed's <video> platform view.
+       The feed Scaffold is transparent so the clip shows; this keeps non-video areas black. */
+    html, body { margin: 0; padding: 0; background-color: #000; }
+  </style>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

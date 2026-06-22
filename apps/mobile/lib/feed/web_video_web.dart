@@ -31,8 +31,12 @@ Widget webVideoView(String url, {required bool muted}) {
       v.setAttribute('playsinline', 'true');
       v.setAttribute('webkit-playsinline', 'true');
       v.preload = 'auto';
-      v.style.setProperty('width', '100%');
-      v.style.setProperty('height', '100%');
+      // The platform-view host is content-sized (height:auto), so a height:100% video collapses
+      // it to a strip. Give the element an explicit viewport-unit size in normal flow: the host
+      // grows to the full screen, so Flutter composites the clip full-bleed below the overlays.
+      v.style.setProperty('display', 'block');
+      v.style.setProperty('width', '100vw');
+      v.style.setProperty('height', '100vh');
       v.style.setProperty('object-fit', 'cover');
       v.style.setProperty('background-color', 'black');
       // Autoplay can be deferred by the browser; kick it (ignore the promise rejection).
@@ -40,5 +44,7 @@ Widget webVideoView(String url, {required bool muted}) {
       return v;
     });
   }
+  // The element styles itself to 100vw×100vh (above), so the platform-view host content-sizes
+  // to the full screen — no Flutter-side sizing needed.
   return HtmlElementView(viewType: viewType);
 }

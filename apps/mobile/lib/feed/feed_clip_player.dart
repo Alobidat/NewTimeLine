@@ -137,13 +137,14 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   @override
   Widget build(BuildContext context) {
     // Web: a full-bleed HTML <video> (object-fit: cover), muted-autoplay-loop. No controller,
-    // no FittedBox — the element styles itself, so it fills the page instead of a top strip.
+    // no FittedBox — the element styles itself. Critically, NO Flutter-painted background here:
+    // a ColoredBox/Container composites *above* the platform view in CanvasKit and would hide
+    // the clip. The bare platform view lets the clip show with the overlays (rail/scrim) on top.
     if (kIsWeb) {
       final url = widget.url;
-      return Container(
-        color: Colors.black,
-        child: url == null ? _glyph() : webVideoView(url, muted: true),
-      );
+      return url == null
+          ? const ColoredBox(color: Colors.black)
+          : webVideoView(url, muted: true);
     }
     return GestureDetector(
       onTap: _onTap,

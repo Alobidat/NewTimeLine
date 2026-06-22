@@ -364,20 +364,24 @@ class _VideoFeedState extends State<VideoFeed>
           ),
         ),
         // Pinned action rail + caption for the current clip — fixed in place across swipes.
-        OverlayRail(
-          api: widget.api,
-          event: current.event,
-          bookmarked: _bookmarked.contains(current.id),
-          onReact: () => _react(current),
-          onComment: () => _comment(current),
-          onInfo: () => _info(current),
-          onPromote: (up) => _promote(current, up),
-          onFollow: () => _follow(current),
-          onFollowCreator:
-              current.event.authorId != null ? () => _followCreator(current) : null,
-          onBookmark: () => _bookmark(current),
-          onShare: () => _share(current),
-          onOpenGraph: () => _openGraph(current),
+        // Positioned.fill so the rail's internally-Positioned buttons/caption resolve against
+        // the full screen (a bare Stack of only-Positioned children collapses to a top strip).
+        Positioned.fill(
+          child: OverlayRail(
+            api: widget.api,
+            event: current.event,
+            bookmarked: _bookmarked.contains(current.id),
+            onReact: () => _react(current),
+            onComment: () => _comment(current),
+            onInfo: () => _info(current),
+            onPromote: (up) => _promote(current, up),
+            onFollow: () => _follow(current),
+            onFollowCreator:
+                current.event.authorId != null ? () => _followCreator(current) : null,
+            onBookmark: () => _bookmark(current),
+            onShare: () => _share(current),
+            onOpenGraph: () => _openGraph(current),
+          ),
         ),
       ],
     );
