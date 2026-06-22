@@ -3,15 +3,14 @@
 /// menu and the graph/timeline-web view.
 ///
 /// Phase 4-G adds the **account/auth** layer: one app-wide [AuthState] (session JWT + user,
-/// driving the [ApiClient] Bearer) is created at boot and a minimal account affordance is
-/// overlaid on the home so sign-in / account settings are always reachable without touching
-/// the feed-owned home. The feed/overlay (IU2) calls `ensureCanInteract` (see
-/// `auth/interaction_gate.dart`) before any write.
+/// driving the [ApiClient] Bearer) is created at boot and threaded into [FeedHome], whose top
+/// bar carries the account/sign-in entry alongside the upload + overflow actions. The
+/// feed/overlay (IU2) calls `ensureCanInteract` (see `auth/interaction_gate.dart`) before any
+/// write.
 library;
 
 import 'package:flutter/material.dart';
 
-import 'account/account_screen.dart';
 import 'api/client.dart';
 import 'feed/feed_home.dart';
 import 'feed/feed_source.dart';
@@ -60,11 +59,8 @@ class _ChronosAppState extends State<ChronosApp> {
   }
 }
 
-/// The feed home with a minimal, always-reachable account/sign-in affordance overlaid in the
-/// top-right safe area. Keeps the feed-owned [FeedHome] untouched (Phase 4-G fence) while
-/// satisfying the "profile/account entry point + sign-in affordance" requirement.
-///
-/// Also handles **share deep links**: when the app is opened with `?event=<id>` (the link
+/// Hosts [FeedHome] (which owns the account/sign-in entry in its top bar) and handles
+/// **share deep links**: when the app is opened with `?event=<id>` (the link
 /// shape produced by the feed's share sheet, see `feed/share.dart`), it fetches that event
 /// once the first frame is up and opens it in a focused immersive feed — so a shared link
 /// lands the recipient on the clip rather than a generic feed.
@@ -84,7 +80,9 @@ class _HomeWithAccountState extends State<_HomeWithAccount> {
     super.initState();
     final eventId = Uri.base.queryParameters['event'];
     if (eventId != null && eventId.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openSharedEvent(eventId));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openSharedEvent(eventId),
+      );
     }
   }
 
@@ -114,47 +112,9 @@ class _HomeWithAccountState extends State<_HomeWithAccount> {
 
   @override
   Widget build(BuildContext context) {
-    final api = widget.api;
-    final auth = widget.auth;
-    // The feed home owns the upload (+) and profile affordances now that AuthState is
-    // threaded into it (IU2). The minimal top-right account/sign-in shortcut stays as a
-    // quick always-reachable entry to the account/GDPR settings.
-    return Stack(
-      children: [
-        // Positioned.fill so the Scaffold gets *tight* full-screen constraints. As a bare
-        // (non-positioned) Stack child it would only get loose constraints and the feed's
-        // Scaffold body collapses to the height of its tab-bar row — the clip then only looks
-        // full because its <video> self-sizes to 100vh, while the Flutter overlays (the action
-        // rail + caption) shrink to a thin strip at the top.
-        Positioned.fill(child: FeedHome(api: api, auth: auth)),
-        SafeArea(
-          child: Align(
-            alignment: Alignment.topRight,
-            child: Padding(
-              // Sit left of the feed's overflow menu so the two don't overlap.
-              padding: const EdgeInsets.only(right: 48, top: 4),
-              child: AnimatedBuilder(
-                animation: auth,
-                builder: (context, _) => IconButton(
-                  key: const Key('account-entry'),
-                  tooltip: auth.isSignedIn ? 'Account' : 'Sign in',
-                  icon: Icon(
-                    auth.isSignedIn
-                        ? Icons.account_circle
-                        : Icons.account_circle_outlined,
-                    color: Colors.white,
-                  ),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => AccountScreen(api: api, auth: auth),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    // The feed home owns the entire screen, including its top bar (tabs + account/sign-in +
+    // upload + overflow menu) — laid out together so the trailing icons never overlap. Share
+    // deep links (?event=) are handled in initState above.
+    return FeedHome(api: widget.api, auth: widget.auth);
   }
 }

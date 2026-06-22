@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../account/account_screen.dart';
 import '../api/client.dart';
 import '../profile/profile_screen.dart';
 import '../shell/experience_screen.dart';
@@ -69,6 +70,14 @@ class _FeedHomeState extends State<FeedHome>
     );
   }
 
+  void _openAccount() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AccountScreen(api: _api, auth: _auth),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,6 +128,21 @@ class _FeedHomeState extends State<FeedHome>
                       tabs: [
                         for (final tab in FeedTab.values) Tab(text: tab.label),
                       ],
+                    ),
+                  ),
+                  // Account / sign-in entry — in the Row so it never overlaps the +/⋮.
+                  AnimatedBuilder(
+                    animation: _auth,
+                    builder: (context, _) => IconButton(
+                      key: const Key('account-entry'),
+                      tooltip: _auth.isSignedIn ? 'Account' : 'Sign in',
+                      icon: Icon(
+                        _auth.isSignedIn
+                            ? Icons.account_circle
+                            : Icons.account_circle_outlined,
+                        color: Colors.white,
+                      ),
+                      onPressed: _openAccount,
                     ),
                   ),
                   // Upload a clip (+) — gated on sign-in inside the upload screen (IU2).

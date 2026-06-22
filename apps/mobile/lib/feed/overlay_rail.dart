@@ -65,70 +65,81 @@ class OverlayRail extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Right rail of round action buttons.
+        // Right rail of round action buttons. Bounded between the top bar (top: 56 + safe
+        // inset) and the caption (bottom: 96) and wrapped in a reverse scroll view so on short
+        // screens the tall rail scrolls instead of overflowing up into the top-bar icons
+        // (sign-in / + / overflow) — bottom-anchored, so the primary actions stay visible.
         Positioned(
+          top: 56,
           right: 8,
-          bottom: 120,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _RailButton(
-                key: const Key('rail-promote-up'),
-                icon: Icons.arrow_upward,
-                label: 'Promote',
-                onTap: () => onPromote(true),
+          bottom: 96,
+          child: SafeArea(
+            bottom: false,
+            child: SingleChildScrollView(
+              reverse: true,
+              physics: const ClampingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _RailButton(
+                    key: const Key('rail-promote-up'),
+                    icon: Icons.arrow_upward,
+                    label: 'Promote',
+                    onTap: () => onPromote(true),
+                  ),
+                  _RailButton(
+                    key: const Key('rail-promote-down'),
+                    icon: Icons.arrow_downward,
+                    label: 'Demote',
+                    onTap: () => onPromote(false),
+                  ),
+                  _RailButton(
+                    key: const Key('rail-react'),
+                    icon: Icons.favorite_border,
+                    label: 'React',
+                    onTap: onReact,
+                  ),
+                  _RailButton(
+                    key: const Key('rail-comment'),
+                    icon: Icons.mode_comment_outlined,
+                    label: 'Comment',
+                    onTap: onComment,
+                  ),
+                  _RailButton(
+                    key: const Key('rail-follow'),
+                    icon: Icons.person_add_alt_1_outlined,
+                    label: 'Follow',
+                    onTap: onFollow,
+                  ),
+                  // Follow the creator — only for user-generated clips that carry an author.
+                  if (onFollowCreator != null)
+                    _RailButton(
+                      key: const Key('rail-follow-creator'),
+                      icon: Icons.video_camera_front_outlined,
+                      label: 'Creator',
+                      onTap: onFollowCreator!,
+                    ),
+                  _RailButton(
+                    key: const Key('rail-bookmark'),
+                    icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
+                    label: 'Save',
+                    onTap: onBookmark,
+                  ),
+                  _RailButton(
+                    key: const Key('rail-share'),
+                    icon: Icons.share_outlined,
+                    label: 'Share',
+                    onTap: onShare,
+                  ),
+                  _RailButton(
+                    key: const Key('rail-info'),
+                    icon: Icons.info_outline,
+                    label: 'Info',
+                    onTap: onInfo,
+                  ),
+                ],
               ),
-              _RailButton(
-                key: const Key('rail-promote-down'),
-                icon: Icons.arrow_downward,
-                label: 'Demote',
-                onTap: () => onPromote(false),
-              ),
-              _RailButton(
-                key: const Key('rail-react'),
-                icon: Icons.favorite_border,
-                label: 'React',
-                onTap: onReact,
-              ),
-              _RailButton(
-                key: const Key('rail-comment'),
-                icon: Icons.mode_comment_outlined,
-                label: 'Comment',
-                onTap: onComment,
-              ),
-              _RailButton(
-                key: const Key('rail-follow'),
-                icon: Icons.person_add_alt_1_outlined,
-                label: 'Follow',
-                onTap: onFollow,
-              ),
-              // Follow the creator — only for user-generated clips that carry an author.
-              if (onFollowCreator != null)
-                _RailButton(
-                  key: const Key('rail-follow-creator'),
-                  icon: Icons.video_camera_front_outlined,
-                  label: 'Creator',
-                  onTap: onFollowCreator!,
-                ),
-              _RailButton(
-                key: const Key('rail-bookmark'),
-                icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
-                label: 'Save',
-                onTap: onBookmark,
-              ),
-              _RailButton(
-                key: const Key('rail-share'),
-                icon: Icons.share_outlined,
-                label: 'Share',
-                onTap: onShare,
-              ),
-              _RailButton(
-                key: const Key('rail-info'),
-                icon: Icons.info_outline,
-                label: 'Info',
-                onTap: onInfo,
-              ),
-            ],
+            ),
           ),
         ),
         // Bottom caption + swipe hints.
@@ -157,25 +168,25 @@ class _RailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: InkResponse(
         onTap: onTap,
-        radius: 28,
+        radius: 26,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.35),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: Colors.white, size: 26),
+              child: Icon(icon, color: Colors.white, size: 24),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               label,
-              style: const TextStyle(color: Colors.white, fontSize: 11),
+              style: const TextStyle(color: Colors.white, fontSize: 10),
             ),
           ],
         ),
@@ -234,10 +245,7 @@ class _Caption extends StatelessWidget {
               onTap: onOpenGraph,
             ),
             const SizedBox(width: 12),
-            const _Hint(
-              icon: Icons.east,
-              text: 'Swipe ← next in timeline',
-            ),
+            const _Hint(icon: Icons.east, text: 'Swipe ← next in timeline'),
           ],
         ),
       ],
@@ -282,8 +290,10 @@ Future<void> showReactionSheet(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('How do you feel about this?',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'How do you feel about this?',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 12),
           ReactionBar(api: api, eventId: eventId),
         ],
