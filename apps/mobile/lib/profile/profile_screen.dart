@@ -33,6 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   FollowCounts? _counts;
   InterestProfile? _interests;
   List<EventRead>? _uploads;
+  List<EventRead>? _saved;
   bool _loading = false;
 
   @override
@@ -49,12 +50,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _api.followCounts().then<Object?>((v) => v).catchError((_) => null),
       _api.interests().then<Object?>((v) => v).catchError((_) => null),
       _api.myUploads().then<Object?>((v) => v).catchError((_) => null),
+      _api.myBookmarks().then<Object?>((v) => v).catchError((_) => null),
     ]);
     if (!mounted) return;
     setState(() {
       _counts = results[0] as FollowCounts?;
       _interests = results[1] as InterestProfile?;
       _uploads = results[2] as List<EventRead>?;
+      _saved = results[3] as List<EventRead>?;
       _loading = false;
     });
   }
@@ -92,18 +95,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
         animation: _auth,
         builder: (context, _) {
           if (!_auth.isSignedIn) return _SignedOut(onSignIn: _signIn);
-          return RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
+          return DefaultTabController(
+            length: 2,
+            child: Column(
               children: [
-                _Header(user: _auth.user, counts: _counts),
-                const SizedBox(height: 8),
-                if (_loading) const LinearProgressIndicator(),
-                const Divider(),
-                _InterestsSection(profile: _interests),
-                const Divider(),
-                _UploadsSection(uploads: _uploads),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Column(
+                    children: [
+                      _Header(user: _auth.user, counts: _counts),
+                      const SizedBox(height: 8),
+                      if (_loading) const LinearProgressIndicator(),
+                      const SizedBox(height: 8),
+                      _InterestsSection(profile: _interests),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  tabs: [Tab(text: 'Uploads'), Tab(text: 'Saved')],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _EventListTab(
+                        keyPrefix: 'upload',
+                        items: _uploads,
+                        emptyText:
+                            'Nothing uploaded yet. Tap + on the feed to add a clip.',
+                        onRefresh: _load,
+                      ),
+                      _EventListTab(
+                        keyPrefix: 'saved',
+                        items: _saved,
+                        emptyText:
+                            'No saved clips yet. Tap Save on a clip to keep it here.',
+                        onRefresh: _load,
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           );
@@ -234,39 +264,51 @@ class _InterestsSection extends StatelessWidget {
       };
 }
 
-class _UploadsSection extends StatelessWidget {
-  const _UploadsSection({required this.uploads});
-  final List<EventRead>? uploads;
+/// One profile tab: a pull-to-refresh, scrollable list of the user's events (uploads or
+/// saved). Always scrollable (even when empty) so the [RefreshIndicator] works.
+class _EventListTab extends StatelessWidget {
+  const _EventListTab({
+    required this.keyPrefix,
+    required this.items,
+    required this.emptyText,
+    required this.onRefresh,
+  });
+
+  final String keyPrefix;
+  final List<EventRead>? items;
+  final String emptyText;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
-    final items = uploads ?? const <EventRead>[];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Your uploads',
-            style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        if (items.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text('Nothing uploaded yet. Tap + on the feed to add a clip.'),
-          )
-        else
-          for (final e in items)
-            ListTile(
-              key: Key('upload-${e.id}'),
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.movie_outlined),
-              title: Text(e.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                [
-                  formatYear(e.tStart),
-                  if (e.geoLabel != null) e.geoLabel!,
-                ].join(' · '),
-              ),
+    final list = items ?? const <EventRead>[];
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: list.isEmpty
+          ? ListView(
+              padding: const EdgeInsets.all(24),
+              children: [Text(emptyText, textAlign: TextAlign.center)],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: list.length,
+              itemBuilder: (context, i) {
+                final e = list[i];
+                return ListTile(
+                  key: Key('$keyPrefix-${e.id}'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.movie_outlined),
+                  title:
+                      Text(e.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                    [
+                      formatYear(e.tStart),
+                      if (e.geoLabel != null) e.geoLabel!,
+                    ].join(' · '),
+                  ),
+                );
+              },
             ),
-      ],
     );
   }
 }

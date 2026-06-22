@@ -29,17 +29,23 @@ class OverlayRail extends StatelessWidget {
     super.key,
     required this.api,
     required this.event,
+    required this.bookmarked,
     required this.onReact,
     required this.onComment,
     required this.onInfo,
     required this.onPromote,
     required this.onFollow,
+    required this.onFollowCreator,
+    required this.onBookmark,
     required this.onShare,
     required this.onOpenGraph,
   });
 
   final ApiClient api;
   final EventRead event;
+
+  /// Whether the caller has this clip saved (filled vs outline bookmark icon).
+  final bool bookmarked;
   final VoidCallback onReact;
   final VoidCallback onComment;
   final VoidCallback onInfo;
@@ -47,6 +53,11 @@ class OverlayRail extends StatelessWidget {
   /// up == true → promote, false → demote.
   final void Function(bool up) onPromote;
   final VoidCallback onFollow;
+
+  /// Follow the clip's creator. Null when the event has no author (agent/seed events) —
+  /// the button is hidden in that case.
+  final VoidCallback? onFollowCreator;
+  final VoidCallback onBookmark;
   final VoidCallback onShare;
   final VoidCallback onOpenGraph;
 
@@ -90,6 +101,20 @@ class OverlayRail extends StatelessWidget {
                 icon: Icons.person_add_alt_1_outlined,
                 label: 'Follow',
                 onTap: onFollow,
+              ),
+              // Follow the creator — only for user-generated clips that carry an author.
+              if (onFollowCreator != null)
+                _RailButton(
+                  key: const Key('rail-follow-creator'),
+                  icon: Icons.video_camera_front_outlined,
+                  label: 'Creator',
+                  onTap: onFollowCreator!,
+                ),
+              _RailButton(
+                key: const Key('rail-bookmark'),
+                icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
+                label: 'Save',
+                onTap: onBookmark,
               ),
               _RailButton(
                 key: const Key('rail-share'),

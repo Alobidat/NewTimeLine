@@ -24,6 +24,8 @@ class FeedItemCallbacks {
     required this.onInfo,
     required this.onPromote,
     required this.onFollow,
+    required this.onFollowCreator,
+    required this.onBookmark,
     required this.onShare,
   });
 
@@ -34,6 +36,10 @@ class FeedItemCallbacks {
   final VoidCallback onInfo;
   final void Function(bool up) onPromote;
   final VoidCallback onFollow;
+
+  /// Follow the clip's creator (only wired when the event has an author). Null → no creator.
+  final VoidCallback? onFollowCreator;
+  final VoidCallback onBookmark;
   final VoidCallback onShare;
 }
 
@@ -44,6 +50,7 @@ class FeedItemView extends StatelessWidget {
     required this.item,
     required this.active,
     required this.preload,
+    required this.bookmarked,
     required this.callbacks,
   });
 
@@ -55,6 +62,9 @@ class FeedItemView extends StatelessWidget {
 
   /// A neighbour we keep buffered for an instant swipe.
   final bool preload;
+
+  /// Whether the caller has this clip saved (drives the filled bookmark icon).
+  final bool bookmarked;
   final FeedItemCallbacks callbacks;
 
   /// How far a horizontal drag must travel (px) before it counts as a lateral swipe.
@@ -100,11 +110,14 @@ class FeedItemView extends StatelessWidget {
           OverlayRail(
             api: api,
             event: item.event,
+            bookmarked: bookmarked,
             onReact: callbacks.onReact,
             onComment: callbacks.onComment,
             onInfo: callbacks.onInfo,
             onPromote: callbacks.onPromote,
             onFollow: callbacks.onFollow,
+            onFollowCreator: callbacks.onFollowCreator,
+            onBookmark: callbacks.onBookmark,
             onShare: callbacks.onShare,
             onOpenGraph: callbacks.onSwipeRightGraph,
           ),

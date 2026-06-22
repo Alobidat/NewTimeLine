@@ -406,6 +406,31 @@ class ApiClient {
     });
   }
 
+  /// Save an event to the caller's private collection (`POST /bookmark`, idempotent).
+  Future<void> bookmark(String eventId) async {
+    await _postJson('/bookmark', const {}, query: {'event_id': eventId});
+  }
+
+  /// Remove a saved event (`DELETE /bookmark`, idempotent).
+  Future<void> unbookmark(String eventId) async {
+    await _delete('/bookmark', query: {'event_id': eventId});
+  }
+
+  /// Whether the caller has [eventId] saved (`GET /bookmark/state`). False when anonymous.
+  Future<bool> bookmarkState(String eventId) async {
+    final j = await _getJson('/bookmark/state', {'event_id': eventId});
+    if (j is Map) return (j['bookmarked'] as bool?) ?? false;
+    return false;
+  }
+
+  /// The caller's saved events, newest-saved-first (`GET /me/bookmarks`). Requires a session.
+  Future<List<EventRead>> myBookmarks({int limit = 50}) async {
+    final list = await _getJson('/me/bookmarks', {'limit': limit.toString()}) as List;
+    return list
+        .map((e) => EventRead.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Whether the signed-in user follows [targetId] (`GET /follow/state`). False when anonymous.
   Future<bool> followState(String targetType, String targetId) async {
     final j = await _getJson('/follow/state', {

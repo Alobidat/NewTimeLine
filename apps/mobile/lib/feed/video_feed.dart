@@ -55,6 +55,11 @@ class _VideoFeedState extends State<VideoFeed>
   final PageController _page = PageController();
   final List<FeedItem> _items = [];
 
+  /// Event ids the user has saved this session (drives the filled bookmark icon). Seeded
+  /// optimistically on toggle — we don't pre-fetch each item's saved state to keep the feed
+  /// request-light, so a previously-saved clip shows unfilled until the user taps it.
+  final Set<String> _bookmarked = {};
+
   String? _cursor;
   bool _loading = false;
   bool _exhausted = false;
@@ -226,12 +231,43 @@ class _VideoFeedState extends State<VideoFeed>
   Future<void> _follow(FeedItem item) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     try {
-      // EventRead carries no author id yet, so we follow the event itself (a valid follow
-      // target) — the feed's "Following" tab then surfaces its related/updated events.
+      // Follow the event itself — the "Following" tab then surfaces its related/updated
+      // events. (Following the *creator* is the separate "Creator" button, [_followCreator].)
       await widget.api.follow('event', item.event.id);
       _toast('Following this event');
     } catch (_) {
       _toast('Could not follow.');
+    }
+  }
+
+  /// Follow the clip's creator (only offered when the event carries an author id).
+  Future<void> _followCreator(FeedItem item) async {
+    final author = item.event.authorId;
+    if (author == null) return;
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    try {
+      await widget.api.follow('user', author);
+      _toast('Following the creator');
+    } catch (_) {
+      _toast('Could not follow the creator.');
+    }
+  }
+
+  /// Toggle this clip in the user's saved collection. Optimistic: flip the local set + icon,
+  /// then reconcile with the server, rolling back on error.
+  Future<void> _bookmark(FeedItem item) async {
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    final id = item.id;
+    final want = !_bookmarked.contains(id);
+    setState(() => want ? _bookmarked.add(id) : _bookmarked.remove(id));
+    try {
+      want ? await widget.api.bookmark(id) : await widget.api.unbookmark(id);
+      _toast(want ? 'Saved' : 'Removed from saved');
+    } catch (_) {
+      if (mounted) {
+        setState(() => want ? _bookmarked.remove(id) : _bookmarked.add(id));
+      }
+      _toast('Could not update saved.');
     }
   }
 
@@ -309,6 +345,7 @@ class _VideoFeedState extends State<VideoFeed>
           item: item,
           active: active,
           preload: preload,
+          bookmarked: _bookmarked.contains(item.id),
           callbacks: FeedItemCallbacks(
             onSwipeRightGraph: () => _openGraph(item),
             onSwipeLeftNext: () => _walkForward(item),
@@ -317,6 +354,9 @@ class _VideoFeedState extends State<VideoFeed>
             onInfo: () => _info(item),
             onPromote: (up) => _promote(item, up),
             onFollow: () => _follow(item),
+            onFollowCreator:
+                item.event.authorId != null ? () => _followCreator(item) : null,
+            onBookmark: () => _bookmark(item),
             onShare: () => _share(item),
           ),
         );

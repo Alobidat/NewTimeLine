@@ -31,6 +31,7 @@ class EventRead {
     this.geo,
     this.geoLabel,
     this.tags = const [],
+    this.authorId,
   });
 
   final String id;
@@ -47,6 +48,10 @@ class EventRead {
   final int sourceCount;
   final GeoPoint? geo;
   final String? geoLabel;
+
+  /// The uploading user's id for user-generated clips (origin_kind='user'); null for
+  /// agent/seed events. Drives the feed's "follow the creator" affordance.
+  final String? authorId;
 
   static DateTime? _dt(Object? v) =>
       v == null ? null : DateTime.tryParse(v as String);
@@ -66,6 +71,7 @@ class EventRead {
     sourceCount: j['source_count'] as int,
     geo: GeoPoint.fromJson(j['geo'] as Map<String, dynamic>?),
     geoLabel: j['geo_label'] as String?,
+    authorId: j['author_id'] as String?,
   );
 }
 
