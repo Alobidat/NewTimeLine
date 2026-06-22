@@ -40,8 +40,6 @@ class OverlayRail extends StatelessWidget {
     required this.onShare,
     required this.onOpenGraph,
     this.onAddVideo,
-    this.hasPrevEvent,
-    this.hasNextEvent,
   });
 
   final ApiClient api;
@@ -69,11 +67,6 @@ class OverlayRail extends StatelessWidget {
   /// Opens the "add a video" upload flow — wired to the bottom "Add video" button. Null hides
   /// the button (nested feeds without the home's upload entry point).
   final VoidCallback? onAddVideo;
-
-  /// Whether the current event has an earlier / later related event — drives the bottom
-  /// prev/next indicator (← previous / next →). Null while still being looked up (shown dim).
-  final bool? hasPrevEvent;
-  final bool? hasNextEvent;
 
   @override
   Widget build(BuildContext context) {
@@ -165,8 +158,6 @@ class OverlayRail extends StatelessWidget {
             event: event,
             onOpenGraph: onOpenGraph,
             onAddVideo: onAddVideo,
-            hasPrevEvent: hasPrevEvent,
-            hasNextEvent: hasNextEvent,
           ),
         ),
       ],
@@ -220,14 +211,10 @@ class _Caption extends StatelessWidget {
     required this.event,
     required this.onOpenGraph,
     this.onAddVideo,
-    this.hasPrevEvent,
-    this.hasNextEvent,
   });
   final EventRead event;
   final VoidCallback onOpenGraph;
   final VoidCallback? onAddVideo;
-  final bool? hasPrevEvent;
-  final bool? hasNextEvent;
 
   @override
   Widget build(BuildContext context) {
@@ -262,27 +249,6 @@ class _Caption extends StatelessWidget {
             fontSize: 13,
             shadows: [Shadow(blurRadius: 6, color: Colors.black87)],
           ),
-        ),
-        const SizedBox(height: 8),
-        // Indicator: whether this event has an earlier / later event in its timeline (a left /
-        // right swipe lands there). Lit when available, dimmed when not, faded while loading.
-        Row(
-          children: [
-            _RelIndicator(
-              key: const Key('ind-prev-event'),
-              icon: Icons.chevron_left,
-              label: 'previous',
-              state: hasPrevEvent,
-            ),
-            const SizedBox(width: 14),
-            _RelIndicator(
-              key: const Key('ind-next-event'),
-              icon: Icons.chevron_right,
-              label: 'next',
-              state: hasNextEvent,
-              iconTrailing: true,
-            ),
-          ],
         ),
         const SizedBox(height: 10),
         // Bottom action buttons: open the graph/timeline web, and add a video. (Both used to be
@@ -350,47 +316,6 @@ class _BottomButton extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// A small prev/next-availability chip for the event's timeline. [state] == true → the related
-/// event exists (lit), false → none in that direction (dimmed), null → still loading (faded).
-class _RelIndicator extends StatelessWidget {
-  const _RelIndicator({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.state,
-    this.iconTrailing = false,
-  });
-  final IconData icon;
-  final String label;
-  final bool? state;
-  final bool iconTrailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final available = state == true;
-    final color = state == null
-        ? Colors.white30
-        : available
-            ? Colors.white
-            : Colors.white24;
-    final icn = Icon(icon, color: color, size: 16);
-    final txt = Text(
-      label,
-      style: TextStyle(
-        color: color,
-        fontSize: 11,
-        fontWeight: available ? FontWeight.w600 : FontWeight.w400,
-      ),
-    );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: iconTrailing
-          ? [txt, const SizedBox(width: 2), icn]
-          : [icn, const SizedBox(width: 2), txt],
     );
   }
 }

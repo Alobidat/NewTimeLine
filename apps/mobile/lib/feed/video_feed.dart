@@ -495,21 +495,24 @@ class _VideoFeedState extends State<VideoFeed>
             onShare: () => _share(current),
             onOpenGraph: () => _openGraph(current),
             onAddVideo: widget.onAddVideo,
-            hasPrevEvent: _hasPrevEvent,
-            hasNextEvent: _hasNextEvent,
           ),
         ),
         // TEMPORARY on-screen D-pad mirroring the swipe actions, so we can agree the mapping
-        // before trusting the gestures. Up = next clip, Down = previous clip, Right = next event
-        // in the timeline, Left = previous event. Remove once the gestures are confirmed.
+        // before trusting the gestures. Up/Down = next/previous event in the feed; Right/Left =
+        // next/previous event in THIS event's timeline (disabled + greyed when there's none in
+        // that direction). Remove once the gestures are confirmed.
         Positioned(
           left: 8,
           bottom: 150,
           child: _SwipeDpad(
             onUp: () => _goTo(_current + 1),
-            onDown: () => _goTo(_current - 1),
-            onLeft: () => _walkTimeline(current, forward: false),
-            onRight: () => _walkTimeline(current, forward: true),
+            onDown: _current > 0 ? () => _goTo(_current - 1) : null,
+            onLeft: _hasPrevEvent == false
+                ? null
+                : () => _walkTimeline(current, forward: false),
+            onRight: _hasNextEvent == false
+                ? null
+                : () => _walkTimeline(current, forward: true),
           ),
         ),
       ],
@@ -527,52 +530,56 @@ class _SwipeDpad extends StatelessWidget {
     required this.onLeft,
     required this.onRight,
   });
-  final VoidCallback onUp, onDown, onLeft, onRight;
+
+  /// A null callback marks that direction as unavailable — the button greys out and ignores
+  /// taps (e.g. Left/Right when the event has no earlier/later event in its timeline).
+  final VoidCallback? onUp, onDown, onLeft, onRight;
 
   @override
   Widget build(BuildContext context) {
-    Widget btn(String key, IconData icon, String label, VoidCallback onTap) =>
-        Padding(
-          padding: const EdgeInsets.all(2),
-          child: Material(
-            color: Colors.black.withValues(alpha: 0.5),
-            shape: const StadiumBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: Key('dpad-$key'),
-              onTap: onTap,
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, color: Colors.white, size: 16),
-                    const SizedBox(width: 4),
-                    Text(label,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 11)),
-                  ],
-                ),
+    Widget btn(String key, IconData icon, String label, VoidCallback? onTap) {
+      final enabled = onTap != null;
+      final color = enabled ? Colors.white : Colors.white30;
+      return Padding(
+        padding: const EdgeInsets.all(2),
+        child: Material(
+          color: Colors.black.withValues(alpha: enabled ? 0.5 : 0.25),
+          shape: const StadiumBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: Key('dpad-$key'),
+            onTap: onTap, // null → non-interactive (disabled)
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 16),
+                  const SizedBox(width: 4),
+                  Text(label, style: TextStyle(color: color, fontSize: 11)),
+                ],
               ),
             ),
           ),
-        );
+        ),
+      );
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        btn('up', Icons.keyboard_arrow_up, 'Up · next clip', onUp),
+        btn('up', Icons.keyboard_arrow_up, 'Up · next event', onUp),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            btn('left', Icons.keyboard_arrow_left, 'Left · prev event', onLeft),
-            btn('right', Icons.keyboard_arrow_right, 'Right · next event',
+            btn('left', Icons.keyboard_arrow_left, 'Left · prev in timeline',
+                onLeft),
+            btn('right', Icons.keyboard_arrow_right, 'Right · next in timeline',
                 onRight),
           ],
         ),
-        btn('down', Icons.keyboard_arrow_down, 'Down · prev clip', onDown),
+        btn('down', Icons.keyboard_arrow_down, 'Down · prev event', onDown),
       ],
     );
   }
