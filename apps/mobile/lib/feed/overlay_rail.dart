@@ -66,18 +66,18 @@ class OverlayRail extends StatelessWidget {
     return Stack(
       children: [
         // Right rail of round action buttons. Bounded between the top bar (top: 56 + safe
-        // inset) and the caption (bottom: 96) and wrapped in a reverse scroll view so on short
-        // screens the tall rail scrolls instead of overflowing up into the top-bar icons
-        // (sign-in / + / overflow) — bottom-anchored, so the primary actions stay visible.
+        // inset) and the caption (bottom: 96), then scaled with a bottom-anchored FittedBox so
+        // the *whole* rail always fits the available height — every button stays visible and
+        // correctly placed at any screen size, never truncated under the top-bar icons.
         Positioned(
           top: 56,
           right: 8,
           bottom: 96,
           child: SafeArea(
             bottom: false,
-            child: SingleChildScrollView(
-              reverse: true,
-              physics: const ClampingScrollPhysics(),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.bottomCenter,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
