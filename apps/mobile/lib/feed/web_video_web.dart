@@ -39,6 +39,11 @@ Widget webVideoView(String url, {required bool muted}) {
       v.style.setProperty('height', '100vh');
       v.style.setProperty('object-fit', 'cover');
       v.style.setProperty('background-color', 'black');
+      // The feed clip is decorative (muted autoplay, no controls). Make it ignore pointer +
+      // touch input so swipes/taps fall through to Flutter's gesture layer — otherwise this
+      // full-screen <video> element captures every touch and the vertical feed can't be paged.
+      v.style.setProperty('pointer-events', 'none');
+      v.style.setProperty('touch-action', 'none');
       // Autoplay can be deferred by the browser; kick it (ignore the promise rejection).
       v.play();
       return v;

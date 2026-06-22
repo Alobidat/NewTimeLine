@@ -35,6 +35,15 @@
     /* Black document backdrop, BELOW the Flutter view + the feed's <video> platform view.
        The feed Scaffold is transparent so the clip shows; this keeps non-video areas black. */
     html, body { margin: 0; padding: 0; background-color: #000; }
+    /* The feed clip is the only platform view and is purely decorative (muted autoplay, no
+       controls). Its host element (flt-platform-view) otherwise sits ABOVE Flutter's glass
+       pane and captures every pointer/touch in the centre, so the vertical feed can't be
+       swiped. Make the host ignore input so gestures fall through to Flutter. */
+    flt-platform-view { pointer-events: none !important; }
+    /* Hand ALL touch gestures to Flutter: without touch-action:none the browser claims a
+       vertical touch-drag as a pan/scroll and never forwards the moves, so the feed can't be
+       swiped up/down on a touch screen. */
+    flutter-view, flt-glass-pane { touch-action: none !important; }
   </style>
 </head>
 <body>
