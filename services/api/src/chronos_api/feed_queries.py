@@ -85,7 +85,12 @@ async def _page_size(session: AsyncSession, requested: int | None) -> int:
 
 def _item(row) -> FeedItem:
     score = float(getattr(row, "score", 0.0) or 0.0)
-    return FeedItem(event=_event_read(row), hero_media_id=row.hero_media_id, score=score)
+    return FeedItem(
+        event=_event_read(row),
+        hero_media_id=row.hero_media_id,
+        hero_is_clip=bool(getattr(row, "hero_is_clip", False)),
+        score=score,
+    )
 
 
 # --- foryou ---------------------------------------------------------------------------

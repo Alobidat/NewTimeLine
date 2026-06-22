@@ -378,9 +378,11 @@ class _VideoFeedState extends State<VideoFeed>
             key: ValueKey('clip-${widget.tab.slug}-${current.id}'),
             url: clipUrl,
             active: true,
+            isClip: current.heroIsClip,
             posterUrl: null,
             // Web: the clip element is the swipe surface (it sits above Flutter's gesture layer
-            // in the DOM). Native ignores this and uses the GestureDetector below.
+            // in the DOM). Image heroes are Flutter-painted, so swipes over them fall through to
+            // the GestureDetector below — this callback is only consumed for <video> clips.
             onSwipe: _onWebSwipe,
           ),
         ),

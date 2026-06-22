@@ -34,16 +34,29 @@ enum FeedTab {
 /// The hero clip is the muted, looping autoplay video shown full-screen. When [heroMediaId]
 /// is null the item still renders (poster / placeholder) — the feed never drops a card.
 class FeedItem {
-  const FeedItem({required this.event, this.heroMediaId});
+  const FeedItem({
+    required this.event,
+    this.heroMediaId,
+    this.heroIsClip = false,
+  });
 
   final EventRead event;
   final String? heroMediaId;
+
+  /// Whether [heroMediaId] is a playable clip (video/embed) vs a still image. Image heroes are
+  /// rendered as a full-bleed photo — feeding a JPEG to a `<video>` is what showed a black
+  /// screen. Defaults false (no hero → placeholder).
+  final bool heroIsClip;
 
   String get id => event.id;
 
   factory FeedItem.fromJson(Map<String, dynamic> j) => FeedItem(
     event: EventRead.fromJson(j['event'] as Map<String, dynamic>),
     heroMediaId: j['hero_media_id'] as String?,
+    // Absent field ⇒ an older backend that predates the flag: assume clip, preserving the
+    // established video-first rendering (defaulting to image would break working video cards
+    // during a frontend-before-backend deploy). New backends always send the real value.
+    heroIsClip: j['hero_is_clip'] as bool? ?? true,
   );
 }
 

@@ -25,13 +25,20 @@ class FeedClipPlayer extends StatefulWidget {
     super.key,
     required this.url,
     required this.active,
+    this.isClip = true,
     this.preload = false,
     this.posterUrl,
     this.onSwipe,
   });
 
-  /// The clip url, or null when the event has no playable hero clip (poster-only).
+  /// The hero media url, or null when the event has no hero (placeholder).
   final String? url;
+
+  /// Whether [url] is a playable clip (video/embed). When false the hero is a still image and is
+  /// rendered full-bleed as a photo — a `<video>` can't decode a JPEG, which showed a black
+  /// screen. Image heroes are Flutter-painted (no `<video>` platform view), so on the web the
+  /// feed's [GestureDetector] handles swipes over them normally.
+  final bool isClip;
 
   /// Whether this is the visible page (autoplays + loops).
   final bool active;
@@ -57,9 +64,13 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   bool _muted = true;
 
   // On the web the clip is rendered by a raw HTML <video> (see build) — never the
-  // video_player controller, whose platform view can't be cover-fit.
+  // video_player controller, whose platform view can't be cover-fit. Image heroes never use a
+  // controller (they're drawn as a photo), so a non-clip hero is never "wanted".
   bool get _wanted =>
-      !kIsWeb && widget.url != null && (widget.active || widget.preload);
+      !kIsWeb &&
+      widget.isClip &&
+      widget.url != null &&
+      (widget.active || widget.preload);
 
   @override
   void initState() {
@@ -142,12 +153,21 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    final url = widget.url;
+
+    // Image hero (most historical events have a photo, not a clip): render it full-bleed. This
+    // is Flutter-painted on both platforms — on the web there's no <video> platform view, so the
+    // feed's GestureDetector receives swipes over it normally. Feeding such a url to a <video>
+    // is what produced the "new label, black screen, not playing" cards.
+    if (url != null && !widget.isClip) {
+      return _coverImage(url);
+    }
+
     // Web: a full-bleed HTML <video> (object-fit: cover), muted-autoplay-loop. No controller,
     // no FittedBox — the element styles itself. Critically, NO Flutter-painted background here:
     // a ColoredBox/Container composites *above* the platform view in CanvasKit and would hide
     // the clip. The bare platform view lets the clip show with the overlays (rail/scrim) on top.
     if (kIsWeb) {
-      final url = widget.url;
       return url == null
           ? const ColoredBox(color: Colors.black)
           : webVideoView(url, muted: true, onSwipe: widget.onSwipe);
@@ -197,6 +217,21 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
     // No clip / still loading / failed: poster or a neutral backdrop.
     return _poster();
   }
+
+  /// A full-bleed, cover-fit photo for an image hero (TikTok-style still card). Falls back to
+  /// the neutral glyph if the image can't load, so the page is never a bare black screen.
+  Widget _coverImage(String url) => Container(
+        color: Colors.black,
+        alignment: Alignment.center,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorBuilder: (_, _, _) => _glyph(),
+          loadingBuilder: (ctx, child, p) => p == null ? child : _glyph(),
+        ),
+      );
 
   Widget _poster() {
     final poster = widget.posterUrl;

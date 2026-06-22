@@ -134,6 +134,10 @@ class FeedItem(BaseModel):
 
     event: EventRead
     hero_media_id: uuid.UUID | None = None
+    # Whether the hero media is a playable clip (video/embed) vs a still image. The video-first
+    # client plays clips in a <video> but must render image heroes as a full-bleed photo — a
+    # <video> can't decode a JPEG, so without this flag image heroes showed as a black screen.
+    hero_is_clip: bool = False
     score: float = 0.0
 
 
