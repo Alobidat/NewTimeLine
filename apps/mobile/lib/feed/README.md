@@ -9,8 +9,7 @@ video feed, with the four-direction swipe model and the right-rail overlay
 | File | Responsibility |
 |------|----------------|
 | `feed_home.dart` | App home scaffold: the 3 floating tabs + `TabBarView`; overflow menu → classic map/timeline (`ExperienceScreen`). Owns the shared `ApiClient` + `FeedSource`. |
-| `video_feed.dart` | One tab's vertical `PageView`: paging, active/preload tracking, and **all** lateral-nav + overlay-action wiring. |
-| `feed_item.dart` | One page: clip + overlay + the horizontal-swipe gesture layer. |
+| `video_feed.dart` | One tab's feed: a single gesture surface driving up/down paging + lateral nav, the pinned clip + overlay, active/preload tracking, and **all** overlay-action wiring. |
 | `feed_clip_player.dart` | Muted, looping, cover-fit clip player. Lazy-init, disposes off-window. Tap = mute toggle. |
 | `overlay_rail.dart` | The right rail (react/comment/promote/follow/share/info) + bottom caption + swipe hints. `showReactionSheet`. |
 | `event_graph_view.dart` | Swipe-right graph/timeline web: related events laid on a horizontal time axis (`CustomPaint` connectors). Bridges to `ExperienceScreen`. |
@@ -21,7 +20,7 @@ video feed, with the four-direction swipe model and the right-rail overlay
 
 | Gesture | Effect |
 |---------|--------|
-| **Up / down** | Next / previous event video (vertical `PageView`). |
+| **Up / down** | Next / previous event video. Driven directly from one `GestureDetector` (no `PageView`): the clip + overlay are pinned and swapped on settle, so a gentle swipe or soft fling pages reliably in either direction. |
 | **Right** | Open the event's **graph/timeline web** (`EventGraphView`); tap a node → nested feed for it. |
 | **Left** | Advance to the next **forward-related** event (`related(direction:'forward')`) — guided lateral walk, stays immersive. |
 

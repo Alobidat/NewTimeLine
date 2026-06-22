@@ -26,7 +26,6 @@ import '../state/auth_state.dart';
 import 'event_graph_view.dart';
 import 'feed_clip_player.dart';
 import 'feed_info_sheet.dart';
-import 'feed_item.dart';
 import 'feed_source.dart';
 import 'overlay_rail.dart';
 import 'prefetch.dart';
@@ -52,8 +51,11 @@ class VideoFeed extends StatefulWidget {
 
 class _VideoFeedState extends State<VideoFeed>
     with AutomaticKeepAliveClientMixin {
-  final PageController _page = PageController();
   final List<FeedItem> _items = [];
+
+  /// Accumulated vertical drag distance for the in-progress swipe (logical px; negative = the
+  /// finger moved up = toward the next clip). Reset on each drag start / page change.
+  double _dragDy = 0;
 
   /// Event ids the user has saved this session (drives the filled bookmark icon). Seeded
   /// optimistically on toggle — we don't pre-fetch each item's saved state to keep the feed
@@ -75,10 +77,67 @@ class _VideoFeedState extends State<VideoFeed>
     _loadMore();
   }
 
-  @override
-  void dispose() {
-    _page.dispose();
-    super.dispose();
+  // ── Vertical paging ───────────────────────────────────────────────────────────────────
+  //
+  // The clip and the overlay are both pinned (rendered once, source-swapped on settle), so the
+  // feed never actually *scrolls* — paging is just swapping which clip is active. We therefore
+  // drive it directly from a single gesture surface instead of a (transparent) PageView: a
+  // PageView only pages once its viewport is physically dragged past a fraction or hard-flung,
+  // and because nothing visibly moves, a gentle swipe snapped back and felt dead (the bug the
+  // user kept hitting). Here a swipe pages on a *small* distance OR a *gentle* fling, and
+  // up/down are perfectly symmetric — no scroll physics to fight.
+
+  /// px/s; a flick at least this fast pages in its direction even without much travel.
+  static const double _flingVelocity = 220;
+
+  /// Fraction of the screen height a fling-less drag must cover to page (gentle but deliberate).
+  static const double _dragFraction = 0.06;
+
+  void _onVerticalDragEnd(DragEndDetails d) {
+    final v = d.primaryVelocity ?? 0; // negative = upward fling = next
+    final threshold = MediaQuery.sizeOf(context).height * _dragFraction;
+    final next = v < -_flingVelocity || _dragDy < -threshold;
+    final prev = v > _flingVelocity || _dragDy > threshold;
+    _dragDy = 0;
+    if (next) {
+      _goTo(_current + 1);
+    } else if (prev) {
+      _goTo(_current - 1);
+    }
+  }
+
+  /// Web only: a swipe detected on the `<video>` element itself (which is the topmost DOM
+  /// element over the clip and so receives the touches before Flutter — see [FeedClipPlayer]).
+  /// Classifies by dominant axis + travel/velocity, mirroring the native gesture thresholds.
+  void _onWebSwipe(double dx, double dy, double vx, double vy) {
+    if (!mounted || _items.isEmpty) return;
+    final current = _items[_current.clamp(0, _items.length - 1)];
+    final size = MediaQuery.sizeOf(context);
+    if (dx.abs() > dy.abs()) {
+      final hThreshold = size.width * _dragFraction;
+      if (dx > hThreshold || vx > _flingVelocity) {
+        _openGraph(current); // swipe right → event graph
+      } else if (dx < -hThreshold || vx < -_flingVelocity) {
+        _walkForward(current); // swipe left → next related event
+      }
+    } else {
+      final vThreshold = size.height * _dragFraction;
+      if (dy < -vThreshold || vy < -_flingVelocity) {
+        _goTo(_current + 1); // swipe up → next clip
+      } else if (dy > vThreshold || vy > _flingVelocity) {
+        _goTo(_current - 1); // swipe down → previous clip
+      }
+    }
+  }
+
+  /// Activate clip [i] (clamped). Swaps the pinned player + overlay to it and warms the next
+  /// clips; near the end it pages the source. A no-op when already there.
+  void _goTo(int i) {
+    final target = i.clamp(0, _items.length - 1);
+    if (target == _current) return;
+    setState(() => _current = target);
+    _prefetchUpcoming();
+    if (target >= _items.length - 2) _loadMore();
   }
 
   Future<void> _loadMore() async {
@@ -157,28 +216,6 @@ class _VideoFeedState extends State<VideoFeed>
 
   /// Swipe left: advance to the next forward-related event in the current timeline. Appends
   /// it to the feed (if not already present) and animates to it — a one-hop lateral walk.
-  /// Swipe up → next clip. Animates the (non-scrollable) PageView forward; near the end it
-  /// pages the source so there's always something to advance to.
-  void _next() {
-    if (_current < _items.length - 1) {
-      _page.nextPage(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      );
-    }
-    if (_current >= _items.length - 2) _loadMore();
-  }
-
-  /// Swipe down → previous clip (clamped at the first).
-  void _prev() {
-    if (_current > 0) {
-      _page.previousPage(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      );
-    }
-  }
-
   Future<void> _walkForward(FeedItem item) async {
     List<RelatedEvent> related;
     try {
@@ -200,11 +237,7 @@ class _VideoFeedState extends State<VideoFeed>
       setState(() => _items.add(FeedItem(event: next)));
       idx = _items.length - 1;
     }
-    _page.animateToPage(
-      idx,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-    );
+    _goTo(idx);
   }
 
   // ── Overlay actions ───────────────────────────────────────────────────────────────────
@@ -346,32 +379,33 @@ class _VideoFeedState extends State<VideoFeed>
             url: clipUrl,
             active: true,
             posterUrl: null,
+            // Web: the clip element is the swipe surface (it sits above Flutter's gesture layer
+            // in the DOM). Native ignores this and uses the GestureDetector below.
+            onSwipe: _onWebSwipe,
           ),
         ),
-        PageView.builder(
-          controller: _page,
-          scrollDirection: Axis.vertical,
-          // Paging is driven by FeedItemView's swipe handler (low threshold so gentle swipes
-          // advance); the PageView itself doesn't claim drags.
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _items.length,
-          onPageChanged: (i) {
-            setState(() => _current = i);
-            // Warm the next two clips so the following swipes start instantly (FR-1.3).
-            _prefetchUpcoming();
-            // Page near the end → fetch the next page.
-            if (i >= _items.length - 2) _loadMore();
-          },
-          itemBuilder: (context, i) {
-            final item = _items[i];
-            return FeedItemView(
-              key: ValueKey('feed-${widget.tab.slug}-${item.id}'),
-              onSwipeUpNext: _next,
-              onSwipeDownPrev: _prev,
-              onSwipeRightGraph: () => _openGraph(item),
-              onSwipeLeftNext: () => _walkForward(item),
-            );
-          },
+        // The single transparent gesture surface that drives ALL four feed gestures. One
+        // GestureDetector (not a PageView, not per-page detectors) so vertical and horizontal
+        // recognizers are disambiguated cleanly by Flutter's arena — the dominant axis wins and
+        // they never fight. Vertical → next/previous clip (pinned player swapped on settle);
+        // horizontal → graph (right) / next-related (left). Translucent so taps over the rail's
+        // transparent middle still reach the buttons above (they sit higher in the stack).
+        Positioned.fill(
+          key: const Key('feed-gestures'),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragStart: (_) => _dragDy = 0,
+            onVerticalDragUpdate: (d) => _dragDy += d.delta.dy,
+            onVerticalDragEnd: _onVerticalDragEnd,
+            onHorizontalDragEnd: (d) {
+              final v = d.primaryVelocity ?? 0;
+              if (v > _flingVelocity) {
+                _openGraph(current); // swipe right → event graph
+              } else if (v < -_flingVelocity) {
+                _walkForward(current); // swipe left → next related event
+              }
+            },
+          ),
         ),
         // Pinned bottom scrim so the caption stays legible over bright clips (childless →
         // transparent to gestures, so paging underneath is unaffected).
