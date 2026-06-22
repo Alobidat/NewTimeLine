@@ -9,6 +9,7 @@
 /// write.
 library;
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 
 import 'api/client.dart';
@@ -16,6 +17,14 @@ import 'feed/feed_home.dart';
 import 'feed/feed_source.dart';
 import 'feed/video_feed.dart';
 import 'state/auth_state.dart';
+
+/// Scroll behavior that lets **mouse + trackpad** drag scrollables (PageView/TabBarView),
+/// not just touch. Flutter's default web behavior only treats touch as a drag device, so on a
+/// desktop browser the vertical feed couldn't be swiped up/down with the mouse.
+class _AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => PointerDeviceKind.values.toSet();
+}
 
 void main() => runApp(const ChronosApp());
 
@@ -49,6 +58,7 @@ class _ChronosAppState extends State<ChronosApp> {
     return MaterialApp(
       title: 'Chronos',
       debugShowCheckedModeBanner: false,
+      scrollBehavior: _AppScrollBehavior(),
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
