@@ -104,6 +104,7 @@ class _FeedHomeState extends State<FeedHome>
                     auth: _auth,
                     source: _source,
                     tab: tab,
+                    onAddVideo: _openUpload,
                   ),
               ],
             ),
@@ -145,16 +146,8 @@ class _FeedHomeState extends State<FeedHome>
                       onPressed: _openAccount,
                     ),
                   ),
-                  // Upload a clip (+) — gated on sign-in inside the upload screen (IU2).
-                  IconButton(
-                    key: const Key('feed-upload'),
-                    tooltip: 'Upload a clip',
-                    icon: const Icon(
-                      Icons.add_circle_outline,
-                      color: Colors.white,
-                    ),
-                    onPressed: _openUpload,
-                  ),
+                  // (The "+" upload entry moved to the feed's bottom bar — see VideoFeed /
+                  // OverlayRail "Add video". The overflow menu below keeps a secondary path.)
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, color: Colors.white),
                     onSelected: (v) {

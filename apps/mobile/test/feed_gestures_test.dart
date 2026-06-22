@@ -5,7 +5,8 @@
 //   • swipe DOWN returns to the previous clip; a swipe down on the FIRST clip is clamped,
 //   • a GENTLE, short, slow vertical drag still pages — guarding the regression where the
 //     stock PageView snapped back on anything less than a half-screen drag/hard fling,
-//   • swipe RIGHT opens the event graph, swipe LEFT walks to the next related event,
+//   • swipe RIGHT walks to the NEXT timeline event, swipe LEFT to the PREVIOUS one,
+//   • the bottom buttons open the graph/timeline web and the add-video flow,
 //   • the right-rail action buttons exist and their taps fire the wired callbacks
 //     (gated writes route through the sign-in gate; reads open their sheet),
 //   • paging past the initially-loaded page fetches the next page (loads more).
@@ -54,6 +55,8 @@ Map<String, dynamic> _relJson(
 ApiClient _api({
   List<Map<String, dynamic>>? timelineEvents,
   List<Map<String, dynamic>>? related,
+  List<Map<String, dynamic>>? relatedForward,
+  List<Map<String, dynamic>>? relatedBackward,
   List<(List<Map<String, dynamic>>, String?)>? pages,
 }) {
   var pageIndex = 0;
@@ -86,7 +89,14 @@ ApiClient _api({
       );
     }
     if (path.endsWith('/related')) {
-      return http.Response(jsonEncode(related ?? const []), 200,
+      // Lateral walk is direction-aware: swipe right → forward, swipe left → backward.
+      final dir = req.url.queryParameters['direction'];
+      final payload = dir == 'forward'
+          ? (relatedForward ?? related ?? const [])
+          : dir == 'backward'
+              ? (relatedBackward ?? related ?? const [])
+              : (related ?? const []);
+      return http.Response(jsonEncode(payload), 200,
           headers: {'content-type': 'application/json'});
     }
     // Event detail (opened by the info / comment sheets) — a bare event object is enough;
@@ -112,6 +122,7 @@ void main() {
     WidgetTester tester,
     ApiClient api, {
     FeedSource? source,
+    VoidCallback? onAddVideo,
   }) async {
     final auth = AuthState(api: api);
     addTearDown(auth.dispose);
@@ -123,6 +134,7 @@ void main() {
             auth: auth,
             source: source ?? FeedSource(api),
             tab: FeedTab.forYou,
+            onAddVideo: onAddVideo,
           ),
         ),
       ),
@@ -214,7 +226,45 @@ void main() {
   });
 
   group('lateral gestures', () {
-    testWidgets('swipe RIGHT opens the event graph', (tester) async {
+    testWidgets('swipe RIGHT walks to the NEXT event in the timeline',
+        (tester) async {
+      final api = _api(
+        timelineEvents: [_eventJson('e1', 'Root', 2000)],
+        relatedForward: [
+          _relJson(_eventJson('e2', 'Later event', 2001), 'caused', 'forward'),
+        ],
+      );
+      addTearDown(api.close);
+      await pumpFeed(tester, api);
+
+      expect(find.text('Root'), findsOneWidget);
+      // Fling right (left-to-right) → forward related event, appended + advanced to.
+      await tester.fling(pager(), const Offset(500, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(find.text('Later event'), findsOneWidget);
+    });
+
+    testWidgets('swipe LEFT walks to the PREVIOUS event in the timeline',
+        (tester) async {
+      final api = _api(
+        timelineEvents: [_eventJson('e1', 'Root', 2000)],
+        relatedBackward: [
+          _relJson(
+              _eventJson('e0', 'Earlier event', 1999), 'caused', 'backward'),
+        ],
+      );
+      addTearDown(api.close);
+      await pumpFeed(tester, api);
+
+      expect(find.text('Root'), findsOneWidget);
+      // Fling left (right-to-left) → backward related event, appended + advanced to.
+      await tester.fling(pager(), const Offset(-500, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(find.text('Earlier event'), findsOneWidget);
+    });
+
+    testWidgets('the bottom Timeline-web button opens the event graph',
+        (tester) async {
       final api = _api(
         timelineEvents: [_eventJson('e1', 'Root', 2000)],
         related: [
@@ -225,26 +275,23 @@ void main() {
       await pumpFeed(tester, api);
 
       expect(find.text('Root'), findsOneWidget);
-      await tester.fling(pager(), const Offset(500, 0), 1200);
+      await tester.tap(find.byKey(const Key('feed-graph')));
       await tester.pumpAndSettle();
       expect(find.byType(EventGraphView), findsOneWidget);
     });
 
-    testWidgets('swipe LEFT walks to the next related event', (tester) async {
-      final api = _api(
-        timelineEvents: [_eventJson('e1', 'Root', 2000)],
-        related: [
-          _relJson(_eventJson('e2', 'Next in line', 2001), 'caused', 'forward'),
-        ],
-      );
+    testWidgets('the bottom Add-video button fires onAddVideo', (tester) async {
+      final api = _api(timelineEvents: [_eventJson('e1', 'Root', 2000)]);
       addTearDown(api.close);
-      await pumpFeed(tester, api);
+      var added = 0;
+      await pumpFeed(tester, api, onAddVideo: () => added++);
 
-      expect(find.text('Root'), findsOneWidget);
-      // Fling left → _walkForward fetches the forward related event, appends + advances to it.
-      await tester.fling(pager(), const Offset(-500, 0), 1200);
+      // Hidden when no callback; present + wired when onAddVideo is supplied.
+      final btn = find.byKey(const Key('feed-add-video'));
+      expect(btn, findsOneWidget);
+      await tester.tap(btn);
       await tester.pumpAndSettle();
-      expect(find.text('Next in line'), findsOneWidget);
+      expect(added, 1);
     });
   });
 

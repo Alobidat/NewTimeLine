@@ -2,7 +2,7 @@
 //   • FeedSource shimming the live endpoints into FeedItems,
 //   • the vertical feed rendering a page with the full overlay rail,
 //   • vertical paging (swipe up advances to the next event),
-//   • swipe-right opening the graph/timeline web,
+//   • the bottom Timeline-web button opening the graph/timeline web,
 //   • the graph layout placing the root + related nodes.
 // Network is faked with http's MockClient — no live API (the /feed endpoint isn't live yet).
 
@@ -162,13 +162,14 @@ void main() {
       await pumpFeed(tester, api);
 
       expect(find.text('Berlin Wall falls'), findsOneWidget);
-      // Drag up → the vertical PageView advances.
-      await tester.fling(find.byType(PageView), const Offset(0, -600), 1000);
+      // Drag up → the feed's gesture surface advances to the next clip.
+      await tester.fling(
+          find.byKey(const Key('feed-gestures')), const Offset(0, -600), 1000);
       await tester.pumpAndSettle();
       expect(find.text('Reunification'), findsOneWidget);
     });
 
-    testWidgets('swipe right opens the graph/timeline web', (tester) async {
+    testWidgets('the bottom Timeline-web button opens the graph', (tester) async {
       final api = _api(
         timelineEvents: [_eventJson('e1', 'Root', 2000)],
         related: [
@@ -179,10 +180,9 @@ void main() {
       await pumpFeed(tester, api);
 
       expect(find.text('Root'), findsOneWidget);
-      // Fling right on the active page's gesture surface → pushes EventGraphView. (The caption
-      // and rail are now pinned controls outside the scrollable, so the swipe surface is the
-      // page area itself, not the caption text.)
-      await tester.fling(find.byType(PageView), const Offset(500, 0), 1200);
+      // The graph/timeline web is now a bottom button (it used to be swipe-right; that gesture
+      // now walks the timeline forward instead).
+      await tester.tap(find.byKey(const Key('feed-graph')));
       await tester.pumpAndSettle();
 
       expect(find.byType(EventGraphView), findsOneWidget);

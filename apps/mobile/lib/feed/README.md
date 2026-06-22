@@ -21,8 +21,11 @@ video feed, with the four-direction swipe model and the right-rail overlay
 | Gesture | Effect |
 |---------|--------|
 | **Up / down** | Next / previous event video. Driven directly from one `GestureDetector` (no `PageView`): the clip + overlay are pinned and swapped on settle, so a gentle swipe or soft fling pages reliably in either direction. |
-| **Right** | Open the event's **graph/timeline web** (`EventGraphView`); tap a node → nested feed for it. |
-| **Left** | Advance to the next **forward-related** event (`related(direction:'forward')`) — guided lateral walk, stays immersive. |
+| **Right** (left→right) | Walk to the **next** event in this event's timeline (`related(direction:'forward')`) — appended + advanced to, stays immersive. |
+| **Left** (right→left) | Walk to the **previous** event in this event's timeline (`related(direction:'backward')`). |
+
+The **graph/timeline web** (`EventGraphView`) and **add-a-video** flow are bottom buttons in the
+overlay (`OverlayRail` → keys `feed-graph` / `feed-add-video`), no longer gestures.
 
 ## Autoplay / preload
 

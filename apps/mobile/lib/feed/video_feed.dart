@@ -38,12 +38,17 @@ class VideoFeed extends StatefulWidget {
     required this.auth,
     required this.source,
     required this.tab,
+    this.onAddVideo,
   });
 
   final ApiClient api;
   final AuthState auth;
   final FeedSource source;
   final FeedTab tab;
+
+  /// Opens the "upload a clip" flow — wired to a button in the bottom bar. Null in nested feeds
+  /// that don't carry the home's upload entry point (the button is hidden then).
+  final VoidCallback? onAddVideo;
 
   @override
   State<VideoFeed> createState() => _VideoFeedState();
@@ -116,9 +121,9 @@ class _VideoFeedState extends State<VideoFeed>
     if (dx.abs() > dy.abs()) {
       final hThreshold = size.width * _dragFraction;
       if (dx > hThreshold || vx > _flingVelocity) {
-        _openGraph(current); // swipe right → event graph
+        _walkTimeline(current, forward: true); // swipe right → next in timeline
       } else if (dx < -hThreshold || vx < -_flingVelocity) {
-        _walkForward(current); // swipe left → next related event
+        _walkTimeline(current, forward: false); // swipe left → previous in timeline
       }
     } else {
       final vThreshold = size.height * _dragFraction;
@@ -208,19 +213,23 @@ class _VideoFeedState extends State<VideoFeed>
             auth: widget.auth,
             source: SeededFeedSource(widget.source, seed),
             tab: widget.tab,
+            onAddVideo: widget.onAddVideo,
           ),
         ),
       ),
     );
   }
 
-  /// Swipe left: advance to the next forward-related event in the current timeline. Appends
-  /// it to the feed (if not already present) and animates to it — a one-hop lateral walk.
-  Future<void> _walkForward(FeedItem item) async {
+  /// Lateral walk along the event's own timeline: [forward] → the next event (swipe right,
+  /// left-to-right), else the previous one (swipe left, right-to-left). Fetches the one-hop
+  /// related event in that direction, appends it to the feed (if new) and advances to it.
+  Future<void> _walkTimeline(FeedItem item, {required bool forward}) async {
     List<RelatedEvent> related;
     try {
-      related =
-          await widget.api.related(item.event.id, direction: 'forward');
+      related = await widget.api.related(
+        item.event.id,
+        direction: forward ? 'forward' : 'backward',
+      );
     } catch (_) {
       related = const [];
     }
@@ -228,7 +237,11 @@ class _VideoFeedState extends State<VideoFeed>
     final next = related.isNotEmpty ? related.first.event : null;
     if (next == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No further event in this timeline.')),
+        SnackBar(
+          content: Text(forward
+              ? 'No later event in this timeline.'
+              : 'No earlier event in this timeline.'),
+        ),
       );
       return;
     }
@@ -390,8 +403,8 @@ class _VideoFeedState extends State<VideoFeed>
         // GestureDetector (not a PageView, not per-page detectors) so vertical and horizontal
         // recognizers are disambiguated cleanly by Flutter's arena — the dominant axis wins and
         // they never fight. Vertical → next/previous clip (pinned player swapped on settle);
-        // horizontal → graph (right) / next-related (left). Translucent so taps over the rail's
-        // transparent middle still reach the buttons above (they sit higher in the stack).
+        // horizontal → next (right) / previous (left) event in the timeline. Translucent so taps
+        // over the rail's transparent middle still reach the buttons above (higher in the stack).
         Positioned.fill(
           key: const Key('feed-gestures'),
           child: GestureDetector(
@@ -402,9 +415,9 @@ class _VideoFeedState extends State<VideoFeed>
             onHorizontalDragEnd: (d) {
               final v = d.primaryVelocity ?? 0;
               if (v > _flingVelocity) {
-                _openGraph(current); // swipe right → event graph
+                _walkTimeline(current, forward: true); // right → next in timeline
               } else if (v < -_flingVelocity) {
-                _walkForward(current); // swipe left → next related event
+                _walkTimeline(current, forward: false); // left → previous in timeline
               }
             },
           ),
@@ -444,6 +457,7 @@ class _VideoFeedState extends State<VideoFeed>
             onBookmark: () => _bookmark(current),
             onShare: () => _share(current),
             onOpenGraph: () => _openGraph(current),
+            onAddVideo: widget.onAddVideo,
           ),
         ),
       ],

@@ -39,6 +39,7 @@ class OverlayRail extends StatelessWidget {
     required this.onBookmark,
     required this.onShare,
     required this.onOpenGraph,
+    this.onAddVideo,
   });
 
   final ApiClient api;
@@ -59,7 +60,13 @@ class OverlayRail extends StatelessWidget {
   final VoidCallback? onFollowCreator;
   final VoidCallback onBookmark;
   final VoidCallback onShare;
+
+  /// Opens the event's graph/timeline web — wired to the "Timeline web" button in the bottom bar.
   final VoidCallback onOpenGraph;
+
+  /// Opens the "add a video" upload flow — wired to the bottom "Add video" button. Null hides
+  /// the button (nested feeds without the home's upload entry point).
+  final VoidCallback? onAddVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +154,11 @@ class OverlayRail extends StatelessWidget {
           left: 12,
           right: 80,
           bottom: 24,
-          child: _Caption(event: event, onOpenGraph: onOpenGraph),
+          child: _Caption(
+            event: event,
+            onOpenGraph: onOpenGraph,
+            onAddVideo: onAddVideo,
+          ),
         ),
       ],
     );
@@ -196,9 +207,14 @@ class _RailButton extends StatelessWidget {
 }
 
 class _Caption extends StatelessWidget {
-  const _Caption({required this.event, required this.onOpenGraph});
+  const _Caption({
+    required this.event,
+    required this.onOpenGraph,
+    this.onAddVideo,
+  });
   final EventRead event;
   final VoidCallback onOpenGraph;
+  final VoidCallback? onAddVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -235,17 +251,31 @@ class _Caption extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        // Affordances hinting the lateral gestures (also tappable for discoverability).
+        // Hint for the lateral gestures: swiping ↔ walks the event's own timeline.
+        const _Hint(
+          icon: Icons.swap_horiz,
+          text: 'Swipe →  next  ·  ← previous in timeline',
+        ),
+        const SizedBox(height: 10),
+        // Bottom action buttons: open the graph/timeline web, and add a video. (Both used to be
+        // gestures — graph on swipe-right — now promoted to explicit buttons.)
         Row(
           children: [
-            _Hint(
-              key: const Key('hint-graph'),
+            _BottomButton(
+              key: const Key('feed-graph'),
               icon: Icons.account_tree_outlined,
-              text: 'Swipe → web',
+              label: 'Timeline web',
               onTap: onOpenGraph,
             ),
-            const SizedBox(width: 12),
-            const _Hint(icon: Icons.east, text: 'Swipe ← next in timeline'),
+            if (onAddVideo != null) ...[
+              const SizedBox(width: 10),
+              _BottomButton(
+                key: const Key('feed-add-video'),
+                icon: Icons.add,
+                label: 'Add video',
+                onTap: onAddVideo!,
+              ),
+            ],
           ],
         ),
       ],
@@ -253,15 +283,57 @@ class _Caption extends StatelessWidget {
   }
 }
 
-class _Hint extends StatelessWidget {
-  const _Hint({super.key, required this.icon, required this.text, this.onTap});
+/// A compact pill button for the feed's bottom bar (icon + label on a translucent dark chip).
+class _BottomButton extends StatelessWidget {
+  const _BottomButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
   final IconData icon;
-  final String text;
-  final VoidCallback? onTap;
+  final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final row = Row(
+    return Material(
+      color: Colors.black.withValues(alpha: 0.45),
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Hint extends StatelessWidget {
+  const _Hint({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: Colors.white60, size: 14),
@@ -269,7 +341,6 @@ class _Hint extends StatelessWidget {
         Text(text, style: const TextStyle(color: Colors.white60, fontSize: 11)),
       ],
     );
-    return onTap == null ? row : GestureDetector(onTap: onTap, child: row);
   }
 }
 
