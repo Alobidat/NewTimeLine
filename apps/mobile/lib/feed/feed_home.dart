@@ -40,8 +40,10 @@ class _FeedHomeState extends State<FeedHome>
   late final AuthState _auth = widget.auth ?? AuthState(api: _api);
   late final bool _ownsAuth = widget.auth == null;
   late final FeedSource _source = FeedSource(_api);
-  late final TabController _tabs =
-      TabController(length: FeedTab.values.length, vsync: this);
+  late final TabController _tabs = TabController(
+    length: FeedTab.values.length,
+    vsync: this,
+  );
 
   @override
   void dispose() {
@@ -98,74 +100,82 @@ class _FeedHomeState extends State<FeedHome>
             ),
           ),
           // Floating top bar: the three tabs + an overflow menu to the classic experience.
-          SafeArea(
-            child: Row(
-              children: [
-                Expanded(
-                  child: TabBar(
-                    controller: _tabs,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.center,
-                    indicatorColor: Colors.white,
-                    labelColor: Colors.white,
-                    unselectedLabelColor: Colors.white60,
-                    dividerColor: Colors.transparent,
-                    tabs: [
-                      for (final tab in FeedTab.values) Tab(text: tab.label),
+          // topCenter so it pins to the top — as a plain child of the (now expand) Stack it
+          // would fill the screen and the Row would centre its tabs vertically.
+          Align(
+            alignment: Alignment.topCenter,
+            child: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TabBar(
+                      controller: _tabs,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.center,
+                      indicatorColor: Colors.white,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white60,
+                      dividerColor: Colors.transparent,
+                      tabs: [
+                        for (final tab in FeedTab.values) Tab(text: tab.label),
+                      ],
+                    ),
+                  ),
+                  // Upload a clip (+) — gated on sign-in inside the upload screen (IU2).
+                  IconButton(
+                    key: const Key('feed-upload'),
+                    tooltip: 'Upload a clip',
+                    icon: const Icon(
+                      Icons.add_circle_outline,
+                      color: Colors.white,
+                    ),
+                    onPressed: _openUpload,
+                  ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    onSelected: (v) {
+                      if (v == 'experience') {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ExperienceScreen(),
+                          ),
+                        );
+                      } else if (v == 'profile') {
+                        _openProfile();
+                      } else if (v == 'upload') {
+                        _openUpload();
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        key: Key('feed-menu-profile'),
+                        value: 'profile',
+                        child: ListTile(
+                          leading: Icon(Icons.person_outline),
+                          title: Text('Profile'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'upload',
+                        child: ListTile(
+                          leading: Icon(Icons.upload_outlined),
+                          title: Text('Upload a clip'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'experience',
+                        child: ListTile(
+                          leading: Icon(Icons.map_outlined),
+                          title: Text('Map & timeline'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                // Upload a clip (+) — gated on sign-in inside the upload screen (IU2).
-                IconButton(
-                  key: const Key('feed-upload'),
-                  tooltip: 'Upload a clip',
-                  icon: const Icon(Icons.add_circle_outline, color: Colors.white),
-                  onPressed: _openUpload,
-                ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.white),
-                  onSelected: (v) {
-                    if (v == 'experience') {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ExperienceScreen(),
-                        ),
-                      );
-                    } else if (v == 'profile') {
-                      _openProfile();
-                    } else if (v == 'upload') {
-                      _openUpload();
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      key: Key('feed-menu-profile'),
-                      value: 'profile',
-                      child: ListTile(
-                        leading: Icon(Icons.person_outline),
-                        title: Text('Profile'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'upload',
-                      child: ListTile(
-                        leading: Icon(Icons.upload_outlined),
-                        title: Text('Upload a clip'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'experience',
-                      child: ListTile(
-                        leading: Icon(Icons.map_outlined),
-                        title: Text('Map & timeline'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
