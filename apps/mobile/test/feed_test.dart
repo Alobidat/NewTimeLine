@@ -179,8 +179,10 @@ void main() {
       await pumpFeed(tester, api);
 
       expect(find.text('Root'), findsOneWidget);
-      // Fling right on the active page → pushes EventGraphView.
-      await tester.fling(find.text('Root'), const Offset(500, 0), 1200);
+      // Fling right on the active page's gesture surface → pushes EventGraphView. (The caption
+      // and rail are now pinned controls outside the scrollable, so the swipe surface is the
+      // page area itself, not the caption text.)
+      await tester.fling(find.byType(PageView), const Offset(500, 0), 1200);
       await tester.pumpAndSettle();
 
       expect(find.byType(EventGraphView), findsOneWidget);

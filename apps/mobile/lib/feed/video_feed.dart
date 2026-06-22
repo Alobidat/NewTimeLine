@@ -304,11 +304,13 @@ class _VideoFeedState extends State<VideoFeed>
       );
     }
 
-    // The active clip is rendered ONCE here, behind the PageView. On CanvasKit web a
-    // video_player platform view placed *inside* a PageView is mis-positioned (pinned to the
-    // viewport top as a strip), so we keep a single full-screen player outside the scrollable
-    // and just switch its source as the page settles. The PageView carries the transparent
-    // overlays (scrim + rail + gestures) on top.
+    // Both the clip AND the controls are pinned (rendered ONCE), so neither moves while the
+    // user pages — only the transparent gesture pages of the PageView actually scroll:
+    //   • the looping clip fills the screen BEHIND the PageView (a video_player platform view
+    //     placed *inside* a PageView mis-positions on CanvasKit web), source-swapped on settle;
+    //   • the scrim + action rail + caption are pinned ON TOP, bound to the current clip, so
+    //     the buttons stay put between videos (their transparent areas let vertical drags fall
+    //     through to the PageView and horizontal flings reach the per-page gesture surface).
     final current = _items[_current.clamp(0, _items.length - 1)];
     final clipUrl = current.heroMediaId != null
         ? widget.api.mediaUrl(current.heroMediaId!)
@@ -337,30 +339,45 @@ class _VideoFeedState extends State<VideoFeed>
           },
           itemBuilder: (context, i) {
             final item = _items[i];
-            final active = i == _current;
-            final preload = (i - _current).abs() == 1; // immediate neighbours only.
             return FeedItemView(
-          key: ValueKey('feed-${widget.tab.slug}-${item.id}'),
-          api: widget.api,
-          item: item,
-          active: active,
-          preload: preload,
-          bookmarked: _bookmarked.contains(item.id),
-          callbacks: FeedItemCallbacks(
-            onSwipeRightGraph: () => _openGraph(item),
-            onSwipeLeftNext: () => _walkForward(item),
-            onReact: () => _react(item),
-            onComment: () => _comment(item),
-            onInfo: () => _info(item),
-            onPromote: (up) => _promote(item, up),
-            onFollow: () => _follow(item),
-            onFollowCreator:
-                item.event.authorId != null ? () => _followCreator(item) : null,
-            onBookmark: () => _bookmark(item),
-            onShare: () => _share(item),
-          ),
-        );
+              key: ValueKey('feed-${widget.tab.slug}-${item.id}'),
+              onSwipeRightGraph: () => _openGraph(item),
+              onSwipeLeftNext: () => _walkForward(item),
+            );
           },
+        ),
+        // Pinned bottom scrim so the caption stays legible over bright clips (childless →
+        // transparent to gestures, so paging underneath is unaffected).
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 220,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [Colors.black54, Colors.transparent],
+              ),
+            ),
+          ),
+        ),
+        // Pinned action rail + caption for the current clip — fixed in place across swipes.
+        OverlayRail(
+          api: widget.api,
+          event: current.event,
+          bookmarked: _bookmarked.contains(current.id),
+          onReact: () => _react(current),
+          onComment: () => _comment(current),
+          onInfo: () => _info(current),
+          onPromote: (up) => _promote(current, up),
+          onFollow: () => _follow(current),
+          onFollowCreator:
+              current.event.authorId != null ? () => _followCreator(current) : null,
+          onBookmark: () => _bookmark(current),
+          onShare: () => _share(current),
+          onOpenGraph: () => _openGraph(current),
         ),
       ],
     );
