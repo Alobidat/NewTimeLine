@@ -593,15 +593,18 @@ class _VideoFeedState extends State<VideoFeed>
         // TEMPORARY on-screen D-pad mirroring the swipe actions, so we can agree the mapping
         // before trusting the gestures. Up/Down = next/previous event in the feed; Right/Left =
         // next/previous event in THIS event's timeline (disabled + greyed when there's none in
-        // that direction). Remove once the gestures are confirmed.
+        // that direction). The primary navigation control — bottom-centre, arrows only.
         Positioned(
-          left: 8,
-          bottom: 150,
-          child: _SwipeDpad(
-            onUp: canUp ? () => _moveFeed(1) : null,
-            onDown: canDown ? () => _moveFeed(-1) : null,
-            onLeft: canPrev ? () => _walkTimeline(forward: false) : null,
-            onRight: canNext ? () => _walkTimeline(forward: true) : null,
+          left: 0,
+          right: 0,
+          bottom: 130,
+          child: Center(
+            child: _SwipeDpad(
+              onUp: canUp ? () => _moveFeed(1) : null,
+              onDown: canDown ? () => _moveFeed(-1) : null,
+              onLeft: canPrev ? () => _walkTimeline(forward: false) : null,
+              onRight: canNext ? () => _walkTimeline(forward: true) : null,
+            ),
           ),
         ),
         // TEMP: gesture monitor HUD. Shows the last raw pointer + the last drag Flutter
@@ -631,9 +634,10 @@ class _VideoFeedState extends State<VideoFeed>
   }
 }
 
-/// A temporary directional pad that fires the same actions as the feed's swipes, so the gesture
-/// mapping can be agreed on-screen before the swipe directions are finalised. Labelled so each
-/// button states what it does.
+/// The feed's primary navigation control: a bottom-centre directional pad mirroring the swipe
+/// actions. Up/Down page the feed (next/previous event); Left/Right walk THIS event's timeline
+/// (greyed + non-interactive when there's no neighbour that way). Arrows only — large, since
+/// these are the main controls.
 class _SwipeDpad extends StatelessWidget {
   const _SwipeDpad({
     required this.onUp,
@@ -646,51 +650,48 @@ class _SwipeDpad extends StatelessWidget {
   /// taps (e.g. Left/Right when the event has no earlier/later event in its timeline).
   final VoidCallback? onUp, onDown, onLeft, onRight;
 
+  static const double _size = 60; // diameter of each round arrow button
+
   @override
   Widget build(BuildContext context) {
-    Widget btn(String key, IconData icon, String label, VoidCallback? onTap) {
+    Widget arrow(String key, IconData icon, VoidCallback? onTap) {
       final enabled = onTap != null;
-      final color = enabled ? Colors.white : Colors.white30;
-      return Padding(
-        padding: const EdgeInsets.all(2),
-        child: Material(
-          color: Colors.black.withValues(alpha: enabled ? 0.5 : 0.25),
-          shape: const StadiumBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: Key('dpad-$key'),
-            onTap: onTap, // null → non-interactive (disabled)
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, color: color, size: 16),
-                  const SizedBox(width: 4),
-                  Text(label, style: TextStyle(color: color, fontSize: 11)),
-                ],
-              ),
+      return Material(
+        color: Colors.black.withValues(alpha: enabled ? 0.5 : 0.28),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: Key('dpad-$key'),
+          onTap: onTap, // null → non-interactive (disabled)
+          child: SizedBox(
+            width: _size,
+            height: _size,
+            child: Icon(
+              icon,
+              color: enabled ? Colors.white : Colors.white30,
+              size: 38,
             ),
           ),
         ),
       );
     }
 
+    // Cross layout: up on top, left/right flanking a centre gap, down on the bottom.
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        btn('up', Icons.keyboard_arrow_up, 'Up · next event', onUp),
+        arrow('up', Icons.keyboard_arrow_up, onUp),
+        const SizedBox(height: 6),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            btn('left', Icons.keyboard_arrow_left, 'Left · prev in timeline',
-                onLeft),
-            btn('right', Icons.keyboard_arrow_right, 'Right · next in timeline',
-                onRight),
+            arrow('left', Icons.keyboard_arrow_left, onLeft),
+            const SizedBox(width: _size + 6),
+            arrow('right', Icons.keyboard_arrow_right, onRight),
           ],
         ),
-        btn('down', Icons.keyboard_arrow_down, 'Down · prev event', onDown),
+        const SizedBox(height: 6),
+        arrow('down', Icons.keyboard_arrow_down, onDown),
       ],
     );
   }
