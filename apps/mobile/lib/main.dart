@@ -43,7 +43,11 @@ class _ChronosAppState extends State<ChronosApp> {
   @override
   void initState() {
     super.initState();
-    _auth.load(); // restore any persisted session + attach the Bearer
+    // Complete any in-flight OAuth redirect (web) first, then restore a persisted session.
+    () async {
+      await _auth.completePendingWebOAuth();
+      await _auth.load(); // restore any persisted session + attach the Bearer
+    }();
   }
 
   @override

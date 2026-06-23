@@ -531,11 +531,13 @@ class ApiClient {
     required String code,
     String? state,
     String? codeVerifier,
+    String? redirectUri,
   }) async {
     final j = await _postJson('/auth/$provider/callback', {
       'code': code,
       'state': ?state,
       'code_verifier': ?codeVerifier,
+      'redirect_uri': ?redirectUri,
     });
     return AuthSession.fromJson(j as Map<String, dynamic>);
   }

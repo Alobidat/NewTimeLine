@@ -55,11 +55,13 @@ class LoginStart(BaseModel):
 
 
 class AuthCallback(BaseModel):
-    """Callback payload: the code + state + the PKCE verifier issued at login start."""
+    """Callback payload: the code + state + the PKCE verifier issued at login start. A web
+    client also echoes the ``redirect_uri`` it used at /login so the token exchange matches."""
 
     code: str
     state: str
     code_verifier: str
+    redirect_uri: str | None = None
 
 
 class SessionToken(BaseModel):

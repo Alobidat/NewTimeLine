@@ -17,6 +17,7 @@ import '../api/client.dart';
 import '../api/models.dart';
 import '../state/auth_state.dart';
 import 'oauth_flow.dart';
+import 'web_oauth.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, required this.api, required this.auth});
@@ -45,6 +46,22 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
+      // Web: a real full-page redirect to the provider. We stash the PKCE material, navigate
+      // away, and the app completes the exchange on the return load (see main.dart). The code
+      // below does not return — the page unloads.
+      if (isWebPlatform) {
+        final redirectUri = webRedirectUri();
+        final challenge =
+            await widget.api.loginChallenge(provider.name, redirectUri: redirectUri);
+        stashOAuth(
+          provider: provider.name,
+          state: challenge.state ?? '',
+          codeVerifier: challenge.codeVerifier ?? '',
+          redirectUri: redirectUri,
+        );
+        redirectToAuthorize(challenge.authorizeUrl);
+        return;
+      }
       final session = await runOAuthFlow(
         widget.api,
         provider.name,

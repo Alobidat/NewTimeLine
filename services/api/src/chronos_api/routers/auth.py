@@ -79,14 +79,24 @@ async def providers(session: AsyncSession = Depends(get_session)) -> ProviderLis
 
 @router.get("/{provider}/login", response_model=LoginStart)
 async def login(
-    provider: str, request: Request, session: AsyncSession = Depends(get_session)
+    provider: str,
+    request: Request,
+    redirect_uri: str | None = None,
+    session: AsyncSession = Depends(get_session),
 ) -> LoginStart:
-    """Begin auth-code+PKCE: return the authorize URL + the verifier the client keeps."""
+    """Begin auth-code+PKCE: return the authorize URL + the verifier the client keeps.
+
+    A web client passes its own ``redirect_uri`` (the app origin it can capture the redirect
+    at); native clients omit it and the configured ``auth.redirect_base`` is used. The same
+    URI must be echoed on the callback (it's part of the token exchange). The provider's own
+    allowlist is the security boundary — it rejects any URI not registered in its console."""
     adapter = await get_provider(session, provider)
     if adapter is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"provider not available: {provider}")
+    if redirect_uri and not redirect_uri.startswith(("http://", "https://")):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "redirect_uri must be http(s)")
     redirect_base = await config_service.get(session, "auth.redirect_base", "")
-    redirect_uri = _callback_uri(request, provider, redirect_base)
+    redirect_uri = redirect_uri or _callback_uri(request, provider, redirect_base)
     pkce = make_pkce()
     state = make_pkce().verifier  # an opaque, unguessable state value
     url = oauth.build_authorize_url(
@@ -103,8 +113,9 @@ async def _complete_login(
     adapter = await get_provider(session, provider)
     if adapter is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"provider not available: {provider}")
+    # Echo the redirect_uri the client used at /login (web flow); else the configured default.
     redirect_base = await config_service.get(session, "auth.redirect_base", "")
-    redirect_uri = _callback_uri(request, provider, redirect_base)
+    redirect_uri = data.redirect_uri or _callback_uri(request, provider, redirect_base)
     try:
         claims = await oauth.resolve_claims(
             adapter, code=data.code, redirect_uri=redirect_uri, verifier=data.code_verifier

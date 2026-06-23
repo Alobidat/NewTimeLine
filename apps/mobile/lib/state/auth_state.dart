@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/client.dart';
 import '../api/models.dart';
+import '../auth/web_oauth.dart';
 
 /// Abstraction over where the session JWT (+ a minimal user snapshot) is persisted.
 abstract class SessionStore {
@@ -77,6 +78,28 @@ class AuthState extends ChangeNotifier {
   /// The single gate the rest of the app cares about: a signed-in, verified, consented user
   /// may interact (react/comment/promote/upload/follow). Reads are always allowed.
   bool get canInteract => isSignedIn && emailVerified && _agreementAccepted;
+
+  /// If this app load is a return from an OAuth provider redirect (web flow), finish the code
+  /// exchange and adopt the resulting session. No-op off the web or with no pending redirect.
+  /// Call once at boot, before [load].
+  Future<void> completePendingWebOAuth() async {
+    final pending = capturePendingOAuth();
+    if (pending == null) return;
+    try {
+      final session = await api.authCallback(
+        pending.provider,
+        code: pending.code,
+        state: pending.state,
+        codeVerifier: pending.codeVerifier,
+        redirectUri: pending.redirectUri,
+      );
+      await adopt(session);
+    } catch (_) {
+      // Exchange failed (expired/replayed code) — leave signed-out; the user can retry.
+    } finally {
+      clearPendingOAuth();
+    }
+  }
 
   /// Restore any persisted session on startup and attach the Bearer. Safe to call once at
   /// app boot; refreshes [user] + agreement status from the server when a token is present.
