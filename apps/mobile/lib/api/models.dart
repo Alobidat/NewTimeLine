@@ -505,6 +505,24 @@ class TimelineSummary {
 /// parent via [parentId]; a null parent is a top-level comment. The article builds the
 /// tree client-side from the flat, oldest-first list the API returns. Soft-removed
 /// comments come back with status `removed` (kept so reply threads don't collapse).
+/// The public identity of a comment's author (avatar + profile link).
+class CommentAuthor {
+  CommentAuthor({required this.id, required this.handle, this.displayName, this.avatarUrl});
+  final String id;
+  final String handle;
+  final String? displayName;
+  final String? avatarUrl;
+
+  String get label => displayName ?? handle;
+
+  factory CommentAuthor.fromJson(Map<String, dynamic> j) => CommentAuthor(
+    id: j['id'] as String,
+    handle: j['handle'] as String? ?? '',
+    displayName: j['display_name'] as String?,
+    avatarUrl: j['avatar_url'] as String?,
+  );
+}
+
 class CommentRead {
   CommentRead({
     required this.id,
@@ -516,7 +534,11 @@ class CommentRead {
     required this.createdAt,
     required this.updatedAt,
     this.parentId,
-  });
+    this.author,
+    Map<String, int>? reactions,
+    List<String>? myReactions,
+  })  : reactions = reactions ?? const {},
+        myReactions = myReactions ?? const [];
 
   final String id;
   final String eventId;
@@ -527,6 +549,11 @@ class CommentRead {
   final String status; // visible | removed | hidden
   final DateTime createdAt;
   final DateTime updatedAt;
+  final CommentAuthor? author;
+
+  /// Aggregate reaction counts per kind on this comment, + the caller's own kinds.
+  final Map<String, int> reactions;
+  final List<String> myReactions;
 
   bool get isRemoved => status == 'removed';
 
@@ -543,6 +570,81 @@ class CommentRead {
     status: j['status'] as String? ?? 'visible',
     createdAt: _dt(j['created_at']),
     updatedAt: _dt(j['updated_at']),
+    author: j['author'] is Map<String, dynamic>
+        ? CommentAuthor.fromJson(j['author'] as Map<String, dynamic>)
+        : null,
+    reactions: (j['reactions'] as Map?)?.map(
+          (k, v) => MapEntry(k as String, (v as num).toInt()),
+        ) ??
+        const {},
+    myReactions:
+        (j['my_reactions'] as List?)?.map((e) => e as String).toList() ?? const [],
+  );
+}
+
+/// A public user profile (`GET /users/{id}`): identity, reputation, follow counts + relation.
+class UserProfile {
+  UserProfile({
+    required this.id,
+    required this.handle,
+    this.displayName,
+    this.avatarUrl,
+    this.reputation = 0,
+    this.followers = 0,
+    this.following = 0,
+    this.isFollowing = false,
+    this.isSelf = false,
+  });
+
+  final String id;
+  final String handle;
+  final String? displayName;
+  final String? avatarUrl;
+  final int reputation;
+  final int followers;
+  final int following;
+  final bool isFollowing;
+  final bool isSelf;
+
+  String get label => displayName ?? handle;
+
+  factory UserProfile.fromJson(Map<String, dynamic> j) => UserProfile(
+    id: j['id'] as String,
+    handle: j['handle'] as String? ?? '',
+    displayName: j['display_name'] as String?,
+    avatarUrl: j['avatar_url'] as String?,
+    reputation: (j['reputation'] as num?)?.toInt() ?? 0,
+    followers: (j['followers'] as num?)?.toInt() ?? 0,
+    following: (j['following'] as num?)?.toInt() ?? 0,
+    isFollowing: j['is_following'] as bool? ?? false,
+    isSelf: j['is_self'] as bool? ?? false,
+  );
+}
+
+/// A user in a follower/following list (identity + whether the caller follows them).
+class UserSummary {
+  UserSummary({
+    required this.id,
+    required this.handle,
+    this.displayName,
+    this.avatarUrl,
+    this.following = false,
+  });
+
+  final String id;
+  final String handle;
+  final String? displayName;
+  final String? avatarUrl;
+  final bool following;
+
+  String get label => displayName ?? handle;
+
+  factory UserSummary.fromJson(Map<String, dynamic> j) => UserSummary(
+    id: j['id'] as String,
+    handle: j['handle'] as String? ?? '',
+    displayName: j['display_name'] as String?,
+    avatarUrl: j['avatar_url'] as String?,
+    following: j['following'] as bool? ?? false,
   );
 }
 

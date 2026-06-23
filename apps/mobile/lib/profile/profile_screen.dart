@@ -15,6 +15,8 @@ import '../api/models.dart';
 import '../auth/login_screen.dart';
 import '../domain/time_format.dart';
 import '../state/auth_state.dart';
+import 'avatar.dart';
+import 'follow_list_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.api, required this.auth});
@@ -77,6 +79,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void _openFollowList({required bool followers}) {
+    final id = _auth.user?.id;
+    if (id == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FollowListScreen(
+          api: _api,
+          auth: _auth,
+          userId: id,
+          followers: followers,
+          title: followers ? 'Followers' : 'Following',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,7 +121,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: Column(
                     children: [
-                      _Header(user: _auth.user, counts: _counts),
+                      _Header(
+                        user: _auth.user,
+                        counts: _counts,
+                        onFollowers: () => _openFollowList(followers: true),
+                        onFollowing: () => _openFollowList(followers: false),
+                      ),
                       const SizedBox(height: 8),
                       if (_loading) const LinearProgressIndicator(),
                       const SizedBox(height: 8),
@@ -170,15 +193,22 @@ class _SignedOut extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.user, required this.counts});
+  const _Header({
+    required this.user,
+    required this.counts,
+    required this.onFollowers,
+    required this.onFollowing,
+  });
   final SessionUser? user;
   final FollowCounts? counts;
+  final VoidCallback onFollowers;
+  final VoidCallback onFollowing;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const CircleAvatar(radius: 28, child: Icon(Icons.person, size: 32)),
+        Avatar(label: user?.label ?? 'You', url: user?.avatarUrl, radius: 28),
         const SizedBox(width: 16),
         Expanded(
           child: Column(
@@ -192,9 +222,17 @@ class _Header extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  _Stat(label: 'Followers', value: counts?.followers ?? 0),
+                  _Stat(
+                    label: 'Followers',
+                    value: counts?.followers ?? 0,
+                    onTap: onFollowers,
+                  ),
                   const SizedBox(width: 20),
-                  _Stat(label: 'Following', value: counts?.following ?? 0),
+                  _Stat(
+                    label: 'Following',
+                    value: counts?.following ?? 0,
+                    onTap: onFollowing,
+                  ),
                 ],
               ),
             ],
@@ -206,17 +244,25 @@ class _Header extends StatelessWidget {
 }
 
 class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
+  const _Stat({required this.label, required this.value, this.onTap});
   final String label;
   final int value;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text('$value', style: Theme.of(context).textTheme.titleMedium),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          children: [
+            Text('$value', style: Theme.of(context).textTheme.titleMedium),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
     );
   }
 }

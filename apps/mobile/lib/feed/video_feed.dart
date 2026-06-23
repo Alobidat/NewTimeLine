@@ -23,6 +23,7 @@ import 'package:flutter/material.dart';
 import '../api/client.dart';
 import '../api/models.dart';
 import '../auth/interaction_gate.dart';
+import '../event/comments_page.dart';
 import '../state/auth_state.dart';
 import 'event_graph_view.dart';
 import 'feed_clip_player.dart';
@@ -360,9 +361,19 @@ class _VideoFeedState extends State<VideoFeed>
         },
       );
 
-  /// Comment opens the same info sheet (it contains the threaded discussion); kept a
-  /// distinct entry point so the rail button reads "Comment".
-  void _comment(FeedItem item) => _info(item);
+  /// Comment opens the full discussion page: event/media header + threaded comments with
+  /// per-comment reactions and author profiles. Reads are open; writes gate on tap.
+  void _comment(FeedItem item) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CommentsPage(
+          api: widget.api,
+          auth: widget.auth,
+          event: item.event,
+        ),
+      ),
+    );
+  }
 
   Future<void> _promote(FeedItem item, bool up) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;

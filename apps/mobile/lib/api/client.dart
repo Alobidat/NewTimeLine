@@ -322,6 +322,41 @@ class ApiClient {
     );
   }
 
+  /// Toggle a reaction [kind] on a comment. Returns the fresh aggregate for that comment.
+  Future<ReactionSummary> toggleCommentReaction(
+    String eventId,
+    String commentId,
+    String kind,
+  ) async {
+    return ReactionSummary.fromToggle(
+      await _postJson('/events/$eventId/comments/$commentId/reactions', {'kind': kind})
+          as Map<String, dynamic>,
+    );
+  }
+
+  // ── User profiles + follow lists (rich social, ADR-0025+). ──
+
+  /// A public user profile (`GET /users/{id}`): identity, reputation, follow counts + relation.
+  Future<UserProfile> userProfile(String userId) async => UserProfile.fromJson(
+    await _getJson('/users/$userId', const {}) as Map<String, dynamic>,
+  );
+
+  /// The users who follow [userId] (`GET /users/{id}/followers`).
+  Future<List<UserSummary>> userFollowers(String userId, {int limit = 100}) =>
+      _userList('/users/$userId/followers', limit);
+
+  /// The users [userId] follows (`GET /users/{id}/following`).
+  Future<List<UserSummary>> userFollowing(String userId, {int limit = 100}) =>
+      _userList('/users/$userId/following', limit);
+
+  Future<List<UserSummary>> _userList(String path, int limit) async {
+    final j = await _getJson(path, {'limit': limit.toString()});
+    final items = (j is Map ? j['items'] : j) as List? ?? const [];
+    return items
+        .map((e) => UserSummary.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Source-credibility vote tallies for an event (+ the actor's own verdicts).
   Future<SourceVotes> sourceVotes(String eventId) async {
     return SourceVotes.fromJson(
