@@ -592,14 +592,15 @@ class _VideoFeedState extends State<VideoFeed>
           ),
         // TEMPORARY on-screen D-pad mirroring the swipe actions, so we can agree the mapping
         // before trusting the gestures. Up/Down = next/previous event in the feed; Right/Left =
-        // next/previous event in THIS event's timeline (disabled + greyed when there's none in
-        // that direction). The primary navigation control — bottom-centre, arrows only.
+        // next/previous event in THIS event's timeline (greyed when there's none in that
+        // direction). The primary navigation control — one bottom-centre pad you swipe in any
+        // of the four directions; full-screen swipes still work too.
         Positioned(
           left: 0,
           right: 0,
-          bottom: 130,
+          bottom: 120,
           child: Center(
-            child: _SwipeDpad(
+            child: _SwipeNub(
               onUp: canUp ? () => _moveFeed(1) : null,
               onDown: canDown ? () => _moveFeed(-1) : null,
               onLeft: canPrev ? () => _walkTimeline(forward: false) : null,
@@ -634,65 +635,81 @@ class _VideoFeedState extends State<VideoFeed>
   }
 }
 
-/// The feed's primary navigation control: a bottom-centre directional pad mirroring the swipe
-/// actions. Up/Down page the feed (next/previous event); Left/Right walk THIS event's timeline
-/// (greyed + non-interactive when there's no neighbour that way). Arrows only — large, since
-/// these are the main controls.
-class _SwipeDpad extends StatelessWidget {
-  const _SwipeDpad({
+/// The feed's primary navigation control: a single bottom-centre pad you **swipe** in any of
+/// the four directions instead of tapping four buttons. Up/Down page the feed (next/previous
+/// event); Left/Right walk THIS event's timeline. Edge chevrons hint each direction and grey
+/// out when there's no neighbour that way (a swipe toward a disabled direction is ignored).
+/// Being opaque, swipes that start on the pad route here; swipes anywhere else still page the
+/// feed normally.
+class _SwipeNub extends StatefulWidget {
+  const _SwipeNub({
     required this.onUp,
     required this.onDown,
     required this.onLeft,
     required this.onRight,
   });
 
-  /// A null callback marks that direction as unavailable — the button greys out and ignores
-  /// taps (e.g. Left/Right when the event has no earlier/later event in its timeline).
   final VoidCallback? onUp, onDown, onLeft, onRight;
 
-  static const double _size = 60; // diameter of each round arrow button
+  @override
+  State<_SwipeNub> createState() => _SwipeNubState();
+}
+
+class _SwipeNubState extends State<_SwipeNub> {
+  static const double _diameter = 104;
+  static const double _threshold = 14; // min travel (px) to count as a swipe
+  Offset _acc = Offset.zero;
+
+  void _fire() {
+    final dx = _acc.dx, dy = _acc.dy;
+    if (dx.abs() < _threshold && dy.abs() < _threshold) return; // a tap / tiny nudge
+    if (dx.abs() > dy.abs()) {
+      (dx > 0 ? widget.onRight : widget.onLeft)?.call();
+    } else {
+      (dy < 0 ? widget.onUp : widget.onDown)?.call();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    Widget arrow(String key, IconData icon, VoidCallback? onTap) {
-      final enabled = onTap != null;
-      return Material(
-        color: Colors.black.withValues(alpha: enabled ? 0.5 : 0.28),
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: Key('dpad-$key'),
-          onTap: onTap, // null → non-interactive (disabled)
-          child: SizedBox(
-            width: _size,
-            height: _size,
+    Widget chevron(Alignment a, IconData icon, bool enabled) => Align(
+          alignment: a,
+          child: Padding(
+            padding: const EdgeInsets.all(3),
             child: Icon(
               icon,
-              color: enabled ? Colors.white : Colors.white30,
-              size: 38,
+              size: 26,
+              color: enabled ? Colors.white : Colors.white24,
             ),
           ),
-        ),
-      );
-    }
+        );
 
-    // Cross layout: up on top, left/right flanking a centre gap, down on the bottom.
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        arrow('up', Icons.keyboard_arrow_up, onUp),
-        const SizedBox(height: 6),
-        Row(
-          mainAxisSize: MainAxisSize.min,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onPanStart: (_) => _acc = Offset.zero,
+      onPanUpdate: (d) => _acc += d.delta,
+      onPanEnd: (_) => _fire(),
+      child: Container(
+        key: const Key('swipe-nub'),
+        width: _diameter,
+        height: _diameter,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.42),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            arrow('left', Icons.keyboard_arrow_left, onLeft),
-            const SizedBox(width: _size + 6),
-            arrow('right', Icons.keyboard_arrow_right, onRight),
+            chevron(Alignment.topCenter, Icons.keyboard_arrow_up, widget.onUp != null),
+            chevron(Alignment.bottomCenter, Icons.keyboard_arrow_down, widget.onDown != null),
+            chevron(Alignment.centerLeft, Icons.keyboard_arrow_left, widget.onLeft != null),
+            chevron(Alignment.centerRight, Icons.keyboard_arrow_right, widget.onRight != null),
+            // Centre glyph: a 4-way "swipe me" affordance.
+            const Icon(Icons.open_with, size: 26, color: Colors.white54),
           ],
         ),
-        const SizedBox(height: 6),
-        arrow('down', Icons.keyboard_arrow_down, onDown),
-      ],
+      ),
     );
   }
 }
