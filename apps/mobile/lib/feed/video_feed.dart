@@ -635,11 +635,12 @@ class _VideoFeedState extends State<VideoFeed>
   }
 }
 
-/// The feed's primary navigation control: a single bottom-centre pad you **swipe** in any of
-/// the four directions instead of tapping four buttons. Up/Down page the feed (next/previous
-/// event); Left/Right walk THIS event's timeline. Edge chevrons hint each direction and grey
-/// out when there's no neighbour that way (a swipe toward a disabled direction is ignored).
-/// Being opaque, swipes that start on the pad route here; swipes anywhere else still page the
+/// The feed's primary navigation control: a single bottom-centre pad. **Swipe** it in any of
+/// the four directions — or **tap an arrow** — to fire that action. Up/Down page the feed
+/// (next/previous event); Left/Right walk THIS event's timeline. While you drag, a knob follows
+/// your finger and the target chevron lights up, then the knob springs back (live feedback).
+/// Edge chevrons grey out when there's no neighbour that way (that direction is ignored). The
+/// pad is opaque, so gestures starting on it route here; swipes anywhere else still page the
 /// feed normally.
 class _SwipeNub extends StatefulWidget {
   const _SwipeNub({
@@ -655,40 +656,102 @@ class _SwipeNub extends StatefulWidget {
   State<_SwipeNub> createState() => _SwipeNubState();
 }
 
-class _SwipeNubState extends State<_SwipeNub> {
+class _SwipeNubState extends State<_SwipeNub>
+    with SingleTickerProviderStateMixin {
   static const double _diameter = 104;
-  static const double _threshold = 14; // min travel (px) to count as a swipe
-  Offset _acc = Offset.zero;
+  static const double _maxR = 26; // how far the knob may travel from centre
+  static const double _threshold = 12; // min travel to register a direction
+  static const double _deadzone = 14; // centre press that picks no direction
+  static const Offset _centre = Offset(_diameter / 2, _diameter / 2);
 
-  void _fire() {
-    final dx = _acc.dx, dy = _acc.dy;
-    if (dx.abs() < _threshold && dy.abs() < _threshold) return; // a tap / tiny nudge
-    if (dx.abs() > dy.abs()) {
-      (dx > 0 ? widget.onRight : widget.onLeft)?.call();
-    } else {
-      (dy < 0 ? widget.onUp : widget.onDown)?.call();
-    }
+  late final AnimationController _spring = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  )..addListener(() {
+      final t = Curves.elasticOut.transform(_spring.value);
+      setState(() => _knob = Offset.lerp(_from, Offset.zero, t)!);
+    });
+
+  Offset _knob = Offset.zero; // live knob offset from centre
+  Offset _from = Offset.zero; // knob offset when a spring-back began
+  String? _active; // direction currently highlighted
+
+  Offset _clamp(Offset v) {
+    final d = v.distance;
+    return d <= _maxR ? v : v * (_maxR / d);
+  }
+
+  /// The dominant direction of [v], or null if it's within the centre deadzone.
+  String? _dirOf(Offset v) {
+    if (v.dx.abs() < _threshold && v.dy.abs() < _threshold) return null;
+    if (v.dx.abs() > v.dy.abs()) return v.dx > 0 ? 'right' : 'left';
+    return v.dy < 0 ? 'up' : 'down';
+  }
+
+  VoidCallback? _cbFor(String? d) => switch (d) {
+        'up' => widget.onUp,
+        'down' => widget.onDown,
+        'left' => widget.onLeft,
+        'right' => widget.onRight,
+        _ => null,
+      };
+
+  void _fire(Offset v) => _cbFor(_dirOf(v))?.call();
+
+  void _springBack() {
+    _from = _knob;
+    setState(() => _active = null);
+    _spring.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _spring.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    Widget chevron(Alignment a, IconData icon, bool enabled) => Align(
-          alignment: a,
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: Icon(
-              icon,
-              size: 26,
-              color: enabled ? Colors.white : Colors.white24,
-            ),
+    Widget chevron(String dir, Alignment a, IconData icon, bool enabled) {
+      final hot = _active == dir && enabled;
+      return Align(
+        alignment: a,
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Icon(
+            icon,
+            size: hot ? 30 : 26,
+            color: enabled
+                ? (hot ? Colors.white : Colors.white70)
+                : Colors.white24,
           ),
-        );
+        ),
+      );
+    }
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onPanStart: (_) => _acc = Offset.zero,
-      onPanUpdate: (d) => _acc += d.delta,
-      onPanEnd: (_) => _fire(),
+      onTapDown: (_) => _spring.stop(),
+      onTapUp: (d) {
+        final v = d.localPosition - _centre;
+        if (v.distance < _deadzone) return; // centre press → no direction
+        setState(() {
+          _knob = _clamp(v);
+          _active = _dirOf(v);
+        });
+        _fire(v);
+        _springBack();
+      },
+      onPanDown: (_) => _spring.stop(),
+      onPanStart: (_) => setState(() => _knob = Offset.zero),
+      onPanUpdate: (d) => setState(() {
+        _knob = _clamp(_knob + d.delta);
+        _active = _dirOf(_knob);
+      }),
+      onPanEnd: (_) {
+        _fire(_knob);
+        _springBack();
+      },
       child: Container(
         key: const Key('swipe-nub'),
         width: _diameter,
@@ -701,12 +764,24 @@ class _SwipeNubState extends State<_SwipeNub> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            chevron(Alignment.topCenter, Icons.keyboard_arrow_up, widget.onUp != null),
-            chevron(Alignment.bottomCenter, Icons.keyboard_arrow_down, widget.onDown != null),
-            chevron(Alignment.centerLeft, Icons.keyboard_arrow_left, widget.onLeft != null),
-            chevron(Alignment.centerRight, Icons.keyboard_arrow_right, widget.onRight != null),
-            // Centre glyph: a 4-way "swipe me" affordance.
-            const Icon(Icons.open_with, size: 26, color: Colors.white54),
+            chevron('up', Alignment.topCenter, Icons.keyboard_arrow_up, widget.onUp != null),
+            chevron('down', Alignment.bottomCenter, Icons.keyboard_arrow_down, widget.onDown != null),
+            chevron('left', Alignment.centerLeft, Icons.keyboard_arrow_left, widget.onLeft != null),
+            chevron('right', Alignment.centerRight, Icons.keyboard_arrow_right, widget.onRight != null),
+            // The knob: follows the finger during a drag/tap, then springs back to centre.
+            Transform.translate(
+              offset: _knob,
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white54),
+                ),
+                child: const Icon(Icons.open_with, size: 24, color: Colors.white),
+              ),
+            ),
           ],
         ),
       ),
