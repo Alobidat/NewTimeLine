@@ -17,6 +17,7 @@
 /// through sign-in → consent → verify, then resumes the pending action.
 library;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
@@ -30,6 +31,7 @@ import 'feed_source.dart';
 import 'overlay_rail.dart';
 import 'prefetch.dart';
 import 'share.dart';
+import 'web_video.dart';
 
 class VideoFeed extends StatefulWidget {
   const VideoFeed({
@@ -558,6 +560,36 @@ class _VideoFeedState extends State<VideoFeed>
             onAddVideo: widget.onAddVideo,
           ),
         ),
+        // Web-only sound toggle. The web feed autoplays muted (browser policy); this is the
+        // user gesture that unmutes it, and the preference then carries to every clip. (Native
+        // clips toggle by tapping the clip — see FeedClipPlayer.) Top-left, clear of the rail.
+        if (kIsWeb)
+          Positioned(
+            top: 56,
+            left: 12,
+            child: SafeArea(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: feedMuted,
+                builder: (context, muted, _) => Material(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  shape: const CircleBorder(),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    key: const Key('feed-mute-toggle'),
+                    onTap: () => setFeedMuted(!muted),
+                    child: Padding(
+                      padding: const EdgeInsets.all(9),
+                      child: Icon(
+                        muted ? Icons.volume_off : Icons.volume_up,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         // TEMPORARY on-screen D-pad mirroring the swipe actions, so we can agree the mapping
         // before trusting the gestures. Up/Down = next/previous event in the feed; Right/Left =
         // next/previous event in THIS event's timeline (disabled + greyed when there's none in

@@ -23,15 +23,41 @@ import 'package:web/web.dart' as web;
 // Register each (url) view factory at most once — re-registering a viewType throws.
 final Set<String> _registered = <String>{};
 
+/// Feed-wide mute state for the web `<video>` clips. Starts **muted** because browsers only
+/// allow autoplay without a user gesture when muted. A tap on the feed's volume button flips
+/// it via [setFeedMuted]; every live clip and any clip created afterwards follows. Exposed as
+/// a [ValueNotifier] so the volume button can rebuild its icon.
+final ValueNotifier<bool> feedMuted = ValueNotifier<bool>(true);
+
+// Every live feed <video>, so [setFeedMuted] can update them all at once. Disconnected
+// elements are pruned lazily (an HtmlElementView gives no dispose hook for the element).
+final Set<web.HTMLVideoElement> _live = <web.HTMLVideoElement>{};
+
+/// Mute/unmute the whole feed. Toggling to unmuted counts as the user gesture that lets the
+/// browser play audio, so any paused clip is nudged back into playback.
+void setFeedMuted(bool muted) {
+  feedMuted.value = muted;
+  _live.removeWhere((v) => !v.isConnected);
+  for (final v in _live) {
+    v.muted = muted;
+    v.defaultMuted = muted;
+    if (!muted && v.paused) v.play();
+  }
+}
+
 Widget webVideoView(String url, {required bool muted}) {
   // One viewType per url so swapping the feed's active clip rebuilds the element with a new src.
   final viewType = 'chronos-feed-video:$url';
   if (_registered.add(viewType)) {
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int _) {
       final v = web.HTMLVideoElement();
-      // Mute BEFORE src/play so the browser's muted-autoplay allowance applies.
-      v.muted = muted;
-      v.defaultMuted = muted;
+      // Inherit the feed-wide mute preference (not the call-site arg): once the user has
+      // unmuted, clips they swipe to should keep playing with sound. Set BEFORE src/play so
+      // the browser's muted-autoplay allowance still applies on the muted (default) path.
+      v.muted = feedMuted.value;
+      v.defaultMuted = feedMuted.value;
+      _live.removeWhere((e) => !e.isConnected);
+      _live.add(v);
       v.autoplay = true;
       v.loop = true;
       v.controls = false;
