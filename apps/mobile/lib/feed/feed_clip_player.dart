@@ -29,7 +29,6 @@ class FeedClipPlayer extends StatefulWidget {
     this.isClip = true,
     this.preload = false,
     this.posterUrl,
-    this.onSwipe,
   });
 
   /// The hero media url, or null when the event has no hero (placeholder).
@@ -49,11 +48,6 @@ class FeedClipPlayer extends StatefulWidget {
 
   /// Optional still image shown behind/instead of the clip (e.g. a thumbnail).
   final String? posterUrl;
-
-  /// Web only: a swipe detected directly on the `<video>` element (the clip is the topmost DOM
-  /// element on the web, so it — not Flutter's gesture layer — receives swipes over it). Off the
-  /// web this is unused: the feed's Flutter [GestureDetector] handles paging. See [webVideoView].
-  final WebSwipe? onSwipe;
 
   @override
   State<FeedClipPlayer> createState() => _FeedClipPlayerState();
@@ -171,7 +165,7 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
     if (kIsWeb) {
       return url == null
           ? const ColoredBox(color: Colors.black)
-          : webVideoView(url, muted: true, onSwipe: widget.onSwipe);
+          : webVideoView(url, muted: true);
     }
     return GestureDetector(
       onTap: _onTap,

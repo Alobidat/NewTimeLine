@@ -143,29 +143,6 @@ class _VideoFeedState extends State<VideoFeed>
     }
   }
 
-  /// Web only: a swipe detected on the `<video>` element itself (which is the topmost DOM
-  /// element over the clip and so receives the touches before Flutter — see [FeedClipPlayer]).
-  /// Classifies by dominant axis + travel/velocity, mirroring the native gesture thresholds.
-  void _onWebSwipe(double dx, double dy, double vx, double vy) {
-    if (!mounted || _items.isEmpty) return;
-    final size = MediaQuery.sizeOf(context);
-    if (dx.abs() > dy.abs()) {
-      final hThreshold = size.width * _dragFraction;
-      if (dx > hThreshold || vx > _flingVelocity) {
-        _walkTimeline(forward: true); // swipe right → next in timeline
-      } else if (dx < -hThreshold || vx < -_flingVelocity) {
-        _walkTimeline(forward: false); // swipe left → previous in timeline
-      }
-    } else {
-      final vThreshold = size.height * _dragFraction;
-      if (dy < -vThreshold || vy < -_flingVelocity) {
-        _moveFeed(1); // swipe up → next event in the feed
-      } else if (dy > vThreshold || vy > _flingVelocity) {
-        _moveFeed(-1); // swipe down → previous event in the feed
-      }
-    }
-  }
-
   /// VERTICAL move: step the feed by [delta] (clamped) and snap back to the main column by
   /// resetting the lateral chain — so up/down always lands on the next/previous *feed* event,
   /// independent of any left/right walking the user did on the previous row.
@@ -498,10 +475,6 @@ class _VideoFeedState extends State<VideoFeed>
             active: true,
             isClip: current.heroIsClip,
             posterUrl: null,
-            // Web: the clip element is the swipe surface (it sits above Flutter's gesture layer
-            // in the DOM). Image heroes are Flutter-painted, so swipes over them fall through to
-            // the GestureDetector below — this callback is only consumed for <video> clips.
-            onSwipe: _onWebSwipe,
           ),
         ),
         // The single transparent gesture surface that drives ALL four feed gestures. One
