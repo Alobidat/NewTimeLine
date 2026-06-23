@@ -493,14 +493,27 @@ class ApiClient {
   // ── Auth & account (Phase 4-G, ADR-0026). The login flow is OAuth2/OIDC auth-code+PKCE;
   // the backend mints a session JWT that [sessionToken] then attaches to every request.
 
-  /// The sign-in providers the backend offers (`GET /auth/providers`). Config-driven and
-  /// **may be empty** until credentials are configured — the UI handles that gracefully.
-  Future<List<AuthProvider>> authProviders() async {
-    final j = await _getJson('/auth/providers', const {});
-    final list = (j is Map ? j['providers'] : j) as List? ?? const [];
-    return list
-        .map((e) => AuthProvider.fromJson(e as Map<String, dynamic>))
-        .toList();
+  /// The sign-in options the backend offers (`GET /auth/providers`): the OAuth providers
+  /// (config-driven, **may be empty**) plus whether the dev email-code login is available.
+  /// The UI handles the empty/dev-only cases gracefully.
+  Future<AuthOptions> authOptions() async => AuthOptions.fromJson(
+    await _getJson('/auth/providers', const {}) as Map<String, dynamic>,
+  );
+
+  /// Begin dev email-code sign-in: email a one-time code to [email] (`POST /auth/dev/start`).
+  /// In non-prod the code is echoed back ([devCode]) so the flow works without a live mailbox.
+  Future<({bool sent, String? devCode})> devLoginStart(String email) async {
+    final j = await _postJson('/auth/dev/start', {'email': email});
+    final m = j as Map<String, dynamic>;
+    return (sent: (m['sent'] as bool?) ?? false, devCode: m['dev_code'] as String?);
+  }
+
+  /// Complete dev email-code sign-in: exchange [email]+[code] for a session JWT
+  /// (`POST /auth/dev/verify`). The returned session has no nested user — [AuthState.adopt]
+  /// fills it via `/account/me`.
+  Future<AuthSession> devLoginVerify(String email, String code) async {
+    final j = await _postJson('/auth/dev/verify', {'email': email, 'code': code});
+    return AuthSession.fromJson(j as Map<String, dynamic>);
   }
 
   /// Begin sign-in: the authorize URL + PKCE/state to round-trip (`GET /auth/{p}/login`).

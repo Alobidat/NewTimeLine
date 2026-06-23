@@ -19,6 +19,8 @@ from chronos_core.schemas.auth import (
     AgreementInfo,
     AgreementStatus,
     AuthCallback,
+    DevLoginStart,
+    DevLoginVerify,
     LoginStart,
     ProviderInfo,
     ProviderList,
@@ -64,9 +66,15 @@ async def _issue_session(session: AsyncSession, user) -> SessionToken:
 
 @router.get("/providers", response_model=ProviderList)
 async def providers(session: AsyncSession = Depends(get_session)) -> ProviderList:
-    """The login providers a client may offer (enabled + fully configured). May be empty."""
+    """The login providers a client may offer (enabled + fully configured). May be empty.
+
+    Also reports whether the self-contained dev email-code login is available so the client
+    can offer it when no OAuth provider is configured (or alongside one in pre-launch)."""
     ids = await list_enabled_ids(session)
-    return ProviderList(providers=[ProviderInfo(id=p) for p in ids])
+    dev_login = bool(await config_service.get(session, "auth.dev_login_enabled", True))
+    return ProviderList(
+        providers=[ProviderInfo(id=p) for p in ids], dev_login=dev_login
+    )
 
 
 @router.get("/{provider}/login", response_model=LoginStart)
@@ -139,6 +147,53 @@ async def callback_get(
     """GET form of the callback (for providers/clients that redirect with query params)."""
     data = AuthCallback(code=code, state=state, code_verifier=code_verifier)
     return await _complete_login(provider, data, request, session)
+
+
+# --- dev email-code login -------------------------------------------------------------
+
+
+async def _require_dev_login(session: AsyncSession) -> None:
+    """404 the dev-login endpoints unless ``auth.dev_login_enabled`` is set."""
+    if not bool(await config_service.get(session, "auth.dev_login_enabled", True)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "dev login is disabled")
+
+
+@router.post("/dev/start", response_model=VerifyIssued)
+async def dev_login_start(
+    data: DevLoginStart, session: AsyncSession = Depends(get_session)
+) -> VerifyIssued:
+    """Begin self-contained email-code sign-in: email a one-time code to the address. No
+    session needed (this is how an anonymous user signs in). Non-prod returns the code so the
+    flow is exercisable without a live mailbox."""
+    await _require_dev_login(session)
+    if "@" not in data.email:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid email")
+    code = email_mod.make_code(data.email)
+    email_mod.get_sender().send(
+        data.email, "Your NewTimeLine sign-in code", f"Your sign-in code is: {code}"
+    )
+    dev_code = code if get_settings().environment != "prod" else None
+    return VerifyIssued(sent=True, dev_code=dev_code)
+
+
+@router.post("/dev/verify", response_model=SessionToken)
+async def dev_login_verify(
+    data: DevLoginVerify, session: AsyncSession = Depends(get_session)
+) -> SessionToken:
+    """Complete email-code sign-in: validate the code → provision/link a verified user for the
+    email → issue a session JWT. The email is proven by the code, so the user is email-verified."""
+    await _require_dev_login(session)
+    if not email_mod.check_code(data.code, data.email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired code")
+    user, _created = await accounts_repo.provision_from_identity(
+        session,
+        provider="email",
+        provider_sub=data.email.lower(),
+        email=data.email,
+        email_verified=True,
+        name=None,
+    )
+    return await _issue_session(session, user)
 
 
 # --- email verification ---------------------------------------------------------------

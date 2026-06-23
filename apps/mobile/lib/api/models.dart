@@ -770,8 +770,24 @@ class AuthProvider {
       displayName ?? (name.isEmpty ? name : name[0].toUpperCase() + name.substring(1));
 
   factory AuthProvider.fromJson(Map<String, dynamic> j) => AuthProvider(
-    name: j['name'] as String,
+    // The backend's ProviderInfo carries `id`; tolerate `name` for older shapes.
+    name: (j['id'] ?? j['name']) as String,
     displayName: j['display_name'] as String?,
+  );
+}
+
+/// The sign-in options the backend offers (`GET /auth/providers`): the OAuth [providers]
+/// (may be empty) plus whether the self-contained [devLogin] (email-code) path is available.
+class AuthOptions {
+  AuthOptions({required this.providers, this.devLogin = false});
+  final List<AuthProvider> providers;
+  final bool devLogin;
+
+  factory AuthOptions.fromJson(Map<String, dynamic> j) => AuthOptions(
+    providers: ((j['providers'] as List?) ?? const [])
+        .map((e) => AuthProvider.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    devLogin: (j['dev_login'] as bool?) ?? false,
   );
 }
 

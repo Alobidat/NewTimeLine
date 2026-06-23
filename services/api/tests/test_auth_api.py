@@ -130,7 +130,76 @@ def test_providers_empty_when_none_configured():
     client = TestClient(_app_with(lambda: fake))
     resp = client.get("/auth/providers")
     assert resp.status_code == 200
-    assert resp.json() == {"providers": []}
+    # No OAuth provider configured; the self-contained dev login is still offered (default on).
+    assert resp.json() == {"providers": [], "dev_login": True}
+
+
+def test_providers_dev_login_disabled():
+    fake = FakeSession(configs={"auth.providers": [], "auth.dev_login_enabled": False})
+    client = TestClient(_app_with(lambda: fake))
+    resp = client.get("/auth/providers")
+    assert resp.status_code == 200
+    assert resp.json() == {"providers": [], "dev_login": False}
+
+
+# --- dev email-code login -------------------------------------------------------------
+
+
+def test_dev_login_start_returns_dev_code():
+    """In non-prod /auth/dev/start echoes the emailed code so the flow is exercisable."""
+    fake = FakeSession()
+    client = TestClient(_app_with(lambda: fake))
+    resp = client.post("/auth/dev/start", json={"email": "a@x.com"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sent"] is True
+    assert body["dev_code"]  # a real, checkable code
+
+
+def test_dev_login_disabled_404s():
+    fake = FakeSession(configs={"auth.dev_login_enabled": False})
+    client = TestClient(_app_with(lambda: fake))
+    assert client.post("/auth/dev/start", json={"email": "a@x.com"}).status_code == 404
+    assert (
+        client.post("/auth/dev/verify", json={"email": "a@x.com", "code": "x"}).status_code
+        == 404
+    )
+
+
+def test_dev_login_verify_issues_session(monkeypatch):
+    """A valid code → a provisioned, email-verified user → a session JWT."""
+    from chronos_core.auth import email as email_mod
+
+    uid = uuid.uuid4()
+    user = User(handle="a-abc", display_name=None, email="a@x.com", email_verified=True)
+    user.id = uid
+
+    async def _fake_provision(session, **kw):
+        assert kw["provider"] == "email"
+        assert kw["provider_sub"] == "a@x.com"
+        assert kw["email_verified"] is True
+        return user, True
+
+    monkeypatch.setattr(accounts_repo, "provision_from_identity", _fake_provision)
+
+    fake = FakeSession()  # no agreement_version configured → needs_agreement False
+    client = TestClient(_app_with(lambda: fake))
+    code = email_mod.make_code("a@x.com")
+    resp = client.post("/auth/dev/verify", json={"email": "a@x.com", "code": code})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["access_token"]
+    assert body["user_id"] == str(uid)
+    assert body["email_verified"] is True
+    # The issued JWT really resolves to this user.
+    assert auth_session.verify(body["access_token"]).user_id == uid
+
+
+def test_dev_login_verify_rejects_bad_code():
+    fake = FakeSession()
+    client = TestClient(_app_with(lambda: fake))
+    resp = client.post("/auth/dev/verify", json={"email": "a@x.com", "code": "not-a-code"})
+    assert resp.status_code == 400
 
 
 # --- GDPR export shape ----------------------------------------------------------------

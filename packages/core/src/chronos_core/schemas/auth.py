@@ -17,6 +17,8 @@ __all__ = [
     "LoginStart",
     "AuthCallback",
     "SessionToken",
+    "DevLoginStart",
+    "DevLoginVerify",
     "VerifyRequest",
     "VerifyConfirm",
     "VerifyIssued",
@@ -38,6 +40,9 @@ class ProviderList(BaseModel):
     """The set of providers a client may offer the user."""
 
     providers: list[ProviderInfo] = Field(default_factory=list)
+    # Self-contained email-code sign-in is available (no external OAuth provider). The client
+    # shows an email login form when true — see auth.dev_login_enabled.
+    dev_login: bool = False
 
 
 class LoginStart(BaseModel):
@@ -65,6 +70,19 @@ class SessionToken(BaseModel):
     user_id: uuid.UUID
     email_verified: bool
     needs_agreement: bool  # True if the user still owes a current-version acceptance
+
+
+class DevLoginStart(BaseModel):
+    """Begin dev email-code sign-in: email a one-time code to this address."""
+
+    email: EmailStr
+
+
+class DevLoginVerify(BaseModel):
+    """Complete dev email-code sign-in: the email + the code that was sent to it."""
+
+    email: EmailStr
+    code: str
 
 
 class VerifyRequest(BaseModel):

@@ -249,6 +249,11 @@ SPECS: list[ConfigSpec] = [
        scope="auth", component_id=None,
        help="Gate writes on a verified email (ADR-0026). Providers asserting a verified "
             "email satisfy it; otherwise the user verifies via emailed code."),
+    _b("auth.dev_login_enabled", True, "Enable dev email-code login",
+       scope="auth", component_id=None,
+       help="Offer a self-contained email + emailed-code sign-in (no external OAuth "
+            "provider). Provisions/links a verified user from the email. Intended for "
+            "pre-launch testing — DISABLE in production once social login is configured."),
 
     # Feed / recommendations (ADR-0028, social-and-feed §4-5). Owned by the API feed surface
     # (no component manifest) → component_id None.
