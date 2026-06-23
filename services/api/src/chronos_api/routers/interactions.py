@@ -11,11 +11,13 @@ from __future__ import annotations
 import uuid
 
 from chronos_core import interactions_repo as repo
+from chronos_core import social_repo
 from chronos_core.schemas.interaction import (
     CommentAuthor,
     CommentCreate,
     CommentRead,
     CommentUpdate,
+    EventStats,
     ReactionSummary,
     ReactionToggle,
     ReactionToggleResult,
@@ -30,6 +32,34 @@ from chronos_api.auth_stub import get_actor, require_verified_actor
 from chronos_api.deps import get_session
 
 router = APIRouter(prefix="/events/{event_id}", tags=["interactions"])
+
+
+# --- aggregate stats (the feed action rail) -------------------------------------------
+
+
+@router.get("/stats", response_model=EventStats)
+async def event_stats(
+    event_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> EventStats:
+    """All engagement counts for an event in one call — reactions, comments, promotes,
+    followers, saves — for the numbers shown on each feed action button. Public (a read)."""
+    counts = await repo.reaction_counts(session, event_id)
+    score, up, down = await social_repo.promote_tally(
+        session, target_type="event", target_id=event_id
+    )
+    return EventStats(
+        event_id=event_id,
+        reactions=sum(counts.values()),
+        reaction_counts=counts,
+        comments=await repo.comment_count(session, event_id),
+        promote_score=score,
+        promotes_up=up,
+        promotes_down=down,
+        followers=await social_repo.follower_count(
+            session, target_type="event", target_id=event_id
+        ),
+        bookmarks=await social_repo.bookmark_count(session, event_id=event_id),
+    )
 
 
 # --- comments -------------------------------------------------------------------------

@@ -75,6 +75,11 @@ class _VideoFeedState extends State<VideoFeed>
   /// request-light, so a previously-saved clip shows unfilled until the user taps it.
   final Set<String> _bookmarked = {};
 
+  // Per-event engagement counts shown on the action rail, loaded lazily for the on-screen
+  // event and refreshed after the user acts on it.
+  final Map<String, EventStats> _stats = {};
+  final Set<String> _statsLoading = {};
+
   String? _cursor;
   bool _loading = false;
   bool _exhausted = false;
@@ -345,7 +350,8 @@ class _VideoFeedState extends State<VideoFeed>
   Future<void> _react(FeedItem item) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     if (!mounted) return;
-    showReactionSheet(context, widget.api, item.event.id);
+    await showReactionSheet(context, widget.api, item.event.id);
+    _reloadStats(item.event.id); // the reaction count may have changed
   }
 
   void _info(FeedItem item) => showFeedInfoSheet(
@@ -364,15 +370,17 @@ class _VideoFeedState extends State<VideoFeed>
   /// Comment opens the full discussion page: event/media header + threaded comments with
   /// per-comment reactions and author profiles. Reads are open; writes gate on tap.
   void _comment(FeedItem item) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CommentsPage(
-          api: widget.api,
-          auth: widget.auth,
-          event: item.event,
-        ),
-      ),
-    );
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => CommentsPage(
+              api: widget.api,
+              auth: widget.auth,
+              event: item.event,
+            ),
+          ),
+        )
+        .then((_) => _reloadStats(item.event.id)); // comment count may have changed
   }
 
   Future<void> _promote(FeedItem item, bool up) async {
@@ -385,6 +393,7 @@ class _VideoFeedState extends State<VideoFeed>
           : res.mine < 0
               ? 'Demoted'
               : 'Vote cleared');
+      _reloadStats(item.event.id);
     } catch (_) {
       _toast('Could not record your vote.');
     }
@@ -397,6 +406,7 @@ class _VideoFeedState extends State<VideoFeed>
       // events. (Following the *creator* is the separate "Creator" button, [_followCreator].)
       await widget.api.follow('event', item.event.id);
       _toast('Following this event');
+      _reloadStats(item.event.id);
     } catch (_) {
       _toast('Could not follow.');
     }
@@ -415,6 +425,23 @@ class _VideoFeedState extends State<VideoFeed>
     }
   }
 
+  /// Load the engagement counts for [eventId] once (cached). Safe to call from build — it
+  /// no-ops when the counts are cached or already loading.
+  void _ensureStats(String eventId) {
+    if (_stats.containsKey(eventId) || _statsLoading.contains(eventId)) return;
+    _statsLoading.add(eventId);
+    widget.api.eventStats(eventId).then((s) {
+      if (mounted) setState(() => _stats[eventId] = s);
+    }).catchError((_) {}).whenComplete(() => _statsLoading.remove(eventId));
+  }
+
+  /// Refresh the counts for [eventId] after the user acts on it (react/promote/follow/save/
+  /// comment), so the rail numbers reflect the change.
+  void _reloadStats(String eventId) {
+    _stats.remove(eventId);
+    _ensureStats(eventId);
+  }
+
   /// Toggle this clip in the user's saved collection. Optimistic: flip the local set + icon,
   /// then reconcile with the server, rolling back on error.
   Future<void> _bookmark(FeedItem item) async {
@@ -425,6 +452,7 @@ class _VideoFeedState extends State<VideoFeed>
     try {
       want ? await widget.api.bookmark(id) : await widget.api.unbookmark(id);
       _toast(want ? 'Saved' : 'Removed from saved');
+      _reloadStats(item.event.id);
     } catch (_) {
       if (mounted) {
         setState(() => want ? _bookmarked.remove(id) : _bookmarked.add(id));
@@ -477,6 +505,7 @@ class _VideoFeedState extends State<VideoFeed>
     // user swipes left/right). Up/down operate on the feed index behind it; left/right on the
     // lateral chain — see the two-axes note on the state fields.
     final current = _displayed;
+    _ensureStats(current.event.id); // lazy-load the action-rail counts for the on-screen event
     final clipUrl = current.heroMediaId != null
         ? widget.api.mediaUrl(current.heroMediaId!)
         : null;
@@ -569,6 +598,7 @@ class _VideoFeedState extends State<VideoFeed>
             onShare: () => _share(current),
             onOpenGraph: () => _openGraph(current),
             onAddVideo: widget.onAddVideo,
+            stats: _stats[current.event.id],
           ),
         ),
         // Web-only sound toggle. The web feed autoplays muted (browser policy); this is the

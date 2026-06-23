@@ -40,10 +40,15 @@ class OverlayRail extends StatelessWidget {
     required this.onShare,
     required this.onOpenGraph,
     this.onAddVideo,
+    this.stats,
   });
 
   final ApiClient api;
   final EventRead event;
+
+  /// Aggregate engagement counts for [event], shown under the matching buttons. Null while the
+  /// counts are still loading (buttons show no number until then).
+  final EventStats? stats;
 
   /// Whether the caller has this clip saved (filled vs outline bookmark icon).
   final bool bookmarked;
@@ -92,30 +97,35 @@ class OverlayRail extends StatelessWidget {
                     key: const Key('rail-promote-up'),
                     icon: Icons.arrow_upward,
                     label: 'Promote',
+                    count: stats?.promoteScore,
                     onTap: () => onPromote(true),
                   ),
                   _RailButton(
                     key: const Key('rail-promote-down'),
                     icon: Icons.arrow_downward,
                     label: 'Demote',
+                    count: stats?.promotesDown,
                     onTap: () => onPromote(false),
                   ),
                   _RailButton(
                     key: const Key('rail-react'),
                     icon: Icons.favorite_border,
                     label: 'React',
+                    count: stats?.reactions,
                     onTap: onReact,
                   ),
                   _RailButton(
                     key: const Key('rail-comment'),
                     icon: Icons.mode_comment_outlined,
                     label: 'Comment',
+                    count: stats?.comments,
                     onTap: onComment,
                   ),
                   _RailButton(
                     key: const Key('rail-follow'),
                     icon: Icons.person_add_alt_1_outlined,
                     label: 'Follow',
+                    count: stats?.followers,
                     onTap: onFollow,
                   ),
                   // Follow the creator — only for user-generated clips that carry an author.
@@ -130,6 +140,7 @@ class OverlayRail extends StatelessWidget {
                     key: const Key('rail-bookmark'),
                     icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
                     label: 'Save',
+                    count: stats?.bookmarks,
                     onTap: onBookmark,
                   ),
                   _RailButton(
@@ -171,13 +182,26 @@ class _RailButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.count,
   });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
 
+  /// Engagement count shown under the icon (TikTok-style). Null → show the action [label]
+  /// instead (e.g. Share/Info, or while counts load).
+  final int? count;
+
+  /// 1234 → "1.2k", 1_200_000 → "1.2m"; small numbers unchanged.
+  static String _fmt(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(n % 1000000 == 0 ? 0 : 1)}m';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 1)}k';
+    return '$n';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final under = count != null ? _fmt(count!) : label;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: InkResponse(
@@ -196,8 +220,13 @@ class _RailButton extends StatelessWidget {
             ),
             const SizedBox(height: 3),
             Text(
-              label,
-              style: const TextStyle(color: Colors.white, fontSize: 10),
+              under,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: count != null ? 11 : 10,
+                fontWeight: count != null ? FontWeight.w600 : FontWeight.normal,
+                shadows: const [Shadow(blurRadius: 4, color: Colors.black87)],
+              ),
             ),
           ],
         ),

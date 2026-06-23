@@ -200,6 +200,16 @@ async def is_bookmarked(
     return (await session.get(Bookmark, (user_id, event_id))) is not None
 
 
+async def bookmark_count(session: AsyncSession, *, event_id: uuid.UUID) -> int:
+    """How many users have saved an event (the public 'saves' count)."""
+    return int(
+        await session.scalar(
+            select(func.count()).select_from(Bookmark).where(Bookmark.event_id == event_id)
+        )
+        or 0
+    )
+
+
 # --- promotes -------------------------------------------------------------------------
 
 

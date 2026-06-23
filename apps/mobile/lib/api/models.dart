@@ -505,6 +505,47 @@ class TimelineSummary {
 /// parent via [parentId]; a null parent is a top-level comment. The article builds the
 /// tree client-side from the flat, oldest-first list the API returns. Soft-removed
 /// comments come back with status `removed` (kept so reply threads don't collapse).
+/// Aggregate engagement counts for an event (`GET /events/{id}/stats`) — the numbers shown
+/// on each feed action button.
+class EventStats {
+  EventStats({
+    required this.eventId,
+    this.reactions = 0,
+    this.comments = 0,
+    this.promoteScore = 0,
+    this.promotesUp = 0,
+    this.promotesDown = 0,
+    this.followers = 0,
+    this.bookmarks = 0,
+    Map<String, int>? reactionCounts,
+  }) : reactionCounts = reactionCounts ?? const {};
+
+  final String eventId;
+  final int reactions;
+  final int comments;
+  final int promoteScore;
+  final int promotesUp;
+  final int promotesDown;
+  final int followers;
+  final int bookmarks;
+  final Map<String, int> reactionCounts;
+
+  factory EventStats.fromJson(Map<String, dynamic> j) => EventStats(
+    eventId: j['event_id'] as String,
+    reactions: (j['reactions'] as num?)?.toInt() ?? 0,
+    comments: (j['comments'] as num?)?.toInt() ?? 0,
+    promoteScore: (j['promote_score'] as num?)?.toInt() ?? 0,
+    promotesUp: (j['promotes_up'] as num?)?.toInt() ?? 0,
+    promotesDown: (j['promotes_down'] as num?)?.toInt() ?? 0,
+    followers: (j['followers'] as num?)?.toInt() ?? 0,
+    bookmarks: (j['bookmarks'] as num?)?.toInt() ?? 0,
+    reactionCounts: (j['reaction_counts'] as Map?)?.map(
+          (k, v) => MapEntry(k as String, (v as num).toInt()),
+        ) ??
+        const {},
+  );
+}
+
 /// The public identity of a comment's author (avatar + profile link).
 class CommentAuthor {
   CommentAuthor({required this.id, required this.handle, this.displayName, this.avatarUrl});

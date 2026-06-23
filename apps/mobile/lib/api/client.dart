@@ -306,6 +306,12 @@ class ApiClient {
     await _delete('/events/$eventId/comments/$commentId');
   }
 
+  /// Aggregate engagement counts for an event (`GET /events/{id}/stats`) — reactions,
+  /// comments, promotes, followers, saves — for the feed action-rail numbers.
+  Future<EventStats> eventStats(String eventId) async => EventStats.fromJson(
+    await _getJson('/events/$eventId/stats', const {}) as Map<String, dynamic>,
+  );
+
   /// Aggregate reactions for an event (+ the actor's own set).
   Future<ReactionSummary> reactions(String eventId) async {
     return ReactionSummary.fromJson(

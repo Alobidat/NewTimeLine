@@ -229,6 +229,18 @@ async def comment_reactions_of(
     return out
 
 
+async def comment_count(session: AsyncSession, event_id: uuid.UUID) -> int:
+    """Number of visible comments on an event (cheap COUNT — for the feed stat rail)."""
+    return int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Comment)
+            .where(Comment.event_id == event_id, Comment.status != "removed")
+        )
+        or 0
+    )
+
+
 async def comment_authors(
     session: AsyncSession, user_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, User]:

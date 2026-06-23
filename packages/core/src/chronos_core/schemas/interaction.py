@@ -19,6 +19,7 @@ __all__ = [
     "CommentCreate",
     "CommentUpdate",
     "CommentRead",
+    "EventStats",
     "ReactionToggle",
     "ReactionToggleResult",
     "ReactionSummary",
@@ -32,6 +33,20 @@ __all__ = [
 ReactionKind = Literal["like", "dislike", "important", "doubt"]
 VoteVerdict = Literal["corroborate", "dispute", "irrelevant"]
 CommentStatus = Literal["visible", "flagged", "removed"]
+
+
+class EventStats(BaseModel):
+    """Aggregate engagement counts for an event — the numbers shown on the feed action rail."""
+
+    event_id: uuid.UUID
+    reactions: int = 0  # total reactions across all kinds
+    reaction_counts: dict[str, int] = Field(default_factory=dict)  # per-kind breakdown
+    comments: int = 0  # visible comments
+    promote_score: int = 0  # net promote (up - down)
+    promotes_up: int = 0
+    promotes_down: int = 0
+    followers: int = 0  # users following this event
+    bookmarks: int = 0  # users who saved it
 
 
 # --- comments -------------------------------------------------------------------------
