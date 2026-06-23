@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from chronos_core.domain.temporal import TimePrecision, datetime_to_t
 from chronos_core.schemas.event import GeoPoint
@@ -163,6 +164,184 @@ def normalize_rss(entry: dict, *, feed_publisher: str | None = None) -> Candidat
         source_published_at=published,
         source_kind="news",
         media=extract_media(entry),
+    )
+
+
+# ── ActivityPub (ActivityStreams 2.0 `Video`, e.g. PeerTube) ───────────────────────────────
+#
+# PeerTube — the fediverse's video platform — exposes every video as an AS2 ``Video`` object
+# (content-negotiated with ``Accept: application/activity+json``). The playable file lives in
+# the ``url`` array as ``Link`` objects (one per resolution: ``mediaType: video/mp4`` for the
+# direct files, plus an ``application/x-mpegURL`` HLS playlist whose nested ``tag`` carries the
+# per-resolution mp4 links). We map that object to the same CandidateEvent every other ingestor
+# produces, with the best browser-playable clip as a hero video — so federated clips flow
+# through the unchanged publish → media pipeline and land in the video-first feed.
+
+_TAG_RE = re.compile(r"<[^>]+>")
+# ISO-8601 duration, e.g. "PT1M3S" / "PT45S" / "P1DT2H".
+_ISO_DUR_RE = re.compile(
+    r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$", re.I
+)
+
+
+def strip_html(text: str | None) -> str | None:
+    """Flatten an HTML fragment (PeerTube descriptions are HTML) to plain text."""
+    if not text:
+        return None
+    out = re.sub(r"\s+", " ", _TAG_RE.sub(" ", text)).strip()
+    return out or None
+
+
+def iso8601_duration_to_seconds(value) -> int | None:
+    """Parse an ISO-8601 duration (``PT1M3S``) to whole seconds. Accepts a plain int/float too
+    (some feeds report seconds directly). Returns None when unparseable/zero."""
+    if isinstance(value, (int, float)):
+        return int(value) or None
+    if not isinstance(value, str):
+        return None
+    m = _ISO_DUR_RE.match(value.strip())
+    if not m:
+        return None
+    days, hours, mins, secs = m.groups()
+    total = (
+        (int(days) * 86400 if days else 0)
+        + (int(hours) * 3600 if hours else 0)
+        + (int(mins) * 60 if mins else 0)
+        + (int(float(secs)) if secs else 0)
+    )
+    return total or None
+
+
+def _as2_links(url_field) -> list[dict]:
+    """All AS2 ``Link`` dicts under an object's ``url`` (PeerTube nests the per-resolution mp4
+    links inside an HLS link's ``tag`` array, so we descend one level)."""
+    items = url_field if isinstance(url_field, list) else ([url_field] if url_field else [])
+    out: list[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        out.append(it)
+        nested = it.get("tag")
+        if isinstance(nested, list):
+            out.extend(t for t in nested if isinstance(t, dict))
+    return out
+
+
+def _href(link: dict) -> str | None:
+    h = link.get("href") or link.get("id")
+    return h if isinstance(h, str) and h else None
+
+
+def _pick_clip(url_field, max_width: int) -> tuple[str, str, int | None, int | None] | None:
+    """Best browser-playable clip from an AS2 ``url`` array → (mime, href, width, height).
+
+    Prefer a direct **mp4** at the largest width ≤ ``max_width`` (plays in every browser's
+    <video>); fall back to an HLS playlist (``.m3u8``) when no mp4 is offered."""
+    mp4s: list[dict] = []
+    hls: dict | None = None
+    for link in _as2_links(url_field):
+        href = _href(link)
+        if not href:
+            continue
+        mt = (link.get("mediaType") or "").lower()
+        path = href.split("?", 1)[0].lower()
+        if mt == "video/mp4" or path.endswith(".mp4"):
+            mp4s.append(link)
+        elif mt in ("application/x-mpegurl", "application/vnd.apple.mpegurl") or path.endswith(".m3u8"):
+            hls = hls or link
+    if mp4s:
+        def width(l: dict) -> int:
+            return int(l.get("width") or l.get("height") or 0)
+
+        under = [l for l in mp4s if 0 < width(l) <= max_width]
+        chosen = max(under or mp4s, key=width)
+        return ("video/mp4", _href(chosen), chosen.get("width"), chosen.get("height"))  # type: ignore[arg-type]
+    if hls:
+        return ("application/x-mpegURL", _href(hls), hls.get("width"), hls.get("height"))  # type: ignore[arg-type]
+    return None
+
+
+def _html_watch_url(url_field) -> str | None:
+    """The human watch page (``mediaType: text/html``) for provenance / source-url dedup."""
+    for link in _as2_links(url_field):
+        if (link.get("mediaType") or "").lower() == "text/html":
+            return _href(link)
+    return None
+
+
+def _as2_datetime(value) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _as2_hashtags(tag_field) -> list[str]:
+    out: list[str] = []
+    for t in tag_field if isinstance(tag_field, list) else []:
+        if isinstance(t, dict) and (t.get("type") == "Hashtag") and t.get("name"):
+            out.append(str(t["name"]).lstrip("#").strip())
+    return [h for h in out if h]
+
+
+def normalize_activitypub_video(
+    obj: dict,
+    *,
+    instance_host: str | None = None,
+    max_clip_width: int = 720,
+    max_duration_s: int | None = None,
+) -> CandidateEvent | None:
+    """Normalize one AS2 ``Video`` object (PeerTube/fediverse) into a CandidateEvent.
+
+    Requires a title and a playable clip URL. ``max_duration_s`` skips overly-long videos so the
+    short-form feed stays clip-shaped. Pure: no I/O — the adapter does the fetching."""
+    if not isinstance(obj, dict) or obj.get("type") != "Video":
+        return None
+    name = (obj.get("name") or "").strip()
+    if not name:
+        return None
+    duration_s = iso8601_duration_to_seconds(obj.get("duration"))
+    if max_duration_s and duration_s and duration_s > max_duration_s:
+        return None
+    clip = _pick_clip(obj.get("url"), max_clip_width)
+    if clip is None:
+        return None
+    mime, href, width, height = clip
+    obj_id = obj.get("id") if isinstance(obj.get("id"), str) else None
+    source_url = _html_watch_url(obj.get("url")) or obj_id
+    if not source_url:
+        return None
+    published = _as2_datetime(obj.get("published"))
+    t_start = datetime_to_t(published or datetime.now(UTC))
+    host = instance_host or urlparse(source_url).netloc or None
+    cat = obj.get("category")
+    category = (
+        str(cat["name"]).strip().lower()
+        if isinstance(cat, dict) and cat.get("name")
+        else "video"
+    )
+    tags = [*_as2_hashtags(obj.get("tag")), "video", "fediverse"]
+    return CandidateEvent(
+        title=name[:140],
+        summary=strip_html(obj.get("content") or obj.get("summary")),
+        t_start=t_start,
+        time_precision=TimePrecision.DAY,
+        instant=published,
+        category=category,
+        tags=list(dict.fromkeys(tags))[:8],  # dedup, keep order
+        source_url=source_url,
+        source_title=name[:200],
+        source_publisher=host,
+        source_published_at=published,
+        source_kind="fediverse",
+        media=[
+            CandidateMedia(
+                kind="video", url=href, mime=mime,
+                width=width, height=height, duration_s=duration_s, caption=name[:200],
+            )
+        ],
     )
 
 
