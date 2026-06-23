@@ -49,10 +49,20 @@ List<MediaRead> orderMediaClipsFirst(List<MediaRead> items) {
 /// hero plus a visible gallery strip with a "+N" affordance into the fullscreen carousel.
 /// Renders nothing when there is no showable media.
 class MediaGallery extends StatelessWidget {
-  const MediaGallery({super.key, required this.api, required this.items});
+  const MediaGallery({
+    super.key,
+    required this.api,
+    required this.items,
+    this.stillHero = false,
+  });
 
   final ApiClient api;
   final List<MediaRead> items;
+
+  /// When true, a video hero shows a **static poster** (with a play glyph) instead of an
+  /// autoplaying muted preview — used where the clip should not replay (e.g. the Info sheet).
+  /// Tapping still opens the fullscreen viewer with sound.
+  final bool stillHero;
 
   /// Up to this many tiles sit in the strip; the rest collapse behind the "+N" tile.
   static const int _stripCap = 4;
@@ -83,7 +93,13 @@ class MediaGallery extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _HeroTile(api: api, media: hero, height: heroHeight, onTap: () => open(0)),
+          _HeroTile(
+            api: api,
+            media: hero,
+            height: heroHeight,
+            still: stillHero,
+            onTap: () => open(0),
+          ),
           if (rest.isNotEmpty) ...[
             const SizedBox(height: 8),
             SizedBox(
@@ -127,6 +143,7 @@ class _HeroTile extends StatelessWidget {
     required this.media,
     required this.height,
     required this.onTap,
+    this.still = false,
   });
 
   final ApiClient api;
@@ -134,9 +151,12 @@ class _HeroTile extends StatelessWidget {
   final double height;
   final VoidCallback onTap;
 
+  /// Show a static poster for a video hero instead of an autoplaying preview.
+  final bool still;
+
   @override
   Widget build(BuildContext context) {
-    final Widget content = media.kind == 'video'
+    final Widget content = (media.kind == 'video' && !still)
         ? _ClipPreview(
             url: media.embedUrl ?? api.mediaUrl(media.id),
             poster: MediaThumb(api: api, media: media, hero: true),

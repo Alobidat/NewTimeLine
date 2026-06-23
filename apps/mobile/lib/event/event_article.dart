@@ -170,7 +170,9 @@ class _EventArticleState extends State<EventArticle> {
         // 2. Media — hero (clip-preferred) + expandable gallery.
         if (media.isNotEmpty) ...[
           const SizedBox(height: 12),
-          MediaGallery(api: widget.api, items: media),
+          // Info/article context: show a still poster for clips (no autoplay replay); tapping
+          // opens the fullscreen viewer with sound.
+          MediaGallery(api: widget.api, items: media, stillHero: true),
         ],
 
         if (widget.footerExtra != null) ...[
