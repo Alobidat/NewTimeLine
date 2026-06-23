@@ -15,6 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 __all__ = [
+    "CommentAuthor",
     "CommentCreate",
     "CommentUpdate",
     "CommentRead",
@@ -49,8 +50,18 @@ class CommentUpdate(BaseModel):
     body: str = Field(min_length=1, max_length=10_000)
 
 
+class CommentAuthor(BaseModel):
+    """The public identity of a comment's author (for the avatar + profile link)."""
+
+    id: uuid.UUID
+    handle: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+
 class CommentRead(BaseModel):
-    """A comment as returned to clients."""
+    """A comment as returned to clients, enriched with its author + reaction state so a thread
+    renders in one round-trip."""
 
     id: uuid.UUID
     event_id: uuid.UUID
@@ -61,6 +72,10 @@ class CommentRead(BaseModel):
     status: CommentStatus
     created_at: datetime
     updated_at: datetime
+    author: CommentAuthor | None = None
+    # Aggregate reaction counts per kind on this comment + the caller's own kinds.
+    reactions: dict[str, int] = Field(default_factory=dict)
+    my_reactions: list[str] = Field(default_factory=list)
 
 
 # --- reactions ------------------------------------------------------------------------

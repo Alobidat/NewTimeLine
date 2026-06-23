@@ -133,6 +133,7 @@ class UserMe(BaseModel):
     id: uuid.UUID
     handle: str
     display_name: str | None = None
+    avatar_url: str | None = None
     email: str | None = None
     email_verified: bool
     reputation: int

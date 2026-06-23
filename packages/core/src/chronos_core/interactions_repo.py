@@ -21,10 +21,12 @@ from chronos_core.models.interaction import (
     REACTION_KINDS,
     VOTE_VERDICTS,
     Comment,
+    CommentReaction,
     Reaction,
     SourceVote,
 )
 from chronos_core.models.relation import EventRelation
+from chronos_core.models.user import User
 
 # --- validation helpers ---------------------------------------------------------------
 
@@ -166,6 +168,77 @@ async def reactions_of(
         )
     ).all()
     return list(rows)
+
+
+# --- comment reactions + author enrichment --------------------------------------------
+
+
+async def toggle_comment_reaction(
+    session: AsyncSession, *, comment_id: uuid.UUID, user_id: uuid.UUID, kind: str
+) -> bool:
+    """Toggle one reaction kind for (user, comment). Returns the new active state. Same kind
+    vocabulary as event reactions. Caller commits."""
+    if not is_reaction_kind(kind):
+        raise ValueError(f"invalid reaction kind: {kind}")
+    if await session.get(Comment, comment_id) is None:
+        raise ValueError("comment not found")
+    existing = await session.get(CommentReaction, (user_id, comment_id, kind))
+    if existing is not None:
+        await session.delete(existing)
+        return False
+    session.add(CommentReaction(user_id=user_id, comment_id=comment_id, kind=kind))
+    return True
+
+
+async def comment_reaction_counts(
+    session: AsyncSession, comment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, int]]:
+    """Per-comment reaction counts for a set of comments: ``{comment_id: {kind: n}}``."""
+    if not comment_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(CommentReaction.comment_id, CommentReaction.kind, func.count())
+            .where(CommentReaction.comment_id.in_(comment_ids))
+            .group_by(CommentReaction.comment_id, CommentReaction.kind)
+        )
+    ).all()
+    out: dict[uuid.UUID, dict[str, int]] = {}
+    for cid, kind, count in rows:
+        out.setdefault(cid, {})[kind] = count
+    return out
+
+
+async def comment_reactions_of(
+    session: AsyncSession, comment_ids: list[uuid.UUID], user_id: uuid.UUID
+) -> dict[uuid.UUID, list[str]]:
+    """The kinds the caller set on each of a set of comments: ``{comment_id: [kind, ...]}``."""
+    if not comment_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(CommentReaction.comment_id, CommentReaction.kind).where(
+                CommentReaction.comment_id.in_(comment_ids),
+                CommentReaction.user_id == user_id,
+            )
+        )
+    ).all()
+    out: dict[uuid.UUID, list[str]] = {}
+    for cid, kind in rows:
+        out.setdefault(cid, []).append(kind)
+    return out
+
+
+async def comment_authors(
+    session: AsyncSession, user_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, User]:
+    """Batch-fetch the author ``User`` rows for a set of comment user_ids (for avatar + name)."""
+    if not user_ids:
+        return {}
+    rows = (
+        await session.scalars(select(User).where(User.id.in_(set(user_ids))))
+    ).all()
+    return {u.id: u for u in rows}
 
 
 # --- source votes ---------------------------------------------------------------------

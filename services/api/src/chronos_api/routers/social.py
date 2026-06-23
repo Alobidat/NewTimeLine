@@ -29,6 +29,9 @@ from chronos_core.schemas.social import (
     PromoteCast,
     PromoteResult,
     PromoteSummary,
+    UserProfile,
+    UserSummary,
+    UserSummaryList,
 )
 from chronos_core.settings import get_settings
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -155,6 +158,90 @@ async def list_following(
     return FollowList(
         items=[FollowTarget(target_type=t, target_id=i) for t, i in edges], count=count
     )
+
+
+# --- user profiles --------------------------------------------------------------------
+
+
+async def _summaries(
+    session: AsyncSession, ids: list[uuid.UUID], caller: uuid.UUID
+) -> UserSummaryList:
+    """Resolve a list of user ids to ``UserSummary`` rows (order preserved), marking which
+    ones the caller follows."""
+    users = await repo.users_by_ids(session, ids)
+    followed = await repo.following_user_ids_among(
+        session, user_id=caller, candidate_ids=ids
+    )
+    items = [
+        UserSummary(
+            id=u.id,
+            handle=u.handle,
+            display_name=u.display_name,
+            avatar_url=u.avatar_url,
+            following=u.id in followed,
+        )
+        for uid in ids
+        if (u := users.get(uid)) is not None
+    ]
+    return UserSummaryList(items=items, count=len(items))
+
+
+@router.get("/users/{user_id}", response_model=UserProfile)
+async def user_profile(
+    user_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> UserProfile:
+    """A public user profile + the caller's relation (follow state / is-self)."""
+    user = await repo.get_user(session, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    return UserProfile(
+        id=user.id,
+        handle=user.handle,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        reputation=user.reputation,
+        followers=await repo.follower_count(
+            session, target_type="user", target_id=user_id
+        ),
+        following=await repo.following_count(session, user_id=user_id),
+        is_following=await repo.is_following(
+            session, user_id=actor, target_type="user", target_id=user_id
+        ),
+        is_self=str(actor) == str(user_id),
+    )
+
+
+@router.get("/users/{user_id}/followers", response_model=UserSummaryList)
+async def user_followers(
+    user_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> UserSummaryList:
+    """The users who follow ``user_id`` (most-recent-first), each marked if the caller follows."""
+    ids = await repo.followers(
+        session, target_type="user", target_id=user_id, limit=limit, offset=offset
+    )
+    return await _summaries(session, ids, actor)
+
+
+@router.get("/users/{user_id}/following", response_model=UserSummaryList)
+async def user_following(
+    user_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> UserSummaryList:
+    """The *users* ``user_id`` follows (most-recent-first), each marked if the caller follows."""
+    edges = await repo.following(
+        session, user_id=user_id, target_type="user", limit=limit, offset=offset
+    )
+    ids = [tid for _t, tid in edges]
+    return await _summaries(session, ids, actor)
 
 
 # --- bookmarks ------------------------------------------------------------------------

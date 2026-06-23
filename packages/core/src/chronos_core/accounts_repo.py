@@ -70,6 +70,7 @@ async def provision_from_identity(
     email: str | None,
     email_verified: bool,
     name: str | None,
+    avatar: str | None = None,
 ) -> tuple[User, bool]:
     """Resolve/create the user for a verified provider identity. Returns (user, created).
 
@@ -82,6 +83,8 @@ async def provision_from_identity(
         if email_verified and email and not existing.email_verified:
             existing.email = existing.email or email.lower()
             existing.email_verified = True
+        if avatar and not existing.avatar_url:
+            existing.avatar_url = avatar  # backfill a picture once a provider supplies one
         return existing, False
 
     user: User | None = None
@@ -95,6 +98,7 @@ async def provision_from_identity(
         user = User(
             handle=_derive_handle(name or email or "user", uuid.uuid4().hex),
             display_name=name,
+            avatar_url=avatar,
             email=email.lower() if email else None,
             email_verified=bool(email and email_verified),
         )

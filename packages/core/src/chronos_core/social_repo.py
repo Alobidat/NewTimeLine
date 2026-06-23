@@ -26,6 +26,7 @@ from chronos_core.models.social import (
     Follow,
     Promote,
 )
+from chronos_core.models.user import User
 
 # --- validation helpers ---------------------------------------------------------------
 
@@ -130,6 +131,39 @@ async def following_count(session: AsyncSession, *, user_id: uuid.UUID) -> int:
         )
         or 0
     )
+
+
+async def users_by_ids(
+    session: AsyncSession, ids: list[uuid.UUID]
+) -> dict[uuid.UUID, User]:
+    """Batch-fetch ``User`` rows for a set of ids (followers/following list rendering)."""
+    if not ids:
+        return {}
+    rows = (await session.scalars(select(User).where(User.id.in_(set(ids))))).all()
+    return {u.id: u for u in rows}
+
+
+async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
+    """Fetch a single user (public profile)."""
+    return await session.get(User, user_id)
+
+
+async def following_user_ids_among(
+    session: AsyncSession, *, user_id: uuid.UUID, candidate_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Which of ``candidate_ids`` the caller follows (for follow-back buttons in lists)."""
+    if not candidate_ids:
+        return set()
+    rows = (
+        await session.scalars(
+            select(Follow.target_id).where(
+                Follow.user_id == user_id,
+                Follow.target_type == "user",
+                Follow.target_id.in_(set(candidate_ids)),
+            )
+        )
+    ).all()
+    return set(rows)
 
 
 # --- bookmarks ------------------------------------------------------------------------

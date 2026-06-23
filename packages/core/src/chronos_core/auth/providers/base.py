@@ -31,6 +31,7 @@ class ProviderClaims:
     email: str | None = None
     email_verified: bool = False
     name: str | None = None
+    avatar: str | None = None  # profile picture URL (the OIDC ``picture`` claim), when present
 
 
 @dataclass(frozen=True)

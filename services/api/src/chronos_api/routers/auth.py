@@ -131,6 +131,7 @@ async def _complete_login(
         email=claims.email,
         email_verified=claims.email_verified,
         name=claims.name,
+        avatar=claims.avatar,
     )
     return await _issue_session(session, user)
 

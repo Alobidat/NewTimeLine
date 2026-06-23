@@ -42,11 +42,29 @@ def client(monkeypatch):
     app.include_router(interactions.router)
     app.include_router(links.router)
 
+    class _EmptyResult:
+        def all(self):
+            return []
+
+        def first(self):
+            return None
+
     class _FakeSession:
         """Minimal stand-in: the mutating endpoints flush so the post-write aggregate
-        reflects the change; the repo helpers are monkeypatched, so flush is all that's used."""
+        reflects the change; the repo helpers are monkeypatched, so flush is all that's used.
+        ``scalars``/``execute``/``get`` return empty so the comment-author/reaction enrichment
+        degrades to no author + no reactions in these wiring tests."""
 
         async def flush(self):
+            return None
+
+        async def scalars(self, *_a, **_k):
+            return _EmptyResult()
+
+        async def execute(self, *_a, **_k):
+            return _EmptyResult()
+
+        async def get(self, *_a, **_k):
             return None
 
     async def _fake_session():

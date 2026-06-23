@@ -19,6 +19,9 @@ __all__ = [
     "FollowCounts",
     "FollowTarget",
     "FollowList",
+    "UserSummary",
+    "UserSummaryList",
+    "UserProfile",
     "BookmarkResult",
     "PromoteCast",
     "PromoteResult",
@@ -31,6 +34,37 @@ __all__ = [
 FollowTargetType = Literal["user", "entity", "event"]
 PromoteTargetType = Literal["event", "relation", "source", "entity"]
 FeedTab = Literal["foryou", "following", "discover"]
+
+
+class UserSummary(BaseModel):
+    """A user in a follower/following list: identity + whether the caller follows them."""
+
+    id: uuid.UUID
+    handle: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+    following: bool = False  # does the *caller* follow this user (for a follow-back button)
+
+
+class UserSummaryList(BaseModel):
+    """A page of users (followers or following)."""
+
+    items: list[UserSummary] = Field(default_factory=list)
+    count: int = 0
+
+
+class UserProfile(BaseModel):
+    """A public user profile: identity, reputation, follow counts, the caller's relation."""
+
+    id: uuid.UUID
+    handle: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+    reputation: int = 0
+    followers: int = 0
+    following: int = 0
+    is_following: bool = False  # does the caller follow this user
+    is_self: bool = False
 
 
 # --- follows --------------------------------------------------------------------------

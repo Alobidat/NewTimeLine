@@ -50,6 +50,7 @@ class GoogleProvider(AuthProvider):
             email=claims.get("email"),
             email_verified=bool(claims.get("email_verified", False)),
             name=claims.get("name") or claims.get("given_name"),
+            avatar=claims.get("picture"),  # standard OIDC picture URL (Google sets it)
         )
 
 

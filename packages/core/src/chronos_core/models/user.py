@@ -46,6 +46,9 @@ class User(UuidPk, Base):
 
     handle: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(128))
+    # Profile picture URL (the OAuth ``picture`` claim, captured at login). Nullable —
+    # email-login users have none and the client renders an initials avatar instead.
+    avatar_url: Mapped[str | None] = mapped_column(String(1024))
     # Primary email (from a linked identity); nullable until a provider asserts one.
     email: Mapped[str | None] = mapped_column(String(320), unique=True)
     # True once a provider asserted a verified email OR the user confirmed an emailed code.

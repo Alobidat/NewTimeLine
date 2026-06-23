@@ -81,6 +81,24 @@ class Reaction(Base):
     __table_args__ = (Index("ix_reactions_event", "event_id"),)
 
 
+class CommentReaction(Base):
+    """A user's reaction to a *comment*. PK on (user, comment, kind) → one of each kind per
+    user per comment. Same kind vocabulary as event reactions (like|dislike|important|doubt)."""
+
+    __tablename__ = "comment_reactions"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    comment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("comments.id", ondelete="CASCADE"), primary_key=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)  # like|dislike|important|doubt
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_comment_reactions_comment", "comment_id"),)
+
+
 class SourceVote(Timestamps, Base):
     """A community verdict on a source's relevance to an event (credibility signal).
 
