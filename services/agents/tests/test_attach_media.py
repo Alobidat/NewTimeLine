@@ -12,6 +12,10 @@ from chronos_core import config_service, repository
 from chronos_agents import publish
 from chronos_agents.normalize import CandidateEvent, CandidateMedia
 
+# Every test here is async; under asyncio STRICT mode each needs the marker (cf.
+# test_wikimedia_quality.py). A module-level pytestmark applies it to all of them.
+pytestmark = pytest.mark.asyncio
+
 
 class _Event:
     id = "evt"
