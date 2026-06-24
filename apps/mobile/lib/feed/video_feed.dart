@@ -433,11 +433,12 @@ class _VideoFeedState extends State<VideoFeed>
     }
   }
 
-  /// Long-press the React button → pick a mutually-exclusive stance (Love/Promote/Demote).
-  Future<void> _chooseReact(FeedItem item) async {
+  /// Long-press the React button → lift a Love/Promote/Demote menu up from the button ([at] is
+  /// the press position) and apply the mutually-exclusive pick.
+  Future<void> _chooseReact(FeedItem item, Offset at) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     if (!mounted) return;
-    final choice = await showReactSelector(context, _reactStateOf(item.event.id));
+    final choice = await showReactSelector(context, _reactStateOf(item.event.id), at);
     if (choice == null || !mounted) return;
     switch (choice) {
       case ReactChoice.love:
@@ -446,6 +447,21 @@ class _VideoFeedState extends State<VideoFeed>
         await _setPromote(item, 1);
       case ReactChoice.demote:
         await _setPromote(item, -1);
+    }
+  }
+
+  /// Long-press the Share button → lift a menu up from the button (Repost / share link).
+  Future<void> _shareMenu(FeedItem item, Offset at) async {
+    final choice = await showShareSelector(
+      context, at,
+      reposted: _reposted.contains(item.event.id),
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case ShareChoice.repost:
+        await _repost(item);
+      case ShareChoice.shareLink:
+        _share(item);
     }
   }
 
@@ -724,11 +740,11 @@ class _VideoFeedState extends State<VideoFeed>
             reactState: _reactStateOf(current.event.id),
             followsAuthor: _followAuthor[current.event.authorId] ?? false,
             onReactLove: () => _loveToggle(current),
-            onReactMenu: () => _chooseReact(current),
+            onReactMenu: (at) => _chooseReact(current, at),
             onComment: () => _comment(current),
             onBookmark: () => _bookmark(current),
             onShare: () => _share(current),
-            onRepost: () => _repost(current),
+            onRepost: (at) => _shareMenu(current, at),
             onInfo: () => _info(current),
             onOpenCreator:
                 current.event.authorId != null ? () => _openCreator(current) : null,

@@ -278,7 +278,7 @@ void main() {
     });
   });
 
-  group('showReactSelector', () {
+  group('showReactSelector (lift-up menu)', () {
     testWidgets('offers the three mutually-exclusive choices + returns the pick',
         (tester) async {
       ReactChoice? picked;
@@ -287,8 +287,8 @@ void main() {
           home: Scaffold(
             body: Builder(
               builder: (ctx) => ElevatedButton(
-                onPressed: () async =>
-                    picked = await showReactSelector(ctx, ReactState.none),
+                onPressed: () async => picked = await showReactSelector(
+                    ctx, ReactState.none, const Offset(200, 400)),
                 child: const Text('open'),
               ),
             ),
@@ -297,7 +297,7 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      // Love / Promote / Demote tiles are present.
+      // Love / Promote / Demote items are present in the anchored popup menu.
       expect(find.byKey(const Key('react-choice-love')), findsOneWidget);
       expect(find.byKey(const Key('react-choice-promote')), findsOneWidget);
       expect(find.byKey(const Key('react-choice-demote')), findsOneWidget);
@@ -305,6 +305,30 @@ void main() {
       await tester.tap(find.byKey(const Key('react-choice-promote')));
       await tester.pumpAndSettle();
       expect(picked, ReactChoice.promote);
+    });
+
+    testWidgets('share menu offers repost + share link', (tester) async {
+      ShareChoice? picked;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () async => picked = await showShareSelector(
+                    ctx, const Offset(200, 400), reposted: false),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('share-choice-repost')), findsOneWidget);
+      expect(find.byKey(const Key('share-choice-link')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('share-choice-repost')));
+      await tester.pumpAndSettle();
+      expect(picked, ShareChoice.repost);
     });
   });
 

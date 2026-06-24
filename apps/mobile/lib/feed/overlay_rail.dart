@@ -75,15 +75,17 @@ class OverlayRail extends StatelessWidget {
   /// Whether the caller already follows the clip's author (hides the "+" follow badge).
   final bool followsAuthor;
 
-  /// React: single tap toggles Love; long-press opens the Love/Promote/Demote selector.
+  /// React: single tap toggles Love; long-press lifts a Love/Promote/Demote menu up from the
+  /// button (the [Offset] is the press position so the menu anchors there).
   final VoidCallback onReactLove;
-  final VoidCallback onReactMenu;
+  final void Function(Offset at) onReactMenu;
   final VoidCallback onComment;
   final VoidCallback onBookmark;
 
-  /// Share: tap opens the share sheet; long-press reposts the clip to the caller's followers.
+  /// Share: tap opens the share sheet; long-press lifts a menu up from the button (Repost / share
+  /// link) anchored at the press position.
   final VoidCallback onShare;
-  final VoidCallback onRepost;
+  final void Function(Offset at) onRepost;
 
   /// Opens the event's article/metadata sheet — wired to the caption's "…more".
   final VoidCallback onInfo;
@@ -285,7 +287,10 @@ class _RailButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
+
+  /// Long-press handler; receives the global press position so the host can lift a popup menu
+  /// up from the button itself (not a bottom drawer).
+  final void Function(Offset globalPosition)? onLongPress;
   final Color iconColor;
 
   /// Engagement count shown under the icon (TikTok-style). Null → show the action [label]
@@ -304,13 +309,16 @@ class _RailButton extends StatelessWidget {
     final showBadge = count != null && count! > 0;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
-      child: InkResponse(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        radius: 26,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart:
+            onLongPress == null ? null : (d) => onLongPress!(d.globalPosition),
+        child: InkResponse(
+          onTap: onTap,
+          radius: 26,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             // Icon circle + a top-right count badge (notification-style, info-coloured).
             Stack(
               clipBehavior: Clip.none,
@@ -341,6 +349,7 @@ class _RailButton extends StatelessWidget {
               ),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -534,43 +543,71 @@ class _BottomButton extends StatelessWidget {
 /// The React long-press selector: a compact sheet to pick a single mutually-exclusive stance
 /// (Love / Promote / Demote). Returns the chosen [ReactChoice], or null if dismissed. The
 /// [current] stance is highlighted so re-picking it (the host) toggles it back off.
-Future<ReactChoice?> showReactSelector(BuildContext context, ReactState current) {
-  return showModalBottomSheet<ReactChoice>(
+Future<ReactChoice?> showReactSelector(
+  BuildContext context,
+  ReactState current,
+  Offset at,
+) {
+  return showMenu<ReactChoice>(
     context: context,
-    backgroundColor: Theme.of(context).colorScheme.surface,
-    builder: (ctx) {
-      Widget tile(ReactChoice choice, IconData icon, String label, Color color, bool active) {
-        return ListTile(
-          key: Key('react-choice-${choice.name}'),
-          leading: Icon(icon, color: active ? color : null),
-          title: Text(label),
-          trailing: active ? const Icon(Icons.check) : null,
-          selected: active,
-          onTap: () => Navigator.of(ctx).pop(choice),
-        );
-      }
+    position: _anchorAt(context, at),
+    items: [
+      _choiceItem(ReactChoice.love, 'react-choice-love', Icons.favorite, 'Love',
+          Colors.red, current == ReactState.loved),
+      _choiceItem(ReactChoice.promote, 'react-choice-promote', Icons.arrow_upward, 'Promote',
+          Colors.green, current == ReactState.promoted),
+      _choiceItem(ReactChoice.demote, 'react-choice-demote', Icons.arrow_downward, 'Demote',
+          Colors.orange, current == ReactState.demoted),
+    ],
+  );
+}
 
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('React to this clip'),
-              ),
-            ),
-            tile(ReactChoice.love, Icons.favorite, 'Love this',
-                Colors.redAccent, current == ReactState.loved),
-            tile(ReactChoice.promote, Icons.arrow_upward, 'Promote',
-                Colors.green, current == ReactState.promoted),
-            tile(ReactChoice.demote, Icons.arrow_downward, 'Demote',
-                Colors.orange, current == ReactState.demoted),
-            const SizedBox(height: 8),
-          ],
-        ),
-      );
-    },
+/// What the Share long-press menu can do.
+enum ShareChoice { repost, shareLink }
+
+/// The Share long-press menu (lifted up from the button): repost to followers, or share a link.
+Future<ShareChoice?> showShareSelector(
+  BuildContext context,
+  Offset at, {
+  required bool reposted,
+}) {
+  return showMenu<ShareChoice>(
+    context: context,
+    position: _anchorAt(context, at),
+    items: [
+      _choiceItem(ShareChoice.repost, 'share-choice-repost', Icons.repeat,
+          reposted ? 'Reposted' : 'Repost', Colors.green, reposted),
+      _choiceItem(ShareChoice.shareLink, 'share-choice-link', Icons.ios_share,
+          'Share link', Colors.blueAccent, false),
+    ],
+  );
+}
+
+/// Anchor a popup menu at the press position so it "lifts" off the button (showMenu auto-flips
+/// upward near the bottom edge) rather than sliding a drawer up from the screen bottom.
+RelativeRect _anchorAt(BuildContext context, Offset at) {
+  final size = MediaQuery.of(context).size;
+  return RelativeRect.fromLTRB(at.dx, at.dy, size.width - at.dx, size.height - at.dy);
+}
+
+PopupMenuItem<T> _choiceItem<T>(
+  T value,
+  String keyName,
+  IconData icon,
+  String label,
+  Color color,
+  bool active,
+) {
+  return PopupMenuItem<T>(
+    key: Key(keyName),
+    value: value,
+    child: Row(
+      children: [
+        Icon(icon, color: active ? color : null, size: 20),
+        const SizedBox(width: 12),
+        Text(label, style: TextStyle(fontWeight: active ? FontWeight.w700 : null)),
+        if (active) ...[const Spacer(), const Icon(Icons.check, size: 18)],
+      ],
+    ),
   );
 }
