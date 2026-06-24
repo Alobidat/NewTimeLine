@@ -732,6 +732,7 @@ class ApiClient {
     List<int>? fileBytes,
     String? filename,
     String? sourceUrl,
+    String? audience,
   }) async {
     final uri = Uri.parse('$baseUrl/upload');
     final req = http.MultipartRequest('POST', uri)
@@ -743,6 +744,7 @@ class ApiClient {
       ..fields['geo_label'] = geoLabel
       ..fields['actors'] = actorNames.join(',')
       ..fields['links'] = linkEventIds.join(',');
+    if (audience != null) req.fields['audience'] = audience;
     if (sourceUrl != null && sourceUrl.isNotEmpty) {
       req.fields['source_url'] = sourceUrl;
     }

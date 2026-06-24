@@ -24,6 +24,9 @@ from fastapi.testclient import TestClient
 
 
 class _FakeSession:
+    async def get(self, *_a, **_k):
+        return None  # upload's default-audience User lookup → privacy defaults to public
+
     async def flush(self):
         return None
 
@@ -274,9 +277,13 @@ def test_upload_happy_path_stores_and_creates_event(client, monkeypatch):
         id = uuid.uuid4()
 
         class _S:
-            value = "pending"
+            value = "published"
+
+        class _V:
+            value = "public"
 
         status = _S()
+        visibility = _V()
 
     async def fake_create(session, **kw):
         created.update(kw)
@@ -299,7 +306,7 @@ def test_upload_happy_path_stores_and_creates_event(client, monkeypatch):
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["moderation"] == "pending"
+    assert body["status"] == "published" and body["visibility"] == "public"
     assert created["key"].startswith("uploads/")
     assert created["actor_names"] == ["Alice", "Bob"]
     assert created["location_names"] == ["Cairo"]
@@ -326,9 +333,13 @@ def test_upload_from_source_url_when_no_file(client, monkeypatch):
         id = uuid.uuid4()
 
         class _S:
-            value = "pending"
+            value = "published"
+
+        class _V:
+            value = "public"
 
         status = _S()
+        visibility = _V()
 
     async def fake_create(session, **kw):
         created.update(kw)

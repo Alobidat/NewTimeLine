@@ -25,8 +25,10 @@ import uuid
 import httpx
 import redis as redislib
 from chronos_core import config_service, objectstore, upload as upload_core
+from chronos_core.models.user import User
 from chronos_core.run_queue import push_job
 from chronos_core.schemas.event import GeoPoint
+from chronos_core.schemas.privacy import PrivacySettings
 from chronos_core.settings import get_settings
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,10 +118,12 @@ async def upload_video(
     width: int | None = Form(default=None),
     height: int | None = Form(default=None),
     category: str | None = Form(default=None),
+    audience: str | None = Form(default=None),
     session: AsyncSession = Depends(get_session),
     actor: uuid.UUID = Depends(require_verified_actor),
 ) -> dict:
-    """Upload a video clip + metadata → a pending user video event (ADR-0029)."""
+    """Upload a video clip + metadata → an auto-published user video event at the chosen
+    audience (default = the user's ``default_post_audience`` privacy setting)."""
     # --- required-metadata enforcement (ADR-0020 every-event invariant) ---------------
     if not title.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "title is required")
@@ -180,6 +184,13 @@ async def upload_video(
 
     geo = GeoPoint(lon=lon, lat=lat) if (lat is not None and lon is not None) else None
 
+    # Resolve the post audience: explicit form value, else the user's default_post_audience.
+    chosen_audience = (audience or "").strip().lower()
+    if chosen_audience not in ("public", "followers", "friends"):
+        user = await session.get(User, actor)
+        privacy = PrivacySettings.from_prefs(user.prefs if user else None)
+        chosen_audience = privacy.default_post_audience
+
     event = await upload_core.create_video_event(
         session,
         user_id=actor,
@@ -199,17 +210,20 @@ async def upload_video(
         width=width,
         height=height,
         category=category,
+        visibility=chosen_audience,
     )
     await session.flush()
 
     # Resolve a map location via the ADR-0020 cascade (skip if explicit coords supplied). The
-    # geocode agent only processes PUBLISHED events, so this takes effect once the event clears
-    # the moderation stub; tagged location entities still carry the who/where in the meantime.
+    # event is published immediately, so the geocode agent picks it up right away.
     if geo is None:
         _enqueue_geocode()
 
     return {
         "event_id": str(event.id),
         "status": event.status.value if hasattr(event.status, "value") else str(event.status),
-        "moderation": "pending",
+        "visibility": (
+            event.visibility.value if hasattr(event.visibility, "value")
+            else str(event.visibility)
+        ),
     }

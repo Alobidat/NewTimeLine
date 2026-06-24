@@ -27,7 +27,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_core import repository
-from chronos_core.models.enums import EventStatus
+from chronos_core.models.enums import EventStatus, EventVisibility
 from chronos_core.models.event import Event
 from chronos_core.models.media import EventMedia, Media
 from chronos_core.schemas.event import EventCreate, GeoPoint
@@ -56,8 +56,10 @@ async def create_video_event(
     width: int | None = None,
     height: int | None = None,
     category: str | None = None,
+    visibility: str | None = None,
 ) -> Event:
-    """Create a pending user video event with its hero clip + metadata. Caller commits."""
+    """Create a **published** user video event with its hero clip + metadata, at the chosen
+    audience ``visibility`` (public|followers|friends). Caller commits."""
     by = str(user_id)
     create = EventCreate(
         title=title,
@@ -71,8 +73,10 @@ async def create_video_event(
         created_by_agent=AGENT,
     )
     event = await repository.create_event(session, create)
-    # Moderation stub: held out of the public feed until reviewed.
-    event.status = EventStatus.PENDING
+    # Auto-publish (Phase 4): the post is live immediately; an async LLM pass (Phase 6) may
+    # flag it for the admin queue afterward. Audience controls who can see it.
+    event.status = EventStatus.PUBLISHED
+    event.visibility = EventVisibility(visibility) if visibility else EventVisibility.PUBLIC
     await session.flush()
 
     # Hero video media (already stored in the object store by the router).

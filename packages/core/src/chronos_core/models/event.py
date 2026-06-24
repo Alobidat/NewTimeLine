@@ -26,7 +26,12 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from chronos_core.db.base import Base
-from chronos_core.models.enums import EventStatus, TimePrecision, pg_enum
+from chronos_core.models.enums import (
+    EventStatus,
+    EventVisibility,
+    TimePrecision,
+    pg_enum,
+)
 from chronos_core.models.mixins import Timestamps, UuidPk
 
 # Embedding dimension placeholder (Phase 3 fills the column). Keep configurable.
@@ -34,6 +39,7 @@ EMBEDDING_DIM = 1024
 
 _precision_enum = pg_enum(TimePrecision, "time_precision")
 _status_enum = pg_enum(EventStatus, "event_status")
+_visibility_enum = pg_enum(EventVisibility, "event_visibility")
 
 
 class Event(UuidPk, Timestamps, Base):
@@ -71,6 +77,10 @@ class Event(UuidPk, Timestamps, Base):
 
     status: Mapped[EventStatus] = mapped_column(
         _status_enum, nullable=False, default=EventStatus.PUBLISHED
+    )
+    # Per-post audience (user uploads); agent/seed/bot events are PUBLIC by construction.
+    visibility: Mapped[EventVisibility] = mapped_column(
+        _visibility_enum, nullable=False, default=EventVisibility.PUBLIC
     )
     merged_into: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("events.id", ondelete="SET NULL")

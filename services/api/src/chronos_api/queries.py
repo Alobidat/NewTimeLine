@@ -36,7 +36,7 @@ _SUMMARY_REPS = 12
 # Shared projection: an event row + representative point (centroid) as lon/lat.
 _EVENT_COLS = """
     id, title, summary, t_start, t_end, time_precision, instant, category, tags,
-    severity, confidence, source_count, geo_label, status,
+    severity, confidence, source_count, geo_label, status, visibility,
     CASE WHEN geom IS NOT NULL THEN ST_X(ST_Centroid(geom)) END AS lon,
     CASE WHEN geom IS NOT NULL THEN ST_Y(ST_Centroid(geom)) END AS lat
 """
@@ -63,8 +63,8 @@ def _event_read(row) -> EventRead:
         geo=_geo(row),
         geo_label=row.geo_label,
         status=row.status,
-        # Only the feed projection joins the hero media's uploader; other callers
-        # (timeline/map/detail) omit the column, so default to None.
+        # Projections that don't select these default safely (visibility→public, author→None).
+        visibility=str(getattr(row, "visibility", "public") or "public"),
         author_id=getattr(row, "author_id", None),
     )
 

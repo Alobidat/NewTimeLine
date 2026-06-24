@@ -37,6 +37,14 @@ class EventStatus(StrEnum):
     PENDING = "pending"
 
 
+class EventVisibility(StrEnum):
+    """Per-post audience for a user-authored event (agent/seed/bot events are ``PUBLIC``)."""
+
+    PUBLIC = "public"
+    FOLLOWERS = "followers"
+    FRIENDS = "friends"
+
+
 class IngestState(StrEnum):
     """Processing state of a raw ingested item."""
 

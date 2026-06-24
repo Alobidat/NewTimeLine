@@ -31,6 +31,7 @@ from chronos_api.queries import _event_read  # shared event projection
 _FEED_COLS = """
     e.id, e.title, e.summary, e.t_start, e.t_end, e.time_precision, e.instant,
     e.category, e.tags, e.severity, e.confidence, e.source_count, e.geo_label, e.status,
+    e.visibility,
     CASE WHEN e.geom IS NOT NULL THEN ST_X(ST_Centroid(e.geom)) END AS lon,
     CASE WHEN e.geom IS NOT NULL THEN ST_Y(ST_Centroid(e.geom)) END AS lat,
     h.media_id AS hero_media_id,

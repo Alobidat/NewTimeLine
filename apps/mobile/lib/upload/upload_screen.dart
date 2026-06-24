@@ -36,6 +36,7 @@ class _UploadScreenState extends State<UploadScreen> {
   final _links = TextEditingController();
   final _sourceUrl = TextEditingController();
 
+  String _audience = 'public'; // who can see this post
   bool _busy = false;
 
   @override
@@ -75,6 +76,7 @@ class _UploadScreenState extends State<UploadScreen> {
         actorNames: _csv(_actors.text),
         linkEventIds: _csv(_links.text),
         sourceUrl: _sourceUrl.text.trim(),
+        audience: _audience,
       );
       if (!mounted) return;
       _snack(result.isPending
@@ -180,6 +182,22 @@ class _UploadScreenState extends State<UploadScreen> {
                   final uri = Uri.tryParse(s);
                   return (uri != null && uri.hasScheme) ? null : 'Enter a valid URL';
                 },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                key: const Key('upload-audience'),
+                initialValue: _audience,
+                decoration: const InputDecoration(
+                  labelText: 'Who can see this',
+                  prefixIcon: Icon(Icons.visibility_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'public', child: Text('Public — everyone')),
+                  DropdownMenuItem(value: 'followers', child: Text('Followers')),
+                  DropdownMenuItem(value: 'friends', child: Text('Friends only')),
+                ],
+                onChanged: (v) => setState(() => _audience = v ?? 'public'),
               ),
               const SizedBox(height: 24),
               FilledButton.icon(

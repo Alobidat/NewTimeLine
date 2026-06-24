@@ -32,6 +32,7 @@ class EventRead {
     this.geoLabel,
     this.tags = const [],
     this.authorId,
+    this.visibility = 'public',
   });
 
   final String id;
@@ -53,6 +54,9 @@ class EventRead {
   /// agent/seed events. Drives the feed's "follow the creator" affordance.
   final String? authorId;
 
+  /// Per-post audience (public|followers|friends).
+  final String visibility;
+
   static DateTime? _dt(Object? v) =>
       v == null ? null : DateTime.tryParse(v as String);
 
@@ -72,6 +76,7 @@ class EventRead {
     geo: GeoPoint.fromJson(j['geo'] as Map<String, dynamic>?),
     geoLabel: j['geo_label'] as String?,
     authorId: j['author_id'] as String?,
+    visibility: j['visibility'] as String? ?? 'public',
   );
 }
 
