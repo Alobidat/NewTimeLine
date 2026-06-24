@@ -42,33 +42,42 @@ def _embed_text(event: Event) -> str:
     return ". ".join(parts)
 
 
+# Embed in small sub-chunks so one bad/oversized input can't 400 the whole batch (some
+# OpenAI-compatible /embeddings servers reject a large multi-input call or an empty string).
+_EMBED_CHUNK = 8
+
+
 async def _embed_batch(
     session: AsyncSession,
     events: list[Event],
     embedder,
 ) -> int:
-    """Compute and store embeddings for a batch of events. Returns count stored."""
-    texts = [_embed_text(e) for e in events]
-    try:
-        vectors = await embedder.embed(texts)
-    except Exception:
-        log.exception("embedding API call failed for batch of %d events", len(events))
-        return 0
-
-    if len(vectors) != len(events):
-        log.warning("embedder returned %d vectors for %d events", len(vectors), len(events))
-        return 0
-
+    """Compute and store embeddings for a batch of events. Returns count stored. Resilient: a
+    failing sub-chunk is skipped (logged) rather than dropping the whole batch."""
     stored = 0
-    for event, vec in zip(events, vectors):
-        if len(vec) != EMBEDDING_DIM:
-            log.warning(
-                "event %s: got %d-dim vector, expected %d (check llm.embedding.model)",
-                event.id, len(vec), EMBEDDING_DIM,
-            )
+    for start in range(0, len(events), _EMBED_CHUNK):
+        chunk = events[start : start + _EMBED_CHUNK]
+        # Never send an empty string (a 400 trigger on some servers) — fall back to the title;
+        # and cap length so an over-long event can't exceed the embedding model's context (~512
+        # tokens) and 400 the request.
+        texts = [(_embed_text(e) or e.title or "event")[:1500] for e in chunk]
+        try:
+            vectors = await embedder.embed(texts)
+        except Exception:
+            log.warning("embedding sub-chunk of %d failed; skipping", len(chunk), exc_info=True)
             continue
-        event.embedding = vec
-        stored += 1
+        if len(vectors) != len(chunk):
+            log.warning("embedder returned %d vectors for %d events", len(vectors), len(chunk))
+            continue
+        for event, vec in zip(chunk, vectors):
+            if len(vec) != EMBEDDING_DIM:
+                log.warning(
+                    "event %s: got %d-dim vector, expected %d (check llm.embedding.model)",
+                    event.id, len(vec), EMBEDDING_DIM,
+                )
+                continue
+            event.embedding = vec
+            stored += 1
     return stored
 
 
