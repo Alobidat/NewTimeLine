@@ -12,11 +12,13 @@ import 'package:flutter/material.dart';
 import '../account/account_screen.dart';
 import '../api/client.dart';
 import '../api/models.dart';
+import '../auth/interaction_gate.dart';
 import '../auth/login_screen.dart';
 import '../domain/time_format.dart';
 import '../state/auth_state.dart';
 import 'avatar.dart';
 import 'follow_list_screen.dart';
+import 'user_profile_page.dart';
 import 'friend_requests_screen.dart';
 import 'privacy_settings_screen.dart';
 
@@ -38,6 +40,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   InterestProfile? _interests;
   List<EventRead>? _uploads;
   List<EventRead>? _saved;
+  List<UserSummary>? _suggested;
   bool _loading = false;
 
   @override
@@ -55,6 +58,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _api.interests().then<Object?>((v) => v).catchError((_) => null),
       _api.myUploads().then<Object?>((v) => v).catchError((_) => null),
       _api.myBookmarks().then<Object?>((v) => v).catchError((_) => null),
+      _api.suggestedFollows().then<Object?>((v) => v).catchError((_) => null),
     ]);
     if (!mounted) return;
     setState(() {
@@ -62,6 +66,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _interests = results[1] as InterestProfile?;
       _uploads = results[2] as List<EventRead>?;
       _saved = results[3] as List<EventRead>?;
+      _suggested = results[4] as List<UserSummary>?;
       _loading = false;
     });
   }
@@ -188,6 +193,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       if (_loading) const LinearProgressIndicator(),
                       const SizedBox(height: 8),
                       _InterestsSection(profile: _interests),
+                      _SuggestedFollows(
+                        api: _api,
+                        auth: _auth,
+                        users: _suggested,
+                      ),
                     ],
                   ),
                 ),
@@ -451,6 +461,107 @@ class _EventListTab extends StatelessWidget {
                 );
               },
             ),
+    );
+  }
+}
+
+/// A horizontal "Suggested for you" strip (Phase 5 recommendations): creators who post about
+/// what you engage with. Each card has a Follow button (optimistic) and taps through to the
+/// profile. Hidden until at least one suggestion loads.
+class _SuggestedFollows extends StatefulWidget {
+  const _SuggestedFollows({required this.api, required this.auth, required this.users});
+  final ApiClient api;
+  final AuthState auth;
+  final List<UserSummary>? users;
+
+  @override
+  State<_SuggestedFollows> createState() => _SuggestedFollowsState();
+}
+
+class _SuggestedFollowsState extends State<_SuggestedFollows> {
+  final Set<String> _followed = {};
+
+  Future<void> _follow(UserSummary u) async {
+    if (_followed.contains(u.id)) return;
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    setState(() => _followed.add(u.id)); // optimistic
+    try {
+      await widget.api.follow('user', u.id);
+    } catch (_) {
+      if (mounted) setState(() => _followed.remove(u.id));
+    }
+  }
+
+  void _open(UserSummary u) => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              UserProfilePage(api: widget.api, auth: widget.auth, userId: u.id),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final users = widget.users ?? const <UserSummary>[];
+    if (users.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text('Suggested for you',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 158,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: users.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (_, i) {
+              final u = users[i];
+              final followed = _followed.contains(u.id);
+              return SizedBox(
+                width: 120,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkResponse(
+                          onTap: () => _open(u),
+                          child: Avatar(label: u.label, url: u.avatarUrl, radius: 28),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(u.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                        Text('@${u.handle}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 6),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            key: Key('suggest-follow-$i'),
+                            onPressed: followed ? null : () => _follow(u),
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                            ),
+                            child: Text(followed ? 'Following' : 'Follow'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

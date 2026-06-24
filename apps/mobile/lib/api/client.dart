@@ -622,6 +622,16 @@ class ApiClient {
     await _postJson('/notifications/read', const {});
   }
 
+  /// Suggested creators to follow (`GET /suggest/follows`): people who post about what you
+  /// engage with, minus self + already-followed.
+  Future<List<UserSummary>> suggestedFollows({int limit = 12}) async {
+    final j = await _getJson('/suggest/follows', {'limit': limit.toString()});
+    final items = (j is Map ? j['items'] : j) as List? ?? const [];
+    return items
+        .map((e) => UserSummary.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// The signed-in user's interest profile (`GET /me/interests`): weighted entities/
   /// categories/places the recommender learned from their activity.
   Future<InterestProfile> interests() async => InterestProfile.fromJson(
