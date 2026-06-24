@@ -72,6 +72,9 @@ class SessionToken(BaseModel):
     user_id: uuid.UUID
     email_verified: bool
     needs_agreement: bool  # True if the user still owes a current-version acceptance
+    # The resolved account, so the client has the avatar/handle immediately without relying on
+    # a follow-up /account/me refresh (which can silently fail). The mobile AuthSession reads it.
+    user: "UserMe | None" = None
 
 
 class DevLoginStart(BaseModel):
@@ -145,3 +148,7 @@ class PurgeResult(BaseModel):
     """Per-table delete counts from a GDPR account purge."""
 
     deleted: dict[str, int]
+
+
+# SessionToken forward-references UserMe (defined above it); resolve it now.
+SessionToken.model_rebuild()

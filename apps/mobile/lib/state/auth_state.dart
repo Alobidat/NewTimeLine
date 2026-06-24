@@ -113,7 +113,9 @@ class AuthState extends ChangeNotifier {
       // Best-effort refresh; keep the cached session if the network is down.
       try {
         await refresh();
-      } catch (_) {/* offline / transient — keep cached session */}
+      } catch (e) {
+        debugPrint('AuthState.load: session refresh failed (keeping cached): $e');
+      }
     }
     _loaded = true;
     notifyListeners();
@@ -129,7 +131,9 @@ class AuthState extends ChangeNotifier {
     notifyListeners();
     try {
       await refresh();
-    } catch (_) {/* gates default closed until a successful refresh */}
+    } catch (e) {
+      debugPrint('AuthState.adopt: post-login refresh failed: $e');
+    }
   }
 
   /// Re-fetch the current user + agreement status from the server (after sign-in, verify,
@@ -140,7 +144,8 @@ class AuthState extends ChangeNotifier {
     await _store.write(_token!, _user?.toJson());
     try {
       _agreementAccepted = (await api.agreementStatus()).accepted;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AuthState.refresh: agreement status fetch failed: $e');
       _agreementAccepted = false;
     }
     notifyListeners();

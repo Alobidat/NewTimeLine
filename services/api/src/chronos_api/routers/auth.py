@@ -25,6 +25,7 @@ from chronos_core.schemas.auth import (
     ProviderInfo,
     ProviderList,
     SessionToken,
+    UserMe,
     VerifyConfirm,
     VerifyIssued,
     VerifyRequest,
@@ -58,6 +59,7 @@ async def _issue_session(session: AsyncSession, user) -> SessionToken:
         user_id=user.id,
         email_verified=user.email_verified,
         needs_agreement=bool(version) and not accepted,
+        user=UserMe.model_validate(user, from_attributes=True),
     )
 
 

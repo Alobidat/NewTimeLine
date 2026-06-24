@@ -33,6 +33,20 @@ class Avatar extends StatelessWidget {
     return _palette[sum % _palette.length];
   }
 
+  /// Absolute photo URL, or null to render initials. OAuth pictures are already absolute;
+  /// server-relative avatars (e.g. a bot's `/api/media/{id}/raw`) are resolved against the
+  /// page origin so they load.
+  String? get _resolvedUrl {
+    final u = url;
+    if (u == null || u.isEmpty) return null;
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    if (u.startsWith('/')) {
+      final origin = Uri.base.origin;
+      if (origin.isNotEmpty && origin != 'null') return '$origin$u';
+    }
+    return u;
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = radius * 2;
@@ -50,14 +64,14 @@ class Avatar extends StatelessWidget {
         ),
       ),
     );
-    final hasUrl = url != null && url!.isNotEmpty;
+    final resolved = _resolvedUrl;
     return ClipOval(
       child: SizedBox(
         width: size,
         height: size,
-        child: hasUrl
+        child: resolved != null
             ? Image.network(
-                url!,
+                resolved,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => fallback,
                 loadingBuilder: (ctx, child, p) => p == null ? child : fallback,

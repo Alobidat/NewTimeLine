@@ -116,14 +116,21 @@ async def test_facebook_claims_marked_unverified():
     respx.post("https://graph.facebook.com/v18.0/oauth/access_token").mock(
         return_value=httpx.Response(200, json={"access_token": "at"})
     )
-    respx.get("https://graph.facebook.com/me?fields=id,name,email").mock(
-        return_value=httpx.Response(200, json={"id": "fb-1", "name": "F", "email": "f@x.com"})
+    respx.get(url__startswith="https://graph.facebook.com/me").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "fb-1", "name": "F", "email": "f@x.com",
+                "picture": {"data": {"url": "https://fb/p.jpg"}},
+            },
+        )
     )
     p = FacebookProvider(_cfg("facebook"))
     claims = await oauth.resolve_claims(p, code="c", redirect_uri="https://x/cb", verifier="v")
     assert claims.provider_sub == "fb-1"
     assert claims.email == "f@x.com"
     assert claims.email_verified is False  # FB email always requires our own verification
+    assert claims.avatar == "https://fb/p.jpg"
 
 
 @respx.mock
@@ -131,14 +138,19 @@ async def test_twitter_claims_from_nested_data():
     respx.post("https://api.twitter.com/2/oauth2/token").mock(
         return_value=httpx.Response(200, json={"access_token": "at"})
     )
-    respx.get("https://api.twitter.com/2/users/me").mock(
-        return_value=httpx.Response(200, json={"data": {"id": "tw-7", "username": "handle"}})
+    respx.get(url__startswith="https://api.twitter.com/2/users/me").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": "tw-7", "username": "handle",
+                           "profile_image_url": "https://tw/p.jpg"}},
+        )
     )
     p = TwitterProvider(_cfg("twitter"))
     claims = await oauth.resolve_claims(p, code="c", redirect_uri="https://x/cb", verifier="v")
     assert claims.provider_sub == "tw-7"
     assert claims.email is None
     assert claims.email_verified is False
+    assert claims.avatar == "https://tw/p.jpg"
 
 
 # --- migration import -----------------------------------------------------------------

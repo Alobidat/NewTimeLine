@@ -85,7 +85,7 @@ class FacebookProvider(AuthProvider):
     id = "facebook"
     authorize_url = "https://www.facebook.com/v18.0/dialog/oauth"
     token_url = "https://graph.facebook.com/v18.0/oauth/access_token"
-    userinfo_url = "https://graph.facebook.com/me?fields=id,name,email"
+    userinfo_url = "https://graph.facebook.com/me?fields=id,name,email,picture.type(large)"
     uses_id_token = False
 
     def extract_claims(self, token_response: dict, userinfo: dict | None) -> ProviderClaims:
@@ -93,12 +93,15 @@ class FacebookProvider(AuthProvider):
         # Facebook returns email only if the user granted it + verified it on FB's side; FB
         # does not expose a per-account verified flag, so we treat its email as UNVERIFIED and
         # require our own email verification before write access.
+        # The picture is nested as picture.data.url (the type(large) variant requested above).
+        picture = ((info.get("picture") or {}).get("data") or {}).get("url")
         return ProviderClaims(
             provider=self.id,
             provider_sub=str(info.get("id", "")),
             email=info.get("email"),
             email_verified=False,
             name=info.get("name"),
+            avatar=picture,
         )
 
 
@@ -106,7 +109,7 @@ class TwitterProvider(AuthProvider):
     id = "twitter"
     authorize_url = "https://twitter.com/i/oauth2/authorize"
     token_url = "https://api.twitter.com/2/oauth2/token"
-    userinfo_url = "https://api.twitter.com/2/users/me"
+    userinfo_url = "https://api.twitter.com/2/users/me?user.fields=profile_image_url"
     uses_id_token = False
 
     def extract_claims(self, token_response: dict, userinfo: dict | None) -> ProviderClaims:
@@ -119,6 +122,7 @@ class TwitterProvider(AuthProvider):
             email=data.get("email"),
             email_verified=False,
             name=data.get("name") or data.get("username"),
+            avatar=data.get("profile_image_url"),
         )
 
 

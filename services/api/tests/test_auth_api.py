@@ -171,8 +171,12 @@ def test_dev_login_verify_issues_session(monkeypatch):
     from chronos_core.auth import email as email_mod
 
     uid = uuid.uuid4()
-    user = User(handle="a-abc", display_name=None, email="a@x.com", email_verified=True)
+    user = User(
+        handle="a-abc", display_name=None, email="a@x.com",
+        email_verified=True, reputation=0, prefs={},
+    )
     user.id = uid
+    user.created_at = datetime.now(timezone.utc)  # SessionToken.user (UserMe) needs it
 
     async def _fake_provision(session, **kw):
         assert kw["provider"] == "email"
