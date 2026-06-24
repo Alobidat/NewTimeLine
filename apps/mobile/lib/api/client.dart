@@ -613,6 +613,25 @@ class ApiClient {
     await _getJson('/account/me', const {}) as Map<String, dynamic>,
   );
 
+  /// Update the caller's profile (`PATCH /account/me`). Only the provided fields change; pass
+  /// [privacy] to replace the whole privacy block. Returns the refreshed account.
+  Future<SessionUser> updateAccount({
+    String? displayName,
+    String? bio,
+    String? avatarUrl,
+    PrivacySettings? privacy,
+  }) async {
+    final body = <String, dynamic>{
+      'display_name': ?displayName,
+      'bio': ?bio,
+      'avatar_url': ?avatarUrl,
+      'privacy': ?privacy?.toJson(),
+    };
+    return SessionUser.fromJson(
+      await _patchJson('/account/me', body) as Map<String, dynamic>,
+    );
+  }
+
   /// Absolute URL for the GDPR data export (`GET /account/export`) — a downloadable JSON
   /// archive of everything we hold about the user (ADR-0026). The Bearer is attached when
   /// fetched via [exportData]; this URL is for sharing/opening externally.

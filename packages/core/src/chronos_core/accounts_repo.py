@@ -131,6 +131,26 @@ async def mark_email_verified(session: AsyncSession, user_id: uuid.UUID, email: 
     return user
 
 
+async def update_account(session: AsyncSession, user_id: uuid.UUID, data) -> User | None:
+    """Apply a partial profile update. Only fields *present in the request* (``model_fields_set``)
+    are changed; ``privacy`` is read-modify-written into ``prefs``. Caller commits."""
+    user = await session.get(User, user_id)
+    if user is None:
+        return None
+    fields = data.model_fields_set
+    if "display_name" in fields:
+        user.display_name = data.display_name
+    if "bio" in fields:
+        user.bio = data.bio
+    if "avatar_url" in fields:
+        user.avatar_url = data.avatar_url
+    if "privacy" in fields and data.privacy is not None:
+        # Reassign (not mutate) so SQLAlchemy detects the JSONB change.
+        user.prefs = data.privacy.merged_into(user.prefs)
+    await session.flush()
+    return user
+
+
 # --- agreement ------------------------------------------------------------------------
 
 
@@ -203,6 +223,8 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
             "id": sub,
             "handle": user.handle,
             "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
+            "bio": user.bio,
             "email": user.email,
             "email_verified": user.email_verified,
             "reputation": user.reputation,

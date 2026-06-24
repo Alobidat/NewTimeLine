@@ -49,6 +49,8 @@ class User(UuidPk, Base):
     # Profile picture URL (the OAuth ``picture`` claim, captured at login). Nullable —
     # email-login users have none and the client renders an initials avatar instead.
     avatar_url: Mapped[str | None] = mapped_column(String(1024))
+    # Free-text profile bio (nullable). Audience-gated via prefs['privacy']['bio'].
+    bio: Mapped[str | None] = mapped_column(Text)
     # Primary email (from a linked identity); nullable until a provider asserts one.
     email: Mapped[str | None] = mapped_column(String(320), unique=True)
     # True once a provider asserted a verified email OR the user confirmed an emailed code.

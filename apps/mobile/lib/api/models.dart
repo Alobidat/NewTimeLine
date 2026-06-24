@@ -958,14 +958,18 @@ class SessionUser {
     this.email,
     this.displayName,
     this.avatarUrl,
+    this.bio,
     this.emailVerified = false,
-  });
+    PrivacySettings? privacy,
+  }) : privacy = privacy ?? PrivacySettings();
 
   final String id;
   final String? email;
   final String? displayName;
   final String? avatarUrl;
+  final String? bio;
   final bool emailVerified;
+  final PrivacySettings privacy;
 
   String get label => displayName ?? email ?? id;
 
@@ -974,9 +978,13 @@ class SessionUser {
     email: j['email'] as String?,
     displayName: (j['display_name'] ?? j['name']) as String?,
     avatarUrl: (j['avatar_url'] ?? j['picture']) as String?,
+    bio: j['bio'] as String?,
     emailVerified: (j['email_verified'] as bool?) ??
         (j['verified'] as bool?) ??
         false,
+    privacy: j['privacy'] is Map<String, dynamic>
+        ? PrivacySettings.fromJson(j['privacy'] as Map<String, dynamic>)
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -984,8 +992,65 @@ class SessionUser {
     'email': ?email,
     'display_name': ?displayName,
     'avatar_url': ?avatarUrl,
+    'bio': ?bio,
     'email_verified': emailVerified,
+    'privacy': privacy.toJson(),
   };
+}
+
+/// Per-profile privacy settings (each facet's minimum viewable audience + default post
+/// audience). Mirrors the backend ``PrivacySettings``; absent ⇒ all-public.
+class PrivacySettings {
+  PrivacySettings({
+    this.bio = 'public',
+    this.posts = 'public',
+    this.followers = 'public',
+    this.following = 'public',
+    this.interactions = 'public',
+    this.defaultPostAudience = 'public',
+  });
+
+  final String bio;
+  final String posts;
+  final String followers;
+  final String following;
+  final String interactions;
+  final String defaultPostAudience; // public|followers|friends
+
+  factory PrivacySettings.fromJson(Map<String, dynamic> j) => PrivacySettings(
+    bio: j['bio'] as String? ?? 'public',
+    posts: j['posts'] as String? ?? 'public',
+    followers: j['followers'] as String? ?? 'public',
+    following: j['following'] as String? ?? 'public',
+    interactions: j['interactions'] as String? ?? 'public',
+    defaultPostAudience: j['default_post_audience'] as String? ?? 'public',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'bio': bio,
+    'posts': posts,
+    'followers': followers,
+    'following': following,
+    'interactions': interactions,
+    'default_post_audience': defaultPostAudience,
+  };
+
+  PrivacySettings copyWith({
+    String? bio,
+    String? posts,
+    String? followers,
+    String? following,
+    String? interactions,
+    String? defaultPostAudience,
+  }) =>
+      PrivacySettings(
+        bio: bio ?? this.bio,
+        posts: posts ?? this.posts,
+        followers: followers ?? this.followers,
+        following: following ?? this.following,
+        interactions: interactions ?? this.interactions,
+        defaultPostAudience: defaultPostAudience ?? this.defaultPostAudience,
+      );
 }
 
 /// The result of a completed OAuth callback (`/auth/{provider}/callback`): the session JWT

@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from chronos_core.schemas.privacy import PrivacySettings
+
 # Plain str (not pydantic EmailStr) so we don't add the email-validator dependency; the
 # format is sanity-checked at the router. Verification mail proves real ownership anyway.
 EmailStr = str
@@ -137,11 +139,22 @@ class UserMe(BaseModel):
     handle: str
     display_name: str | None = None
     avatar_url: str | None = None
+    bio: str | None = None
     email: str | None = None
     email_verified: bool
     reputation: int
     prefs: dict = Field(default_factory=dict)
+    privacy: "PrivacySettings | None" = None
     created_at: datetime
+
+    @classmethod
+    def from_user(cls, user) -> "UserMe":  # noqa: ANN001 - User ORM row
+        """Build from a ``User`` row, decoding the privacy block out of ``prefs``."""
+        from chronos_core.schemas.privacy import PrivacySettings
+
+        me = cls.model_validate(user, from_attributes=True)
+        me.privacy = PrivacySettings.from_prefs(user.prefs)
+        return me
 
 
 class PurgeResult(BaseModel):
@@ -150,5 +163,6 @@ class PurgeResult(BaseModel):
     deleted: dict[str, int]
 
 
-# SessionToken forward-references UserMe (defined above it); resolve it now.
+# Resolve forward refs (SessionToken→UserMe, UserMe→PrivacySettings).
+UserMe.model_rebuild()
 SessionToken.model_rebuild()

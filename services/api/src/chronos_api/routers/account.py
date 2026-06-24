@@ -16,10 +16,11 @@ import uuid
 
 from chronos_core import accounts_repo, objectstore
 from chronos_core.models.user import User
+from chronos_core.schemas.account import AccountUpdate
 from chronos_core.schemas.auth import PurgeResult, UserMe
 from chronos_core.schemas.event import EventRead
 from chronos_core.settings import get_settings
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +47,22 @@ async def me(
     user = await session.get(User, actor)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "account not found")
-    return UserMe.model_validate(user, from_attributes=True)
+    return UserMe.from_user(user)
+
+
+@router.patch("/me", response_model=UserMe)
+async def update_me(
+    data: AccountUpdate = Body(...),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> UserMe:
+    """Update the caller's editable profile fields (display name, bio, avatar) and/or privacy
+    settings. Only the fields present in the body are changed."""
+    _require_signed_in(actor)
+    user = await accounts_repo.update_account(session, actor, data)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "account not found")
+    return UserMe.from_user(user)
 
 
 @router.get("/export")
