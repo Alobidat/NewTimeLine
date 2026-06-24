@@ -35,7 +35,7 @@ class FollowListScreen extends StatefulWidget {
 }
 
 class _FollowListScreenState extends State<FollowListScreen> {
-  List<UserSummary>? _items;
+  List<FollowedItem>? _items;
   Object? _error;
 
   @override
@@ -46,8 +46,11 @@ class _FollowListScreenState extends State<FollowListScreen> {
 
   Future<void> _load() async {
     try {
+      // Followers are always users; following can also be entities (NASA) + events.
       final list = widget.followers
-          ? await widget.api.userFollowers(widget.userId)
+          ? (await widget.api.userFollowers(widget.userId))
+              .map(FollowedItem.fromUser)
+              .toList()
           : await widget.api.userFollowing(widget.userId);
       if (mounted) setState(() => _items = list);
     } catch (e) {
@@ -81,36 +84,39 @@ class _FollowListScreenState extends State<FollowListScreen> {
                   : ListView.separated(
                       itemCount: items.length,
                       separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (_, i) => _UserRow(
+                      itemBuilder: (_, i) => _FollowedRow(
                         api: widget.api,
                         auth: widget.auth,
-                        user: items[i],
-                        onOpen: () => _openProfile(items[i].id),
+                        item: items[i],
+                        // Only users have a personal profile to open.
+                        onOpen: items[i].kind == 'user'
+                            ? () => _openProfile(items[i].id)
+                            : null,
                       ),
                     ),
     );
   }
 }
 
-/// One user row with an inline follow toggle (optimistic).
-class _UserRow extends StatefulWidget {
-  const _UserRow({
+/// One followed-target row (user / entity / event) with an inline follow toggle (optimistic).
+class _FollowedRow extends StatefulWidget {
+  const _FollowedRow({
     required this.api,
     required this.auth,
-    required this.user,
+    required this.item,
     required this.onOpen,
   });
   final ApiClient api;
   final AuthState auth;
-  final UserSummary user;
-  final VoidCallback onOpen;
+  final FollowedItem item;
+  final VoidCallback? onOpen;
 
   @override
-  State<_UserRow> createState() => _UserRowState();
+  State<_FollowedRow> createState() => _FollowedRowState();
 }
 
-class _UserRowState extends State<_UserRow> {
-  late bool _following = widget.user.following;
+class _FollowedRowState extends State<_FollowedRow> {
+  late bool _following = widget.item.following;
   bool _busy = false;
 
   Future<void> _toggle() async {
@@ -121,8 +127,8 @@ class _UserRowState extends State<_UserRow> {
     setState(() => _following = want); // optimistic
     try {
       want
-          ? await widget.api.follow('user', widget.user.id)
-          : await widget.api.unfollow('user', widget.user.id);
+          ? await widget.api.follow(widget.item.kind, widget.item.id)
+          : await widget.api.unfollow(widget.item.kind, widget.item.id);
     } catch (_) {
       if (mounted) setState(() => _following = !want); // rollback
     } finally {
@@ -132,12 +138,20 @@ class _UserRowState extends State<_UserRow> {
 
   @override
   Widget build(BuildContext context) {
-    final u = widget.user;
+    final it = widget.item;
+    final isUser = it.kind == 'user';
     return ListTile(
       onTap: widget.onOpen,
-      leading: Avatar(label: u.label, url: u.avatarUrl, radius: 20),
-      title: Text(u.label),
-      subtitle: Text('@${u.handle}'),
+      leading: isUser
+          ? Avatar(label: it.name, url: it.avatarUrl, radius: 20)
+          : CircleAvatar(
+              radius: 20,
+              child: Icon(it.kind == 'event' ? Icons.event : Icons.tag),
+            ),
+      title: Text(it.name),
+      subtitle: Text(
+        isUser ? '@${it.handle ?? ''}' : (it.kind == 'event' ? 'Event' : 'Topic'),
+      ),
       trailing: OutlinedButton(
         onPressed: _busy ? null : _toggle,
         child: Text(_following ? 'Following' : 'Follow'),

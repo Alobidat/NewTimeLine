@@ -351,9 +351,14 @@ class ApiClient {
   Future<List<UserSummary>> userFollowers(String userId, {int limit = 100}) =>
       _userList('/users/$userId/followers', limit);
 
-  /// The users [userId] follows (`GET /users/{id}/following`).
-  Future<List<UserSummary>> userFollowing(String userId, {int limit = 100}) =>
-      _userList('/users/$userId/following', limit);
+  /// Everything [userId] follows — users **and** entities/events (`GET /users/{id}/following`).
+  Future<List<FollowedItem>> userFollowing(String userId, {int limit = 100}) async {
+    final j = await _getJson('/users/$userId/following', {'limit': limit.toString()});
+    final items = (j is Map ? j['items'] : j) as List? ?? const [];
+    return items
+        .map((e) => FollowedItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
 
   /// A user's published posts (`GET /users/{id}/uploads`). 403s if the caller can't view them.
   Future<List<EventRead>> userUploads(String userId, {int limit = 30}) async {

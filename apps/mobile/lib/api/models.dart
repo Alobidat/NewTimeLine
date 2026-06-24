@@ -774,6 +774,46 @@ class UserSummary {
   );
 }
 
+/// One thing a user follows — a `user`, an `entity` (e.g. NASA), or an `event` — resolved for
+/// the profile's Following list. `handle`/`avatarUrl` are user-only; `following` is whether the
+/// caller also follows it (drives the toggle).
+class FollowedItem {
+  FollowedItem({
+    required this.kind,
+    required this.id,
+    required this.name,
+    this.handle,
+    this.avatarUrl,
+    this.following = true,
+  });
+
+  final String kind; // 'user' | 'entity' | 'event'
+  final String id;
+  final String name;
+  final String? handle;
+  final String? avatarUrl;
+  final bool following;
+
+  factory FollowedItem.fromJson(Map<String, dynamic> j) => FollowedItem(
+    kind: j['kind'] as String? ?? 'user',
+    id: j['id'] as String,
+    name: (j['name'] ?? j['display_name'] ?? j['handle'] ?? '') as String,
+    handle: j['handle'] as String?,
+    avatarUrl: j['avatar_url'] as String?,
+    following: j['following'] as bool? ?? true,
+  );
+
+  /// Adapt a [UserSummary] (the followers list is users-only) to a [FollowedItem].
+  factory FollowedItem.fromUser(UserSummary u) => FollowedItem(
+    kind: 'user',
+    id: u.id,
+    name: u.label,
+    handle: u.handle,
+    avatarUrl: u.avatarUrl,
+    following: u.following,
+  );
+}
+
 /// Aggregate reactions for an event (ADR-0025 §2.2): per-kind counts plus the kinds the
 /// calling actor has set (`mine`). The POST toggle returns the same aggregate so the UI
 /// reconciles to the server truth after its optimistic update.
