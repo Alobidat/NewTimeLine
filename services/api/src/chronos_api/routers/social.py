@@ -25,6 +25,7 @@ from chronos_core.schemas.social import (
     FeedItem,
     FollowCounts,
     FollowList,
+    FollowedItem,
     FollowResult,
     FollowTarget,
     InteractionItem,
@@ -259,21 +260,73 @@ async def user_followers(
     return await _summaries(session, ids, actor)
 
 
-@router.get("/users/{user_id}/following", response_model=UserSummaryList)
+@router.get("/users/{user_id}/following", response_model=list[FollowedItem])
 async def user_following(
     user_id: uuid.UUID,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
     actor: uuid.UUID = Depends(get_actor),
-) -> UserSummaryList:
-    """The *users* ``user_id`` follows (gated by the ``following`` audience)."""
+) -> list[FollowedItem]:
+    """Everything ``user_id`` follows — users **and** entities (e.g. NASA) and events — resolved
+    for display (gated by the ``following`` audience). Previously users-only, so entity follows
+    (now common via the feed rail) never showed up."""
     await _gate_facet(session, actor, user_id, "following")
-    edges = await repo.following(
-        session, user_id=user_id, target_type="user", limit=limit, offset=offset
+    edges = await repo.following(session, user_id=user_id, limit=limit, offset=offset)
+    return await _resolve_followed(session, edges, actor)
+
+
+async def _resolve_followed(
+    session: AsyncSession, edges: list[tuple[str, uuid.UUID]], caller: uuid.UUID
+) -> list[FollowedItem]:
+    """Resolve (target_type, target_id) follow edges to display rows (order preserved), marking
+    which ones the *caller* also follows (for the follow/unfollow toggle)."""
+    caller_edges = {
+        (t, i) for t, i in await repo.following(session, user_id=caller, limit=2000)
+    }
+    user_ids = [i for t, i in edges if t == "user"]
+    entity_ids = [i for t, i in edges if t == "entity"]
+    event_ids = [i for t, i in edges if t == "event"]
+    users = await repo.users_by_ids(session, user_ids)
+    entities = (
+        {
+            r.id: r.name
+            for r in (
+                await session.execute(
+                    text("SELECT id, name FROM entities WHERE id = ANY(:ids)"),
+                    {"ids": entity_ids},
+                )
+            ).all()
+        }
+        if entity_ids
+        else {}
     )
-    ids = [tid for _t, tid in edges]
-    return await _summaries(session, ids, actor)
+    events = (
+        {
+            r.id: r.title
+            for r in (
+                await session.execute(
+                    text("SELECT id, title FROM events WHERE id = ANY(:ids)"),
+                    {"ids": event_ids},
+                )
+            ).all()
+        }
+        if event_ids
+        else {}
+    )
+    out: list[FollowedItem] = []
+    for t, i in edges:
+        flw = (t, i) in caller_edges
+        if t == "user" and (u := users.get(i)) is not None:
+            out.append(FollowedItem(
+                kind="user", id=i, name=u.display_name or u.handle,
+                handle=u.handle, avatar_url=u.avatar_url, following=flw,
+            ))
+        elif t == "entity" and i in entities:
+            out.append(FollowedItem(kind="entity", id=i, name=entities[i], following=flw))
+        elif t == "event" and i in events:
+            out.append(FollowedItem(kind="event", id=i, name=events[i], following=flw))
+    return out
 
 
 @router.get("/users/{user_id}/uploads", response_model=list[FeedItem])

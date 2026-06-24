@@ -21,6 +21,7 @@ __all__ = [
     "FollowCounts",
     "FollowTarget",
     "FollowList",
+    "FollowedItem",
     "UserSummary",
     "UserSummaryList",
     "UserProfile",
@@ -119,6 +120,19 @@ class FollowList(BaseModel):
 
     items: list[FollowTarget] = Field(default_factory=list)
     count: int = 0
+
+
+class FollowedItem(BaseModel):
+    """One thing a user follows — a ``user``, an ``entity`` (e.g. NASA), or an ``event`` —
+    resolved to display fields for the profile's Following list. ``handle``/``avatar_url`` are
+    user-only; ``following`` is whether the *caller* also follows it (drives the toggle)."""
+
+    kind: str  # 'user' | 'entity' | 'event'
+    id: uuid.UUID
+    name: str
+    handle: str | None = None
+    avatar_url: str | None = None
+    following: bool = True
 
 
 # --- bookmarks ------------------------------------------------------------------------
