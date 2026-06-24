@@ -224,7 +224,7 @@ class _RailButton extends StatelessWidget {
                 ),
                 if (showBadge)
                   Positioned(
-                    top: -4,
+                    bottom: -4,
                     right: -6,
                     child: _CountBadge(text: _fmt(count!)),
                   ),
