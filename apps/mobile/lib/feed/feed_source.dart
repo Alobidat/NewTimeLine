@@ -38,6 +38,7 @@ class FeedItem {
     required this.event,
     this.heroMediaId,
     this.heroIsClip = false,
+    this.author,
   });
 
   final EventRead event;
@@ -48,6 +49,10 @@ class FeedItem {
   /// screen. Defaults false (no hero → placeholder).
   final bool heroIsClip;
 
+  /// The clip's author (user-generated clips only; null for agent/seed events) — identity for
+  /// the rail avatar + follow affordance.
+  final CommentAuthor? author;
+
   String get id => event.id;
 
   factory FeedItem.fromJson(Map<String, dynamic> j) => FeedItem(
@@ -57,6 +62,9 @@ class FeedItem {
     // established video-first rendering (defaulting to image would break working video cards
     // during a frontend-before-backend deploy). New backends always send the real value.
     heroIsClip: j['hero_is_clip'] as bool? ?? true,
+    author: j['author'] is Map<String, dynamic>
+        ? CommentAuthor.fromJson(j['author'] as Map<String, dynamic>)
+        : null,
   );
 }
 

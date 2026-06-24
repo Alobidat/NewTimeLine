@@ -351,23 +351,9 @@ void main() {
       await tapAndExpectLogin(tester, api, const Key('rail-react'));
     });
 
-    testWidgets('promote up gates through sign-in', (tester) async {
-      final api = oneClip();
-      addTearDown(api.close);
-      await tapAndExpectLogin(tester, api, const Key('rail-promote-up'));
-    });
-
-    testWidgets('promote down gates through sign-in', (tester) async {
-      final api = oneClip();
-      addTearDown(api.close);
-      await tapAndExpectLogin(tester, api, const Key('rail-promote-down'));
-    });
-
-    testWidgets('follow gates through sign-in', (tester) async {
-      final api = oneClip();
-      addTearDown(api.close);
-      await tapAndExpectLogin(tester, api, const Key('rail-follow'));
-    });
+    // Promote/demote moved into the React long-press selector; follow moved onto the avatar
+    // "+" badge — both still gate through `ensureCanInteract`, exercised via the React button
+    // tap-gate above and the avatar-follow test in feed_test.dart.
 
     testWidgets('save/bookmark gates through sign-in', (tester) async {
       final api = oneClip();
@@ -385,15 +371,6 @@ void main() {
       expect(find.byType(LoginScreen), findsNothing);
     });
 
-    testWidgets('info opens the info sheet (read, no gate)', (tester) async {
-      final api = oneClip();
-      addTearDown(api.close);
-      await pumpFeed(tester, api);
-      await tester.tap(find.byKey(const Key('rail-info')));
-      await tester.pumpAndSettle();
-      expect(find.byType(LoginScreen), findsNothing);
-    });
-
     testWidgets('share opens the share sheet (read, no gate)', (tester) async {
       final api = oneClip();
       addTearDown(api.close);
@@ -403,19 +380,15 @@ void main() {
       expect(find.byType(LoginScreen), findsNothing);
     });
 
-    testWidgets('every rail button is present', (tester) async {
+    testWidgets('the always-present rail buttons render', (tester) async {
       final api = oneClip();
       addTearDown(api.close);
       await pumpFeed(tester, api);
       for (final k in const [
-        'rail-promote-up',
-        'rail-promote-down',
         'rail-react',
         'rail-comment',
-        'rail-follow',
         'rail-bookmark',
         'rail-share',
-        'rail-info',
       ]) {
         expect(find.byKey(Key(k)), findsOneWidget, reason: 'missing $k');
       }

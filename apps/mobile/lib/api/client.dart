@@ -363,6 +363,14 @@ class ApiClient {
         .toList();
   }
 
+  /// A user's reposted clips (`GET /users/{id}/reposts`). 403s if the caller can't view them.
+  Future<List<EventRead>> userReposts(String userId, {int limit = 30}) async {
+    final list = await _getJson('/users/$userId/reposts', {'limit': limit.toString()}) as List;
+    return list
+        .map((e) => EventRead.fromJson((e as Map<String, dynamic>)['event'] as Map<String, dynamic>))
+        .toList();
+  }
+
   /// A user's recent interactions (`GET /users/{id}/interactions`). 403s if not viewable.
   Future<List<InteractionItem>> userInteractions(String userId, {int limit = 30}) async {
     final list =
@@ -515,6 +523,23 @@ class ApiClient {
     await _delete('/bookmark', query: {'event_id': eventId});
   }
 
+  /// Repost an event to the caller's followers (`POST /events/{id}/repost`, idempotent).
+  Future<void> repost(String eventId) async {
+    await _postJson('/events/$eventId/repost', const {});
+  }
+
+  /// Undo a repost (`DELETE /events/{id}/repost`, idempotent).
+  Future<void> unrepost(String eventId) async {
+    await _delete('/events/$eventId/repost');
+  }
+
+  /// Whether the caller has reposted [eventId] (`GET /events/{id}/repost/state`). False anon.
+  Future<bool> repostState(String eventId) async {
+    final j = await _getJson('/events/$eventId/repost/state', const {});
+    if (j is Map) return (j['reposted'] as bool?) ?? false;
+    return false;
+  }
+
   /// Whether the caller has [eventId] saved (`GET /bookmark/state`). False when anonymous.
   Future<bool> bookmarkState(String eventId) async {
     final j = await _getJson('/bookmark/state', {'event_id': eventId});
@@ -564,6 +589,18 @@ class ApiClient {
         'target_type': targetType,
         'target_id': targetId,
         'value': value,
+      }) as Map<String, dynamic>,
+    );
+  }
+
+  /// The caller's promote state + tally for a [targetType]/[targetId] (`GET /promote/summary`):
+  /// `{mine, score, up, down}` with `mine ∈ {-1,0,1}` (0 when anonymous). Used by the feed rail
+  /// to show whether the caller has promoted/demoted the on-screen clip.
+  Future<PromoteResult> promoteSummary(String targetType, String targetId) async {
+    return PromoteResult.fromJson(
+      await _getJson('/promote/summary', {
+        'target_type': targetType,
+        'target_id': targetId,
       }) as Map<String, dynamic>,
     );
   }

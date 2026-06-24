@@ -121,6 +121,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
     final tabs = <Tab>[
       if (p.canViewPosts) const Tab(text: 'Posts'),
+      if (p.canViewPosts) const Tab(text: 'Reposts'),
       if (p.canViewInteractions) const Tab(text: 'Activity'),
     ];
     return DefaultTabController(
@@ -144,7 +145,17 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   ? const Center(child: Text('This profile is private.'))
                   : TabBarView(
                       children: [
-                        if (p.canViewPosts) _PostsTab(api: widget.api, userId: p.id),
+                        if (p.canViewPosts)
+                          _ClipGridTab(
+                            fetch: () => widget.api.userUploads(p.id),
+                            emptyText: 'No posts yet.',
+                          ),
+                        if (p.canViewPosts)
+                          _ClipGridTab(
+                            fetch: () => widget.api.userReposts(p.id),
+                            emptyText: 'No reposts yet.',
+                            icon: Icons.repeat,
+                          ),
                         if (p.canViewInteractions)
                           _ActivityTab(api: widget.api, userId: p.id),
                       ],
@@ -262,17 +273,24 @@ class _Stat extends StatelessWidget {
 }
 
 /// The user's published posts as a thumbnail grid.
-class _PostsTab extends StatefulWidget {
-  const _PostsTab({required this.api, required this.userId});
-  final ApiClient api;
-  final String userId;
+/// A grid of a user's clips (used for both the Posts and Reposts tabs). [fetch] supplies the
+/// list; [emptyText]/[icon] differentiate the two.
+class _ClipGridTab extends StatefulWidget {
+  const _ClipGridTab({
+    required this.fetch,
+    required this.emptyText,
+    this.icon = Icons.movie_outlined,
+  });
+  final Future<List<EventRead>> Function() fetch;
+  final String emptyText;
+  final IconData icon;
   @override
-  State<_PostsTab> createState() => _PostsTabState();
+  State<_ClipGridTab> createState() => _ClipGridTabState();
 }
 
-class _PostsTabState extends State<_PostsTab>
+class _ClipGridTabState extends State<_ClipGridTab>
     with AutomaticKeepAliveClientMixin {
-  late final Future<List<EventRead>> _future = widget.api.userUploads(widget.userId);
+  late final Future<List<EventRead>> _future = widget.fetch();
   @override
   bool get wantKeepAlive => true;
 
@@ -287,7 +305,7 @@ class _PostsTabState extends State<_PostsTab>
         }
         final posts = snap.data ?? const <EventRead>[];
         if (posts.isEmpty) {
-          return const Center(child: Text('No posts yet.'));
+          return Center(child: Text(widget.emptyText));
         }
         return GridView.builder(
           padding: const EdgeInsets.all(8),
@@ -306,7 +324,7 @@ class _PostsTabState extends State<_PostsTab>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.movie_outlined, size: 22),
+                  Icon(widget.icon, size: 22),
                   const Spacer(),
                   Text(e.title, maxLines: 3, overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall),

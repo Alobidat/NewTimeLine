@@ -81,6 +81,25 @@ class _VideoFeedState extends State<VideoFeed>
   final Map<String, EventStats> _stats = {};
   final Set<String> _statsLoading = {};
 
+  // The caller's own per-event state for the React button, loaded lazily alongside the counts:
+  //   _reactMine[id]    → has the caller "loved" (liked) this clip;
+  //   _promoteMine[id]  → the caller's promote vote (-1/0/1).
+  // Love and promote/demote are mutually exclusive in the UI (see [_loveToggle]/[_setPromote]).
+  final Map<String, bool> _reactMine = {};
+  final Map<String, int> _promoteMine = {};
+  final Set<String> _railStateLoading = {};
+
+  /// In-flight guard per event so a rapid re-tap can't half-apply a Love↔Promote transition
+  /// (each transition is two writes — set one dimension, clear the other).
+  final Set<String> _reactBusy = {};
+
+  /// Whether the caller follows a clip's author, keyed by **authorId** (deduped across the many
+  /// clips by the same author). Lazily fetched; flipped optimistically on follow.
+  final Map<String, bool> _followAuthor = {};
+
+  /// Event ids the caller has reposted this session (optimistic; drives the toast/repeat-guard).
+  final Set<String> _reposted = {};
+
   String? _cursor;
   bool _loading = false;
   bool _exhausted = false;
@@ -348,11 +367,117 @@ class _VideoFeedState extends State<VideoFeed>
   // Every write goes through `ensureCanInteract` first (ADR-0026): an anonymous tap walks
   // sign-in → consent → verify and only then resumes the action. Reads (info) never gate.
 
-  Future<void> _react(FeedItem item) async {
+  /// The caller's mutually-exclusive stance on a clip (drives the React icon/color), derived
+  /// from the lazily-loaded like + promote state.
+  ReactState _reactStateOf(String eventId) {
+    if (_reactMine[eventId] == true) return ReactState.loved;
+    return switch (_promoteMine[eventId]) {
+      1 => ReactState.promoted,
+      -1 => ReactState.demoted,
+      _ => ReactState.none,
+    };
+  }
+
+  /// Lazily load the caller's React state (like + promote) for the on-screen clip, alongside
+  /// the counts. Cheap + cached; deduped like [_ensureStats]. Follow-state is keyed by author.
+  void _ensureRailState(FeedItem item) {
+    final id = item.event.id;
+    if (!_reactMine.containsKey(id) && !_railStateLoading.contains(id)) {
+      _railStateLoading.add(id);
+      Future.wait([
+        widget.api.reactions(id).then((r) => _reactMine[id] = r.isMine('like')),
+        widget.api
+            .promoteSummary('event', id)
+            .then((p) => _promoteMine[id] = p.mine),
+      ]).then((_) {
+        if (mounted) setState(() {});
+      }).catchError((_) {}).whenComplete(() => _railStateLoading.remove(id));
+    }
+    final author = item.event.authorId;
+    if (author != null && !_followAuthor.containsKey(author)) {
+      _followAuthor[author] = false; // optimistic default until the state lands
+      widget.api.followState('user', author).then((f) {
+        if (mounted) setState(() => _followAuthor[author] = f);
+      }).catchError((_) {});
+    }
+  }
+
+  /// Tap the React button → toggle Love (the `like` reaction). Mutually exclusive with
+  /// promote/demote: if a vote is set, clear it too. Optimistic, reconciled from the writes.
+  Future<void> _loveToggle(FeedItem item) async {
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    final id = item.event.id;
+    if (_reactBusy.contains(id)) return;
+    _reactBusy.add(id);
+    final wasLoved = _reactMine[id] ?? false;
+    final hadVote = (_promoteMine[id] ?? 0) != 0;
+    setState(() {
+      _reactMine[id] = !wasLoved;
+      _promoteMine[id] = 0; // love clears any vote
+    });
+    try {
+      if (hadVote) await widget.api.promote('event', id, 0);
+      final r = await widget.api.toggleReaction(id, 'like');
+      if (mounted) setState(() => _reactMine[id] = r.isMine('like'));
+      _reloadStats(id);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _reactMine[id] = wasLoved;
+          _promoteMine[id] = hadVote ? (_promoteMine[id] ?? 0) : 0;
+        });
+      }
+      _toast('Could not update your reaction.');
+    } finally {
+      _reactBusy.remove(id);
+    }
+  }
+
+  /// Long-press the React button → pick a mutually-exclusive stance (Love/Promote/Demote).
+  Future<void> _chooseReact(FeedItem item) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     if (!mounted) return;
-    await showReactionSheet(context, widget.api, item.event.id);
-    _reloadStats(item.event.id); // the reaction count may have changed
+    final choice = await showReactSelector(context, _reactStateOf(item.event.id));
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case ReactChoice.love:
+        await _loveToggle(item);
+      case ReactChoice.promote:
+        await _setPromote(item, 1);
+      case ReactChoice.demote:
+        await _setPromote(item, -1);
+    }
+  }
+
+  /// Cast (or toggle off) a promote/demote vote, clearing any Love so the three stay mutually
+  /// exclusive. Re-picking the active vote clears it. Optimistic, reconciled from the writes.
+  Future<void> _setPromote(FeedItem item, int value) async {
+    final id = item.event.id;
+    if (_reactBusy.contains(id)) return;
+    _reactBusy.add(id);
+    final prevVote = _promoteMine[id] ?? 0;
+    final wasLoved = _reactMine[id] ?? false;
+    final next = prevVote == value ? 0 : value; // re-pick same → clear
+    setState(() {
+      _promoteMine[id] = next;
+      _reactMine[id] = false; // a vote clears love
+    });
+    try {
+      if (wasLoved) await widget.api.toggleReaction(id, 'like'); // clear the like
+      final res = await widget.api.promote('event', id, next);
+      if (mounted) setState(() => _promoteMine[id] = res.mine);
+      _reloadStats(id);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _promoteMine[id] = prevVote;
+          _reactMine[id] = wasLoved;
+        });
+      }
+      _toast('Could not record your vote.');
+    } finally {
+      _reactBusy.remove(id);
+    }
   }
 
   void _info(FeedItem item) => showFeedInfoSheet(
@@ -384,32 +509,37 @@ class _VideoFeedState extends State<VideoFeed>
         .then((_) => _reloadStats(item.event.id)); // comment count may have changed
   }
 
-  Future<void> _promote(FeedItem item, bool up) async {
+  /// Follow the clip's author from the avatar's "+" badge. Optimistic: flip the local follow
+  /// state (keyed by author) so the badge disappears immediately, rolling back on error.
+  Future<void> _followAuthorAction(FeedItem item) async {
+    final author = item.event.authorId;
+    if (author == null) return;
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    setState(() => _followAuthor[author] = true);
     try {
-      // Toggle: a second tap of the same direction clears the vote (value 0).
-      final res = await widget.api.promote('event', item.event.id, up ? 1 : -1);
-      _toast(res.mine > 0
-          ? 'Promoted'
-          : res.mine < 0
-              ? 'Demoted'
-              : 'Vote cleared');
-      _reloadStats(item.event.id);
+      await widget.api.follow('user', author);
+      _toast('Following ${item.author?.label ?? 'creator'}');
     } catch (_) {
-      _toast('Could not record your vote.');
+      if (mounted) setState(() => _followAuthor[author] = false);
+      _toast('Could not follow.');
     }
   }
 
-  Future<void> _follow(FeedItem item) async {
+  /// Repost the clip to the caller's followers (Share long-press). Optimistic + a toast.
+  Future<void> _repost(FeedItem item) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
+    final id = item.event.id;
+    if (_reposted.contains(id)) {
+      _toast('Already reposted');
+      return;
+    }
+    setState(() => _reposted.add(id));
     try {
-      // Follow the event itself — the "Following" tab then surfaces its related/updated
-      // events. (Following the *creator* is the separate "Creator" button, [_followCreator].)
-      await widget.api.follow('event', item.event.id);
-      _toast('Following this event');
-      _reloadStats(item.event.id);
+      await widget.api.repost(id);
+      _toast('Reposted to your followers');
     } catch (_) {
-      _toast('Could not follow.');
+      if (mounted) setState(() => _reposted.remove(id));
+      _toast('Could not repost.');
     }
   }
 
@@ -508,6 +638,7 @@ class _VideoFeedState extends State<VideoFeed>
     // lateral chain — see the two-axes note on the state fields.
     final current = _displayed;
     _ensureStats(current.event.id); // lazy-load the action-rail counts for the on-screen event
+    _ensureRailState(current); // + the caller's like/promote/follow state for the rail
     final clipUrl = current.heroMediaId != null
         ? widget.api.mediaUrl(current.heroMediaId!)
         : null;
@@ -588,16 +719,21 @@ class _VideoFeedState extends State<VideoFeed>
           child: OverlayRail(
             api: widget.api,
             event: current.event,
+            author: current.author,
             bookmarked: _bookmarked.contains(current.id),
-            onReact: () => _react(current),
+            reactState: _reactStateOf(current.event.id),
+            followsAuthor: _followAuthor[current.event.authorId] ?? false,
+            onReactLove: () => _loveToggle(current),
+            onReactMenu: () => _chooseReact(current),
             onComment: () => _comment(current),
-            onInfo: () => _info(current),
-            onPromote: (up) => _promote(current, up),
-            onFollow: () => _follow(current),
-            onFollowCreator:
-                current.event.authorId != null ? () => _openCreator(current) : null,
             onBookmark: () => _bookmark(current),
             onShare: () => _share(current),
+            onRepost: () => _repost(current),
+            onInfo: () => _info(current),
+            onOpenCreator:
+                current.event.authorId != null ? () => _openCreator(current) : null,
+            onFollowAuthor:
+                current.event.authorId != null ? () => _followAuthorAction(current) : null,
             onOpenGraph: () => _openGraph(current),
             onAddVideo: widget.onAddVideo,
             stats: _stats[current.event.id],
@@ -707,17 +843,26 @@ class _SwipeNubState extends State<_SwipeNub>
   static const double _deadzone = 14; // centre press that picks no direction
   static const Offset _centre = Offset(_diameter / 2, _diameter / 2);
 
-  late final AnimationController _spring = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 260),
-  )..addListener(() {
-      final t = Curves.elasticOut.transform(_spring.value);
-      setState(() => _knob = Offset.lerp(_from, Offset.zero, t)!);
-    });
+  // Created in initState (not lazily) so dispose() never constructs the controller during
+  // teardown — a lazy `late final` accessed first in dispose() does a TickerMode ancestor
+  // lookup on a deactivated element and throws.
+  late final AnimationController _spring;
 
   Offset _knob = Offset.zero; // live knob offset from centre
   Offset _from = Offset.zero; // knob offset when a spring-back began
   String? _active; // direction currently highlighted
+
+  @override
+  void initState() {
+    super.initState();
+    _spring = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    )..addListener(() {
+        final t = Curves.elasticOut.transform(_spring.value);
+        setState(() => _knob = Offset.lerp(_from, Offset.zero, t)!);
+      });
+  }
 
   Offset _clamp(Offset v) {
     final d = v.distance;

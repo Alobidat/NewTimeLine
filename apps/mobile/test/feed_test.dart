@@ -142,15 +142,64 @@ void main() {
       addTearDown(api.close);
       await pumpFeed(tester, api);
 
-      // The active page's caption + every rail button are present.
+      // The active page's caption + the always-present rail buttons (react/comment/save/share).
       expect(find.text('Berlin Wall falls'), findsOneWidget);
       expect(find.byKey(const Key('rail-react')), findsOneWidget);
       expect(find.byKey(const Key('rail-comment')), findsOneWidget);
-      expect(find.byKey(const Key('rail-promote-up')), findsOneWidget);
-      expect(find.byKey(const Key('rail-promote-down')), findsOneWidget);
-      expect(find.byKey(const Key('rail-follow')), findsOneWidget);
+      expect(find.byKey(const Key('rail-bookmark')), findsOneWidget);
       expect(find.byKey(const Key('rail-share')), findsOneWidget);
-      expect(find.byKey(const Key('rail-info')), findsOneWidget);
+      // Removed in the rail redesign: promote/demote (folded into React long-press), follow
+      // (moved onto the avatar), info (moved to the caption "…more").
+      expect(find.byKey(const Key('rail-promote-up')), findsNothing);
+      expect(find.byKey(const Key('rail-info')), findsNothing);
+      // No author on these seed events → no avatar block.
+      expect(find.byKey(const Key('rail-author')), findsNothing);
+    });
+
+    testWidgets('an authored clip shows the avatar, follow badge + caption "…more"',
+        (tester) async {
+      // A user-generated clip carries an author + summary → the rail leads with the avatar
+      // (with a "+" follow badge since the caller doesn't follow them) and the caption shows
+      // the description with a tappable "…more" (the info action moved here from the rail).
+      final mock = MockClient((req) async {
+        if (req.url.path.startsWith('/feed/')) {
+          return http.Response(
+            jsonEncode({
+              'tab': 'foryou',
+              'items': [
+                {
+                  'event': {
+                    ..._eventJson('e1', 'Jane films a rocket', 2025),
+                    'summary': 'A long behind-the-scenes look at the launch pad and crew.',
+                    'author_id': 'u9',
+                  },
+                  'hero_media_id': null,
+                  'hero_is_clip': true,
+                  'author': {
+                    'id': 'u9',
+                    'handle': 'jane',
+                    'display_name': 'Jane Doe',
+                    'avatar_url': null,
+                  },
+                  'score': 1.0,
+                },
+              ],
+              'next_cursor': null,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        // Rail-state fetches (stats/reactions/promote/follow) degrade gracefully to defaults.
+        return http.Response('[]', 200, headers: {'content-type': 'application/json'});
+      });
+      final api = ApiClient(baseUrl: 'http://test', client: mock);
+      addTearDown(api.close);
+      await pumpFeed(tester, api);
+
+      expect(find.byKey(const Key('rail-author')), findsOneWidget);
+      expect(find.byKey(const Key('rail-follow-badge')), findsOneWidget);
+      expect(find.byKey(const Key('caption-more')), findsOneWidget);
     });
 
     testWidgets('swipe up pages to the next event video', (tester) async {
@@ -229,17 +278,17 @@ void main() {
     });
   });
 
-  group('showReactionSheet', () {
-    testWidgets('opens a reaction sheet with the live reaction chips',
+  group('showReactSelector', () {
+    testWidgets('offers the three mutually-exclusive choices + returns the pick',
         (tester) async {
-      final api = _api();
-      addTearDown(api.close);
+      ReactChoice? picked;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: Builder(
               builder: (ctx) => ElevatedButton(
-                onPressed: () => showReactionSheet(ctx, api, 'e1'),
+                onPressed: () async =>
+                    picked = await showReactSelector(ctx, ReactState.none),
                 child: const Text('open'),
               ),
             ),
@@ -248,8 +297,14 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      // The shared ReactionBar exposes keyed chips.
-      expect(find.byKey(const Key('reaction-like')), findsOneWidget);
+      // Love / Promote / Demote tiles are present.
+      expect(find.byKey(const Key('react-choice-love')), findsOneWidget);
+      expect(find.byKey(const Key('react-choice-promote')), findsOneWidget);
+      expect(find.byKey(const Key('react-choice-demote')), findsOneWidget);
+      // Picking Promote returns that choice to the caller.
+      await tester.tap(find.byKey(const Key('react-choice-promote')));
+      await tester.pumpAndSettle();
+      expect(picked, ReactChoice.promote);
     });
   });
 

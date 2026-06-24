@@ -51,7 +51,10 @@ class _CommentsPageState extends State<CommentsPage> {
   }
 
   void _reload() {
-    setState(() => _comments = widget.api.comments(widget.event.id));
+    final comments = widget.api.comments(widget.event.id);
+    setState(() {
+      _comments = comments; // block body so setState's closure returns void, not the Future
+    });
   }
 
   /// Gate, then run [action]; reload on success. Returns silently if the user cancels the gate.
