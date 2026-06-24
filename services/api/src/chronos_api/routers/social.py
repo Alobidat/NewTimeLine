@@ -291,6 +291,21 @@ async def user_uploads(
     )
 
 
+@router.get("/users/{user_id}/reposts", response_model=list[FeedItem])
+async def user_reposts(
+    user_id: uuid.UUID,
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> list[FeedItem]:
+    """A user's reposted clips (gated by the ``posts`` audience + each post's own visibility)."""
+    await _gate_facet(session, actor, user_id, "posts")
+    return await feed_queries.fetch_user_reposts(
+        session, author_id=user_id, viewer_id=actor, limit=limit, offset=offset
+    )
+
+
 @router.get("/users/{user_id}/interactions", response_model=list[InteractionItem])
 async def user_interactions(
     user_id: uuid.UUID,

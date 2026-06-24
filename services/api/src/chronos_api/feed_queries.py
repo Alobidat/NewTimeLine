@@ -21,6 +21,7 @@ from __future__ import annotations
 import uuid
 
 from chronos_core import config_service
+from chronos_core.schemas.interaction import CommentAuthor
 from chronos_core.schemas.social import FeedItem, FeedResponse, InteractionItem
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,8 +37,15 @@ _FEED_COLS = """
     CASE WHEN e.geom IS NOT NULL THEN ST_Y(ST_Centroid(e.geom)) END AS lat,
     h.media_id AS hero_media_id,
     h.is_clip AS hero_is_clip,
-    h.author_id AS author_id
+    h.author_id AS author_id,
+    u.handle AS author_handle,
+    u.display_name AS author_display_name,
+    u.avatar_url AS author_avatar_url
 """
+
+# The clip's author identity (user-generated clips only); paired with `_HERO_JOIN` so the rail
+# can show the poster's avatar + a follow affordance without a second round-trip per item.
+_AUTHOR_JOIN = "LEFT JOIN users u ON u.id = h.author_id"
 
 # Lateral pick of the event's hero (clip preferred) — exactly one row per event, never broken.
 _HERO_JOIN = """
@@ -130,6 +138,23 @@ def _item(row) -> FeedItem:
         hero_media_id=row.hero_media_id,
         hero_is_clip=bool(getattr(row, "hero_is_clip", False)),
         score=score,
+        author=_author(row),
+    )
+
+
+def _author(row) -> CommentAuthor | None:
+    """The clip's author identity, or None for agent/seed clips (no user author) or projections
+    that don't select the author columns. Defensive `getattr` so non-feed callers of `_item` are
+    safe (mirrors `_event_read`)."""
+    aid = getattr(row, "author_id", None)
+    handle = getattr(row, "author_handle", None)
+    if aid is None or not handle:
+        return None
+    return CommentAuthor(
+        id=aid,
+        handle=handle,
+        display_name=getattr(row, "author_display_name", None),
+        avatar_url=getattr(row, "author_avatar_url", None),
     )
 
 
@@ -146,10 +171,33 @@ async def fetch_user_uploads(
     rows = (
         await session.execute(
             text(
-                f"SELECT {_FEED_COLS} FROM events e {_HERO_JOIN} "
+                f"SELECT {_FEED_COLS} FROM events e {_HERO_JOIN} {_AUTHOR_JOIN} "
                 "WHERE e.status = 'published' AND h.author_id = :author "
                 f"AND {_VISIBILITY} "
                 "ORDER BY e.created_at DESC LIMIT :lim OFFSET :off"
+            ),
+            {"author": author_id, "uid": viewer_id, "lim": limit, "off": offset},
+        )
+    ).all()
+    return [_item(r) for r in rows]
+
+
+async def fetch_user_reposts(
+    session: AsyncSession, *, author_id: uuid.UUID, viewer_id: uuid.UUID,
+    limit: int = 30, offset: int = 0,
+) -> list[FeedItem]:
+    """The events a user has reposted (re-shared), newest-first, each gated per-post by the
+    viewer's audience (``_VISIBILITY``). The profile-level ``posts`` gate is applied by the
+    caller before this runs."""
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_FEED_COLS} FROM reposts rp "
+                "JOIN events e ON e.id = rp.event_id "
+                f"{_HERO_JOIN} {_AUTHOR_JOIN} "
+                "WHERE rp.user_id = :author AND e.status = 'published' "
+                f"AND {_DISPLAYABLE} AND {_VISIBILITY} "
+                "ORDER BY rp.created_at DESC LIMIT :lim OFFSET :off"
             ),
             {"author": author_id, "uid": viewer_id, "lim": limit, "off": offset},
         )
@@ -167,7 +215,7 @@ async def fetch_user_interactions(
             text(
                 f"SELECT {_FEED_COLS}, a.kind AS act_kind, a.created_at AS act_at "
                 "FROM activity_log a JOIN events e ON e.id = a.target_id "
-                f"{_HERO_JOIN} "
+                f"{_HERO_JOIN} {_AUTHOR_JOIN} "
                 "WHERE a.user_id = :target AND a.target_type = 'event' "
                 f"AND e.status = 'published' AND {_VISIBILITY} "
                 "ORDER BY a.created_at DESC LIMIT :lim"
@@ -243,7 +291,7 @@ async def fetch_foryou(
                 "       WHERE a.user_id = :uid AND a.target_type='event' AND a.target_id=e.id) "
                 "     THEN 1.0 ELSE 0.0 END) "
                 ") AS score "
-                f"FROM events e {_HERO_JOIN} "
+                f"FROM events e {_HERO_JOIN} {_AUTHOR_JOIN} "
                 f"WHERE e.status = 'published' AND {_DISPLAYABLE} AND {_VISIBILITY} "
                 "ORDER BY score DESC, e.t_start DESC "
                 "LIMIT :lim OFFSET :off"
@@ -280,7 +328,7 @@ async def fetch_following(
         await session.execute(
             text(
                 f"SELECT {_FEED_COLS}, 0.0 AS score "
-                f"FROM events e {_HERO_JOIN} "
+                f"FROM events e {_HERO_JOIN} {_AUTHOR_JOIN} "
                 "WHERE e.status = 'published' AND ("
                 # entity follows → events tagged with a followed entity
                 "  EXISTS (SELECT 1 FROM follows f JOIN event_entities ee ON ee.entity_id = f.target_id "
@@ -291,7 +339,11 @@ async def fetch_following(
                 "          WHERE f.user_id = :uid AND f.target_type='user' AND em.event_id = e.id) "
                 # event follows → the followed event itself
                 "  OR EXISTS (SELECT 1 FROM follows f WHERE f.user_id = :uid "
-                "          AND f.target_type='event' AND f.target_id = e.id)) "
+                "          AND f.target_type='event' AND f.target_id = e.id) "
+                # reposts → events a followed user reposted (re-shared to their followers)
+                "  OR EXISTS (SELECT 1 FROM follows f JOIN reposts rp ON rp.user_id = f.target_id "
+                "          WHERE f.user_id = :uid AND f.target_type='user' "
+                "            AND rp.event_id = e.id)) "
                 f"AND {_DISPLAYABLE} AND {_VISIBILITY} "
                 "ORDER BY e.t_start DESC, e.severity DESC "
                 "LIMIT :lim OFFSET :off"
@@ -330,7 +382,7 @@ async def fetch_discover(
                 "  + 0.5 * (('x' || substr(md5(e.id::text || :uid_text),1,8))::bit(32)::int "
                 "           / 2147483647.0) "  # deterministic per (event,user) serendipity jitter
                 ") AS score "
-                f"FROM events e {_HERO_JOIN} "
+                f"FROM events e {_HERO_JOIN} {_AUTHOR_JOIN} "
                 "WHERE e.status = 'published' AND NOT EXISTS ("
                 "   SELECT 1 FROM activity_log a WHERE a.user_id = :uid "
                 "   AND a.target_type='event' AND a.target_id = e.id) "

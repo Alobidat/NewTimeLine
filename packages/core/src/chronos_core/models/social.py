@@ -115,3 +115,25 @@ class Bookmark(Base):
     )
 
     __table_args__ = (Index("ix_bookmarks_user_created", "user_id", "created_at"),)
+
+
+class Repost(Base):
+    """A user's public re-share of an event to their followers (the feed's "Repost"). PK on
+    (user, event) → at most one repost per event. Unlike :class:`Bookmark` this is a *public*
+    signal — the reposter's followers see it in their "Following" feed and it shows on the
+    reposter's profile — so the repo caller also records an :class:`ActivityLog` ``share`` row.
+    ``user_id``/``event_id`` are plain uuids with no FK (the GDPR purge fans out explicitly in
+    chronos_core.accounts_repo)."""
+
+    __tablename__ = "reposts"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_reposts_user_created", "user_id", "created_at"),
+        Index("ix_reposts_event", "event_id"),
+    )

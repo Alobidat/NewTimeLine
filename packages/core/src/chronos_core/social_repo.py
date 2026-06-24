@@ -25,6 +25,7 @@ from chronos_core.models.social import (
     Bookmark,
     Follow,
     Promote,
+    Repost,
 )
 from chronos_core.models.user import User
 
@@ -205,6 +206,44 @@ async def bookmark_count(session: AsyncSession, *, event_id: uuid.UUID) -> int:
     return int(
         await session.scalar(
             select(func.count()).select_from(Bookmark).where(Bookmark.event_id == event_id)
+        )
+        or 0
+    )
+
+
+# --- reposts (a public re-share to the user's followers) -------------------------------------
+
+
+async def repost(session: AsyncSession, *, user_id: uuid.UUID, event_id: uuid.UUID) -> bool:
+    """Re-share an event to the caller's followers (idempotent). Returns True if a new repost
+    was created. The caller also records an activity ``share`` row + commits."""
+    existing = await session.get(Repost, (user_id, event_id))
+    if existing is not None:
+        return False
+    session.add(Repost(user_id=user_id, event_id=event_id))
+    return True
+
+
+async def unrepost(session: AsyncSession, *, user_id: uuid.UUID, event_id: uuid.UUID) -> bool:
+    """Undo a repost. Returns True if a row was deleted. Caller commits."""
+    result = await session.execute(
+        delete(Repost).where(Repost.user_id == user_id, Repost.event_id == event_id)
+    )
+    return (result.rowcount or 0) > 0
+
+
+async def is_reposted(
+    session: AsyncSession, *, user_id: uuid.UUID, event_id: uuid.UUID
+) -> bool:
+    """True iff the caller has reposted the event."""
+    return (await session.get(Repost, (user_id, event_id))) is not None
+
+
+async def repost_count(session: AsyncSession, *, event_id: uuid.UUID) -> int:
+    """How many users have reposted an event (the public 'reposts' count)."""
+    return int(
+        await session.scalar(
+            select(func.count()).select_from(Repost).where(Repost.event_id == event_id)
         )
         or 0
     )

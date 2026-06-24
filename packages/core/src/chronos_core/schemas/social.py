@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from chronos_core.schemas.event import EventRead
+from chronos_core.schemas.interaction import CommentAuthor
 
 __all__ = [
     "FollowResult",
@@ -195,6 +196,8 @@ class FeedItem(BaseModel):
     # <video> can't decode a JPEG, so without this flag image heroes showed as a black screen.
     hero_is_clip: bool = False
     score: float = 0.0
+    # The clip's author (user-generated clips only) — identity for the rail avatar + follow.
+    author: CommentAuthor | None = None
 
 
 class FeedResponse(BaseModel):

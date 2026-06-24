@@ -21,6 +21,7 @@ from chronos_core.schemas.interaction import (
     ReactionSummary,
     ReactionToggle,
     ReactionToggleResult,
+    RepostResult,
     SourceVoteCast,
     SourceVoteResult,
     SourceVoteSummary,
@@ -60,6 +61,48 @@ async def event_stats(
         ),
         bookmarks=await social_repo.bookmark_count(session, event_id=event_id),
     )
+
+
+# --- repost (public re-share to the caller's followers) -------------------------------
+
+
+@router.post("/repost", response_model=RepostResult, status_code=status.HTTP_201_CREATED)
+async def add_repost(
+    event_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(require_verified_actor),
+) -> RepostResult:
+    """Re-share an event to the caller's followers (idempotent). A public signal: it surfaces in
+    the reposter's followers' Following feed + on their profile, and is logged as ``share``
+    activity (feeding the interest profile)."""
+    created = await social_repo.repost(session, user_id=actor, event_id=event_id)
+    if created:
+        await social_repo.record_activity(
+            session, user_id=actor, kind="share", target_type="event", target_id=event_id
+        )
+    return RepostResult(event_id=event_id, reposted=True)
+
+
+@router.delete("/repost", response_model=RepostResult)
+async def remove_repost(
+    event_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(require_verified_actor),
+) -> RepostResult:
+    """Undo a repost (idempotent — reports the post-state)."""
+    await social_repo.unrepost(session, user_id=actor, event_id=event_id)
+    return RepostResult(event_id=event_id, reposted=False)
+
+
+@router.get("/repost/state", response_model=RepostResult)
+async def repost_state(
+    event_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> RepostResult:
+    """Whether the caller has reposted the event (False when anonymous)."""
+    reposted = await social_repo.is_reposted(session, user_id=actor, event_id=event_id)
+    return RepostResult(event_id=event_id, reposted=reposted)
 
 
 # --- comments -------------------------------------------------------------------------

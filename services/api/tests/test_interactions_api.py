@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 import chronos_core.interactions_repo as repo
+import chronos_core.social_repo as srepo
 import chronos_api.graph_queries as gq
 import pytest
 from chronos_api.auth_stub import get_actor, require_verified_actor
@@ -186,6 +187,52 @@ def test_remove_link_only_reports_removed(client, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["removed"] is False
+
+
+# --- repost ---------------------------------------------------------------------------
+
+
+def test_repost_injects_actor_and_logs_share(client, monkeypatch):
+    captured = {}
+
+    async def fake_repost(session, *, user_id, event_id):
+        captured.update(user_id=user_id, event_id=event_id)
+        return True
+
+    async def fake_record_activity(session, *, user_id, kind, target_type, target_id):
+        captured.update(act_kind=kind, act_target=target_type)
+
+    monkeypatch.setattr(srepo, "repost", fake_repost)
+    monkeypatch.setattr(srepo, "record_activity", fake_record_activity)
+    ev = uuid.uuid4()
+    resp = client.post(f"/events/{ev}/repost")
+    assert resp.status_code == 201
+    assert resp.json() == {"event_id": str(ev), "reposted": True}
+    assert captured["user_id"] == get_actor(None) and captured["event_id"] == ev
+    # A repost is a public signal → logged as 'share' activity for the interest profile.
+    assert captured["act_kind"] == "share" and captured["act_target"] == "event"
+
+
+def test_unrepost_reports_post_state(client, monkeypatch):
+    async def fake_unrepost(session, *, user_id, event_id):
+        return True
+
+    monkeypatch.setattr(srepo, "unrepost", fake_unrepost)
+    ev = uuid.uuid4()
+    resp = client.request("DELETE", f"/events/{ev}/repost")
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": str(ev), "reposted": False}
+
+
+def test_repost_state_reports_reposted(client, monkeypatch):
+    async def fake_is_reposted(session, *, user_id, event_id):
+        return True
+
+    monkeypatch.setattr(srepo, "is_reposted", fake_is_reposted)
+    ev = uuid.uuid4()
+    resp = client.get(f"/events/{ev}/repost/state")
+    assert resp.status_code == 200
+    assert resp.json()["reposted"] is True
 
 
 # --- user-vs-agent link classification (the /related distinction) ---------------------

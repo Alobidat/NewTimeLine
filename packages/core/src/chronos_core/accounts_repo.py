@@ -30,7 +30,7 @@ from chronos_core.models.friendship import Friendship
 from chronos_core.models.interaction import Comment, CommentReaction, Reaction, SourceVote
 from chronos_core.models.media import EventMedia
 from chronos_core.models.relation import EventRelation
-from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote
+from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote, Repost
 from chronos_core.models.user import User, UserAgreement, UserIdentity
 
 log = logging.getLogger("chronos.accounts")
@@ -215,6 +215,9 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
     bookmarks = (
         await session.scalars(select(Bookmark).where(Bookmark.user_id == user_id))
     ).all()
+    reposts = (
+        await session.scalars(select(Repost).where(Repost.user_id == user_id))
+    ).all()
     friendships = (
         await session.scalars(
             select(Friendship).where(
@@ -294,6 +297,11 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
              "created_at": b.created_at.isoformat() if b.created_at else None}
             for b in bookmarks
         ],
+        "reposts": [
+            {"event_id": str(r.event_id),
+             "created_at": r.created_at.isoformat() if r.created_at else None}
+            for r in reposts
+        ],
         "friendships": [
             {"requester_id": str(f.requester_id), "addressee_id": str(f.addressee_id),
              "status": f.status,
@@ -348,6 +356,9 @@ async def purge_user(session: AsyncSession, user_id: uuid.UUID, *, objectstore=N
     ).rowcount or 0
     counts["bookmarks"] = (
         await session.execute(delete(Bookmark).where(Bookmark.user_id == user_id))
+    ).rowcount or 0
+    counts["reposts"] = (
+        await session.execute(delete(Repost).where(Repost.user_id == user_id))
     ).rowcount or 0
     counts["comment_reactions"] = (
         await session.execute(delete(CommentReaction).where(CommentReaction.user_id == user_id))

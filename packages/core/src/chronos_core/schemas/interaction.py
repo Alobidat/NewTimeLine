@@ -20,6 +20,7 @@ __all__ = [
     "CommentUpdate",
     "CommentRead",
     "EventStats",
+    "RepostResult",
     "ReactionToggle",
     "ReactionToggleResult",
     "ReactionSummary",
@@ -33,6 +34,13 @@ __all__ = [
 ReactionKind = Literal["like", "dislike", "important", "doubt"]
 VoteVerdict = Literal["corroborate", "dispute", "irrelevant"]
 CommentStatus = Literal["visible", "flagged", "removed"]
+
+
+class RepostResult(BaseModel):
+    """Outcome of a repost toggle: whether the caller now reposts the event."""
+
+    event_id: uuid.UUID
+    reposted: bool
 
 
 class EventStats(BaseModel):
