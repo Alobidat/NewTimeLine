@@ -196,8 +196,12 @@ class FeedItem(BaseModel):
     # <video> can't decode a JPEG, so without this flag image heroes showed as a black screen.
     hero_is_clip: bool = False
     score: float = 0.0
-    # The clip's author (user-generated clips only) — identity for the rail avatar + follow.
+    # Who to attribute the clip to on the rail (avatar + follow): the uploading *user* for
+    # user-generated clips, else the clip's primary *entity* (e.g. NASA) for agent-curated
+    # world events — so every clip has a followable face. ``author_kind`` says which, so the
+    # client follows the right target (``user`` vs ``entity``). None only when nothing is known.
     author: CommentAuthor | None = None
+    author_kind: str = "user"  # 'user' | 'entity'
 
 
 class FeedResponse(BaseModel):

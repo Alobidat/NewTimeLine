@@ -142,6 +142,38 @@ def _item(row) -> FeedItem:
     )
 
 
+async def _attach_attribution(session: AsyncSession, items: list[FeedItem]) -> None:
+    """For clips with no *user* author (agent/curated world events), attribute to the event's
+    primary entity (prefer org → person → place → topic) so every clip has a followable face on
+    the rail. Mutates ``items`` in place: sets ``author`` (entity identity) + ``author_kind``."""
+    need = {i.event.id: i for i in items if i.author is None}
+    if not need:
+        return
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (ee.event_id) ee.event_id, en.id, en.name "
+                "FROM event_entities ee JOIN entities en ON en.id = ee.entity_id "
+                "WHERE ee.event_id = ANY(:ids) AND en.name IS NOT NULL "
+                "ORDER BY ee.event_id, CASE en.kind "
+                "  WHEN 'org' THEN 0 WHEN 'person' THEN 1 WHEN 'actor' THEN 1 "
+                "  WHEN 'place' THEN 2 ELSE 3 END, en.name"
+            ),
+            {"ids": list(need)},
+        )
+    ).all()
+    for r in rows:
+        item = need.get(r.event_id)
+        if item is not None:
+            item.author = CommentAuthor(id=r.id, handle=_slug(r.name), display_name=r.name)
+            item.author_kind = "entity"
+
+
+def _slug(name: str) -> str:
+    """A handle-ish slug from an entity name (entities have no handle of their own)."""
+    return "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")[:40] or "entity"
+
+
 def _author(row) -> CommentAuthor | None:
     """The clip's author identity, or None for agent/seed clips (no user author) or projections
     that don't select the author columns. Defensive `getattr` so non-feed callers of `_item` are
@@ -304,9 +336,11 @@ async def fetch_foryou(
             },
         )
     ).all()
+    items = [_item(r) for r in rows]
+    await _attach_attribution(session, items)
     return FeedResponse(
         tab="foryou",
-        items=[_item(r) for r in rows],
+        items=items,
         next_cursor=_next_cursor(offset, page, len(rows)),
     )
 
@@ -351,9 +385,11 @@ async def fetch_following(
             {"uid": user_id, "lim": page, "off": offset},
         )
     ).all()
+    items = [_item(r) for r in rows]
+    await _attach_attribution(session, items)
     return FeedResponse(
         tab="following",
-        items=[_item(r) for r in rows],
+        items=items,
         next_cursor=_next_cursor(offset, page, len(rows)),
     )
 
@@ -393,8 +429,10 @@ async def fetch_discover(
             {"uid": user_id, "uid_text": str(user_id), "lim": page, "off": offset},
         )
     ).all()
+    items = [_item(r) for r in rows]
+    await _attach_attribution(session, items)
     return FeedResponse(
         tab="discover",
-        items=[_item(r) for r in rows],
+        items=items,
         next_cursor=_next_cursor(offset, page, len(rows)),
     )
