@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_core.models.social import (
@@ -147,6 +147,48 @@ async def users_by_ids(
 async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
     """Fetch a single user (public profile)."""
     return await session.get(User, user_id)
+
+
+async def suggest_users(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    interest_entity_ids: list[uuid.UUID],
+    limit: int = 12,
+) -> list[uuid.UUID]:
+    """Suggest users/bots to follow, newest first by relevance. Ranks creators whose published
+    clips are tagged with the caller's interest entities (overlap), then falls back to popular
+    creators by post count. Excludes the caller + anyone already followed. Returns user ids."""
+    interest = interest_entity_ids or [uuid.UUID(int=0)]
+    rows = (
+        await session.execute(
+            text(
+                # CASE-guard the ::uuid cast — agent/seed media have a non-uuid added_by
+                # (e.g. 'seed:iran-us') and an unguarded cast errors (mirrors feed `_HERO_JOIN`).
+                "WITH posts AS ("
+                "  SELECT CASE WHEN m.origin_kind = 'user' THEN em.added_by::uuid END AS uid, "
+                "         em.event_id "
+                "  FROM event_media em JOIN media m ON m.id = em.media_id "
+                "  WHERE em.role = 'hero'"
+                ") "
+                "SELECT p.uid, "
+                "  count(DISTINCT CASE WHEN ee.entity_id = ANY(:interest) "
+                "                      THEN p.event_id END) AS overlap, "
+                "  count(DISTINCT p.event_id) AS posts "
+                "FROM posts p "
+                "LEFT JOIN event_entities ee ON ee.event_id = p.event_id "
+                "JOIN users u ON u.id = p.uid "
+                "WHERE p.uid IS NOT NULL AND p.uid <> :uid "
+                "  AND NOT EXISTS (SELECT 1 FROM follows f WHERE f.user_id = :uid "
+                "                  AND f.target_type='user' AND f.target_id = p.uid) "
+                "GROUP BY p.uid "
+                "ORDER BY overlap DESC, posts DESC "
+                "LIMIT :lim"
+            ),
+            {"interest": interest, "uid": user_id, "lim": limit},
+        )
+    ).all()
+    return [r.uid for r in rows]
 
 
 async def following_user_ids_among(

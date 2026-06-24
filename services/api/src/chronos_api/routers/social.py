@@ -502,3 +502,20 @@ async def my_interests(
 ) -> InterestProfile:
     """The caller's decayed interest profile (debug/inspection of the rec substrate)."""
     return await interest.compute_profile(session, actor)
+
+
+@router.get("/suggest/follows", response_model=UserSummaryList)
+async def suggest_follows(
+    limit: int = Query(default=12, ge=1, le=50),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(require_verified_actor),
+) -> UserSummaryList:
+    """Suggested creators to follow (Phase 5 recommendations): people who post about what the
+    caller engages with (interest-entity overlap), then popular creators — minus self + already
+    followed."""
+    profile = await interest.compute_profile(session, actor)
+    entity_ids = [uuid.UUID(k) for k in list(profile.entities)[:20]]
+    ids = await repo.suggest_users(
+        session, user_id=actor, interest_entity_ids=entity_ids, limit=limit
+    )
+    return await _summaries(session, ids, actor)
