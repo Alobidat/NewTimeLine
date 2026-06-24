@@ -9,7 +9,6 @@
 /// the feed never renders a blank or broken page.
 library;
 
-import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -18,9 +17,11 @@ import 'package:video_player/video_player.dart';
 
 import 'web_video.dart';
 
-/// A muted, looping clip filling its box, with cover-fit (BoxFit.cover semantics) so it
-/// behaves like a TikTok video. [active] drives autoplay; [preload] keeps the controller
-/// initialized (buffered) without playing, so a swipe to it starts instantly.
+/// A muted, looping clip shown at its TRUE aspect ratio (BoxFit.contain — never cropped), over
+/// a blurred, dimmed cover of itself so the letterbox area reads as a soft backdrop rather than
+/// dead black. "Best mode": every edge of the media is always visible, scaled to fit the page.
+/// [active] drives autoplay; [preload] keeps the controller initialized (buffered) without
+/// playing, so a swipe to it starts instantly.
 class FeedClipPlayer extends StatefulWidget {
   const FeedClipPlayer({
     super.key,
@@ -158,10 +159,10 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
       return _coverImage(url);
     }
 
-    // Web: a full-bleed HTML <video> (object-fit: cover), muted-autoplay-loop. No controller,
-    // no FittedBox — the element styles itself. Critically, NO Flutter-painted background here:
-    // a ColoredBox/Container composites *above* the platform view in CanvasKit and would hide
-    // the clip. The bare platform view lets the clip show with the overlays (rail/scrim) on top.
+    // Web: a full-bleed HTML <video> (object-fit: contain — never cropped), muted-autoplay-loop.
+    // No controller, no FittedBox — the element styles itself. Critically, NO Flutter-painted
+    // background here: a ColoredBox/Container composites *above* the platform view in CanvasKit
+    // and would hide the clip. The bare platform view lets the clip show with overlays on top.
     if (kIsWeb) {
       return url == null
           ? const ColoredBox(color: Colors.black)
@@ -188,24 +189,36 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   Widget _surface() {
     final c = _controller;
     if (c != null && c.value.isInitialized) {
-      // Cover-fit, TikTok-style: scale the clip to fill the page and crop the overflow.
-      // We size the video box *explicitly* to the cover dimensions (rather than relying on
-      // FittedBox) because on the web the player is an HTML <video> platform view that
-      // FittedBox can't transform — a landscape clip would otherwise letterbox into a strip.
+      // Contain-fit ("best mode"): show the whole clip at its true aspect ratio, never cropping
+      // an edge, over a blurred + dimmed cover of itself so the bars beside a portrait/landscape
+      // clip read as a soft backdrop (matching the image hero in [_coverImage]). Both layers are
+      // Textures from the same controller — a single decode is rendered twice, no extra cost.
+      // (This path is native-only; the web clip is a self-styling <video>, see build.)
       final vs = c.value.size;
-      return ClipRect(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final boxW = constraints.maxWidth, boxH = constraints.maxHeight;
-            final vw = vs.width <= 0 ? boxW : vs.width;
-            final vh = vs.height <= 0 ? boxH : vs.height;
-            final scale = math.max(boxW / vw, boxH / vh); // cover
-            final w = vw * scale, h = vh * scale;
-            return OverflowBox(
-              minWidth: w, maxWidth: w, minHeight: h, maxHeight: h,
-              child: SizedBox(width: w, height: h, child: VideoPlayer(c)),
-            );
-          },
+      final vw = vs.width <= 0 ? 1.0 : vs.width;
+      final vh = vs.height <= 0 ? 1.0 : vs.height;
+      return ColoredBox(
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+              child: FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(width: vw, height: vh, child: VideoPlayer(c)),
+              ),
+            ),
+            const ColoredBox(color: Colors.black38),
+            // The real clip, full aspect ratio, centred — scaled to fit with every edge visible.
+            Center(
+              child: AspectRatio(
+                aspectRatio: vw / vh,
+                child: VideoPlayer(c),
+              ),
+            ),
+          ],
         ),
       );
     }

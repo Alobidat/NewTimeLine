@@ -2,9 +2,10 @@
 ///
 /// We bypass `video_player` on the web because its platform view lays the `<video>` out at the
 /// clip's natural aspect ratio (top-aligned → a strip), and Flutter's FittedBox/OverflowBox
-/// can't restyle a platform view. Here we own the element, so `object-fit: cover` +
-/// `width/height: 100%` gives a true full-bleed, TikTok-style crop. Muted + autoplay + loop +
-/// playsinline reproduce the feed behaviour natively (no controller needed for a muted feed).
+/// can't restyle a platform view. Here we own the element, so `object-fit: contain` +
+/// `width/height: 100vw/100vh` scales the whole clip to fit the viewport with every edge visible
+/// ("best mode"), letterboxing onto black. Muted + autoplay + loop + playsinline reproduce the
+/// feed behaviour natively (no controller needed for a muted feed).
 ///
 /// The clip is purely visual: it is set `pointer-events: none` so it NEVER captures the pointer
 /// stream — every swipe/tap falls straight through to Flutter's gesture layer, which owns all
@@ -72,7 +73,10 @@ Widget webVideoView(String url, {required bool muted}) {
       v.style.setProperty('display', 'block');
       v.style.setProperty('width', '100vw');
       v.style.setProperty('height', '100vh');
-      v.style.setProperty('object-fit', 'cover');
+      // "Best mode": contain — the whole clip is always visible at its true aspect ratio, scaled
+      // to fit the viewport, never cropping an edge. A portrait/landscape clip letterboxes onto
+      // the black backdrop rather than being zoomed-in and cut off.
+      v.style.setProperty('object-fit', 'contain');
       v.style.setProperty('background-color', 'black');
       // Decorative only — let every pointer/touch fall through to Flutter's gesture layer so the
       // feed's GestureDetector handles swipes uniformly over the whole screen (centre included).
