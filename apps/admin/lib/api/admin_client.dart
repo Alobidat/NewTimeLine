@@ -113,6 +113,15 @@ class AdminClient {
   Future<void> bootstrapBots(int count, int postsPerBot) =>
       _post('/admin/bots/bootstrap', {'count': count, 'posts_per_bot': postsPerBot});
 
+  // ── Moderation approvals queue ───────────────────────────────────────────────────────
+  Future<ModerationQueue> moderationQueue() async => ModerationQueue.fromJson(
+    await _get('/admin/moderation') as Map<String, dynamic>,
+  );
+
+  Future<void> approveFlag(String id) => _post('/admin/moderation/$id/approve');
+
+  Future<void> removeFlag(String id) => _post('/admin/moderation/$id/remove');
+
   /// Update a config key (validated server-side against its spec). Returns the updated entry.
   Future<ConfigEntry> setConfig(String key, dynamic value) async {
     final uri = Uri.parse('$baseUrl/admin/config/$key');

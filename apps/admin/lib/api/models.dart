@@ -406,3 +406,57 @@ Map<String, int> _intMap(dynamic v) =>
     (v as Map? ?? const {}).map((k, val) => MapEntry(k as String, (val as num).toInt()));
 
 DateTime? _dt(dynamic v) => v == null ? null : DateTime.tryParse(v as String)?.toLocal();
+
+/// One open moderation flag in the admin approvals queue.
+class ModerationFlag {
+  ModerationFlag({
+    required this.id,
+    required this.targetType,
+    required this.targetId,
+    required this.source,
+    required this.severity,
+    required this.status,
+    this.reason,
+    this.preview,
+    this.held = false,
+    this.createdAt,
+  });
+
+  final String id;
+  final String targetType;
+  final String targetId;
+  final String source;
+  final int severity;
+  final String status;
+  final String? reason;
+  final String? preview;
+  final bool held;
+  final DateTime? createdAt;
+
+  factory ModerationFlag.fromJson(Map<String, dynamic> j) => ModerationFlag(
+    id: j['id'] as String,
+    targetType: j['target_type'] as String? ?? '',
+    targetId: j['target_id'] as String? ?? '',
+    source: j['source'] as String? ?? 'llm',
+    severity: (j['severity'] as num?)?.toInt() ?? 0,
+    status: j['status'] as String? ?? 'open',
+    reason: j['reason'] as String?,
+    preview: j['preview'] as String?,
+    held: j['held'] as bool? ?? false,
+    createdAt: _dt(j['created_at']),
+  );
+}
+
+/// A page of the moderation queue + the total open count.
+class ModerationQueue {
+  ModerationQueue({required this.items, required this.count});
+  final List<ModerationFlag> items;
+  final int count;
+
+  factory ModerationQueue.fromJson(Map<String, dynamic> j) => ModerationQueue(
+    items: ((j['items'] as List?) ?? const [])
+        .map((e) => ModerationFlag.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    count: (j['count'] as num?)?.toInt() ?? 0,
+  );
+}
