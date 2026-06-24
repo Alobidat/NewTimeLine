@@ -9,6 +9,11 @@ post. Providers (each behind an ``bots.sources.<id>.enabled`` toggle):
 - **NASA** Image & Video Library — keyless; agency footage is **public domain**.
 - **Pexels** video API — needs ``bots.sources.pexels.api_key``; fixed free Pexels License. The
   breadth source (sports/finance/news/travel/tech B-roll).
+- **Internet Archive** — keyless; ``mediatype:movies`` filtered to a *free* ``licenseurl``
+  (public-domain / CC0 / CC BY / CC BY-SA). Deep archival breadth (history/news/culture/PD film).
+  ``youtube-*`` re-uploads are excluded (uploader-asserted licenses are untrustworthy).
+- **Pixabay** video API — needs ``bots.sources.pixabay.api_key``; Pixabay Content License (free,
+  commercial-OK, no attribution). A second modern-topic breadth source alongside Pexels.
 
 Every candidate is license-gated; a clip with no recognisably-free license is dropped (fail-
 closed). All provider calls are best-effort — a failing provider yields ``[]``, never raises.
@@ -17,6 +22,7 @@ closed). All provider calls are best-effort — a failing provider yields ``[]``
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -38,7 +44,7 @@ class FreeClip:
     url: str             # direct playable file URL (mp4/webm)
     source_url: str      # provenance page (the event's source)
     title: str
-    provider: str        # commons | nasa | pexels
+    provider: str        # commons | nasa | pexels | archive | pixabay
     license: str         # normalized, verified-free
     mime: str = "video/mp4"
     description: str | None = None
@@ -68,10 +74,16 @@ async def find_free_clips(
         out += await _commons(client, query, limit=limit, max_width=max_width, allow_nc=allow_nc)
     if len(out) < limit and await enabled("nasa"):
         out += await _nasa(client, query, limit=limit - len(out))
+    if len(out) < limit and await enabled("archive"):
+        out += await _archive(client, query, limit=limit - len(out), allow_nc=allow_nc)
     if len(out) < limit and await enabled("pexels"):
         key = await config_service.get(session, "bots.sources.pexels.api_key", "")
         if key:
             out += await _pexels(client, query, key, limit=limit - len(out), max_width=max_width)
+    if len(out) < limit and await enabled("pixabay"):
+        key = await config_service.get(session, "bots.sources.pixabay.api_key", "")
+        if key:
+            out += await _pixabay(client, query, key, limit=limit - len(out), max_width=max_width)
 
     # Dedup by direct url, cap.
     seen: set[str] = set()
@@ -216,6 +228,182 @@ def _pexels_title(page_url: str | None) -> str | None:
         return None
     slug = page_url.rstrip("/").split("/")[-1]
     return slug.replace("-", " ").strip() or None
+
+
+# --- Internet Archive (keyless) -------------------------------------------------------------
+
+# Only request movies whose licenseurl is recognisably free (PD / CC0 / CC BY / CC BY-SA); the
+# is_free_license gate below is still authoritative (defence in depth). ``youtube-*`` items are
+# user re-uploads with uploader-asserted licenses we don't trust.
+_IA_FREE_Q = (
+    r"licenseurl:*publicdomain* OR licenseurl:*\/licenses\/by\/* "
+    r"OR licenseurl:*\/licenses\/by-sa\/*"
+)
+
+
+async def _archive(
+    client: httpx.AsyncClient, query: str, *, limit: int, allow_nc: bool
+) -> list[FreeClip]:
+    """Internet Archive movies under a free license (keyless). Resolves a direct mp4 per item."""
+    # Scope the topic match to title/subject/description (full-text matching is too noisy for
+    # relevance) and let IA's default relevance sort rank. The LLM gate in post.py is the final
+    # relevance arbiter; this just keeps the candidate set on-topic enough to be worth judging.
+    topic = f"(title:({query}) OR subject:({query}) OR description:({query}))"
+    params = [
+        ("q", f"mediatype:movies AND ({_IA_FREE_Q}) AND NOT identifier:youtube-* AND {topic}"),
+        ("fl[]", "identifier"), ("fl[]", "title"), ("fl[]", "licenseurl"),
+        ("fl[]", "year"), ("fl[]", "creator"), ("fl[]", "description"),
+        ("rows", str(limit * 3)), ("output", "json"),
+    ]
+    try:
+        resp = await client.get(
+            "https://archive.org/advancedsearch.php", params=params, timeout=20.0,
+            headers={"User-Agent": USER_AGENT},
+        )
+        resp.raise_for_status()
+        docs = (resp.json().get("response") or {}).get("docs") or []
+    except Exception:
+        log.warning("archive.org search failed for %r", query, exc_info=True)
+        return []
+
+    out: list[FreeClip] = []
+    for doc in docs:
+        identifier = doc.get("identifier")
+        lic = _ia_license(doc.get("licenseurl"))
+        if not identifier or not is_free_license(lic, allow_noncommercial=allow_nc):
+            continue
+        picked = await _ia_mp4(client, identifier)
+        if not picked:
+            continue
+        name, width, height = picked
+        out.append(
+            FreeClip(
+                url=f"https://archive.org/download/{identifier}/{name}",
+                source_url=f"https://archive.org/details/{identifier}",
+                title=str(doc.get("title") or identifier)[:140], provider="archive",
+                license=normalize_license(lic) or "Public Domain", mime="video/mp4",
+                description=_ia_text(doc.get("description")),
+                credit=_ia_text(doc.get("creator")) or "Internet Archive",
+                width=width, height=height, year=_ia_year(doc.get("year")),
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def _ia_mp4(
+    client: httpx.AsyncClient, identifier: str
+) -> tuple[str, int | None, int | None] | None:
+    """Pick the smallest .mp4 rendition (the web derivative) from an item's file list."""
+    try:
+        resp = await client.get(
+            f"https://archive.org/metadata/{identifier}", timeout=15.0,
+            headers={"User-Agent": USER_AGENT},
+        )
+        resp.raise_for_status()
+        files = resp.json().get("files") or []
+    except Exception:
+        return None
+    mp4s = [f for f in files if str(f.get("name", "")).lower().endswith(".mp4")]
+    if not mp4s:
+        return None
+
+    def _size(f: dict) -> int:
+        try:
+            return int(f.get("size") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    sized = [f for f in mp4s if _size(f) > 0]
+    best = min(sized or mp4s, key=lambda f: _size(f) or 1 << 62)
+    return best["name"], _ia_int(best.get("width")), _ia_int(best.get("height"))
+
+
+def _ia_license(licenseurl: str | None) -> str | None:
+    """Map an Internet Archive ``licenseurl`` to a license string is_free_license understands."""
+    u = (licenseurl or "").lower()
+    if not u:
+        return None
+    if "publicdomain/zero" in u or "/zero/" in u:
+        return "CC0"
+    if "publicdomain" in u:
+        return "Public Domain"
+    m = re.search(r"/licenses/([a-z-]+)/(\d(?:\.\d)?)", u)
+    if m:
+        return f"CC {m.group(1).upper()} {m.group(2)}"
+    return licenseurl
+
+
+def _ia_year(raw) -> float | None:
+    m = re.search(r"-?\d{1,4}", str(raw or ""))
+    return float(m.group()) if m else None
+
+
+def _ia_int(raw) -> int | None:
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ia_text(raw) -> str | None:
+    """IA fields may be a str or a list of strs; join to one short string."""
+    if isinstance(raw, list):
+        raw = "; ".join(str(x) for x in raw if x)
+    text = str(raw).strip() if raw else ""
+    return text[:500] or None
+
+
+# --- Pixabay (keyed) ------------------------------------------------------------------------
+
+
+async def _pixabay(
+    client: httpx.AsyncClient, query: str, key: str, *, limit: int, max_width: int
+) -> list[FreeClip]:
+    """Pixabay video API — Pixabay Content License (free, commercial-OK; needs an API key)."""
+    try:
+        resp = await client.get(
+            "https://pixabay.com/api/videos/",
+            params={"key": key, "q": query, "per_page": min(max(limit * 2, 3), 50),
+                    "safesearch": "true"},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        hits = resp.json().get("hits", [])
+    except Exception:
+        log.warning("pixabay search failed for %r", query, exc_info=True)
+        return []
+
+    out: list[FreeClip] = []
+    for v in hits:
+        best = _pixabay_best_file(v.get("videos") or {}, max_width)
+        if not best or not best.get("url"):
+            continue
+        tags = str(v.get("tags") or query)
+        out.append(
+            FreeClip(
+                url=best["url"], source_url=v.get("pageURL") or best["url"],
+                title=tags[:140], provider="pixabay", license="Pixabay License (free)",
+                mime="video/mp4", credit=v.get("user") or "Pixabay",
+                width=best.get("width") or None, height=best.get("height") or None,
+                duration_s=v.get("duration"),
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _pixabay_best_file(videos: dict, max_width: int) -> dict | None:
+    """Largest Pixabay rendition at or under ``max_width`` (else the smallest available)."""
+    files = [f for f in videos.values() if isinstance(f, dict) and f.get("url")]
+    if not files:
+        return None
+    under = [f for f in files if 0 < (f.get("width") or 0) <= max_width]
+    if under:
+        return max(under, key=lambda f: f.get("width") or 0)
+    return min(files, key=lambda f: f.get("width") or 1 << 30)
 
 
 def _https(url: str) -> str:

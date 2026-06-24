@@ -349,14 +349,19 @@ SPECS: list[ConfigSpec] = [
        scope="bots", component_id="agent:bots.post"),
     _b("bots.sources.nasa.enabled", True, "NASA (public domain)",
        scope="bots", component_id="agent:bots.post"),
+    _b("bots.sources.archive.enabled", True, "Internet Archive (keyless, free-license movies)",
+       scope="bots", component_id="agent:bots.post",
+       help="Public-domain / CC0 / CC-BY / CC-BY-SA movies; deep archival breadth, no key."),
     _b("bots.sources.pexels.enabled", True, "Pexels (needs API key)",
        scope="bots", component_id="agent:bots.post"),
     ConfigSpec(key="bots.sources.pexels.api_key", type="string", scope="bots",
                component_id="agent:bots.post", default="", label="Pexels API key",
                secret=True, help="Enables Pexels stock-video + portrait avatars."),
+    _b("bots.sources.pixabay.enabled", True, "Pixabay (needs API key)",
+       scope="bots", component_id="agent:bots.post"),
     ConfigSpec(key="bots.sources.pixabay.api_key", type="string", scope="bots",
                component_id="agent:bots.post", default="", label="Pixabay API key",
-               secret=True, help="Reserved for the Pixabay free-stock provider."),
+               secret=True, help="Enables the Pixabay free-stock video provider."),
 ]
 
 SPEC_BY_KEY: dict[str, ConfigSpec] = {s.key: s for s in SPECS}
