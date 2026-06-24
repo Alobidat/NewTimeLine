@@ -57,11 +57,44 @@ async def _bots_ticker() -> None:
         await asyncio.sleep(max(interval, 30))
 
 
+async def _maintenance_ticker() -> None:
+    """Periodically enqueue the pipeline-maintenance agents so new + backlogged events get
+    enriched, placed on the map, embedded/deduped, and graph-linked without manual runs.
+
+    Each agent is batch-bounded and gated by its own ``*.enabled`` config, so this just keeps
+    the pipeline draining; the whole ticker is gated by ``agents.maintenance.enabled``. The
+    worker drains the resulting jobs from the same queue the admin run-now button uses.
+    """
+    from chronos_core import run_queue  # noqa: PLC0415
+
+    # Order matters: enrich (summary/entities) → geocode (needs entities) → dedup (embeddings)
+    # → relate (needs entities). A short stagger avoids hammering the LLM/Nominatim at once.
+    pipeline = ("enrich", "geocode", "dedup", "relate")
+    while True:
+        try:
+            async with session_scope() as session:
+                interval = int(
+                    await config_service.get(session, "agents.maintenance.interval_seconds", 900)
+                )
+                enabled = bool(
+                    await config_service.get(session, "agents.maintenance.enabled", True)
+                )
+            if enabled:
+                for cmd in pipeline:
+                    run_queue.enqueue(cmd, {})
+                    await asyncio.sleep(5)
+        except Exception:
+            log.exception("maintenance ticker error")
+            interval = 900
+        await asyncio.sleep(max(interval, 60))
+
+
 async def run_worker() -> None:
     """Block-pop jobs from ``chronos:run_queue`` and execute them.
 
-    Also runs a background ticker that periodically schedules AI-user activity (post/interact),
-    so a single long-running worker both drains the queue and keeps the bot feed alive.
+    Also runs background tickers that periodically schedule AI-user activity (post/interact) and
+    pipeline maintenance (enrich/geocode/dedup/relate), so a single long-running worker drains the
+    queue, keeps the bot feed alive, and keeps new events enriched + on the map.
     """
     # Lazy import to avoid circular deps; run.py imports the agents.
     from chronos_agents.run import _COMMANDS  # noqa: PLC0415
@@ -70,6 +103,7 @@ async def run_worker() -> None:
         await config_service.ensure_defaults(session)
 
     ticker = asyncio.create_task(_bots_ticker())
+    maint = asyncio.create_task(_maintenance_ticker())
     r = redislib.from_url(get_settings().redis_url, decode_responses=True)
     log.info("Agent worker listening on chronos:run_queue …")
     try:
@@ -98,4 +132,5 @@ async def run_worker() -> None:
                 log.exception("Error running %r", command)
     finally:
         ticker.cancel()
+        maint.cancel()
         r.close()

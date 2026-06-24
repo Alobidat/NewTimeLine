@@ -267,15 +267,7 @@ async def _geocode_entities(
 async def run_geocode() -> dict[str, int]:
     """Main entry point: geocode a batch of events + place entities."""
     async with session_scope() as session:
-        cfg = await config_service.get_many(
-            session,
-            keys=[
-                "agents.geocode.enabled",
-                "agents.geocode.batch_size",
-                "agents.geocode.cascade",
-                "agents.geocode.agency_fallback",
-            ],
-        )
+        cfg = await config_service.get_many(session, "agents.geocode.")
 
     enabled: bool = cfg.get("agents.geocode.enabled", True)
     if not enabled:

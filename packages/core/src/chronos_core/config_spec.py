@@ -108,6 +108,15 @@ SPECS: list[ConfigSpec] = [
        scope="agent:enrich", component_id="agent:enrich", minimum=1, maximum=200),
     _i("agents.enrich.max_tokens", 800, "Max tokens / call",
        scope="agent:enrich", component_id="agent:enrich", minimum=64, maximum=8192),
+    # Pipeline maintenance heartbeat (worker): periodically enqueues enrich/geocode/dedup/relate
+    # so new + backlogged events stay processed without manual runs.
+    _b("agents.maintenance.enabled", True, "Pipeline maintenance heartbeat",
+       scope="agent:enrich", component_id="agent:enrich",
+       help="When on, the worker periodically runs enrich → geocode → dedup → relate so new "
+            "events get summarized, placed on the map, embedded/deduped, and graph-linked."),
+    _i("agents.maintenance.interval_seconds", 900, "Maintenance interval (seconds)",
+       scope="agent:enrich", component_id="agent:enrich", minimum=60, maximum=86400,
+       help="How often the worker enqueues the maintenance pipeline."),
 
     # LLM moderation (Phase 6) — reviews user posts/comments; flags + optionally holds.
     _b("moderation.enabled", True, "Enabled", scope="agent:moderation",
