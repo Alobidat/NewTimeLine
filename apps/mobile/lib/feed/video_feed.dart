@@ -434,10 +434,9 @@ class _VideoFeedState extends State<VideoFeed>
   }
 
   /// Long-press the React button → lift a Love/Promote/Demote menu up from the button ([at] is
-  /// the press position) and apply the mutually-exclusive pick.
+  /// the press position) and apply the mutually-exclusive pick. The menu shows first; each
+  /// action gates through sign-in only when actually chosen.
   Future<void> _chooseReact(FeedItem item, Offset at) async {
-    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
-    if (!mounted) return;
     final choice = await showReactSelector(context, _reactStateOf(item.event.id), at);
     if (choice == null || !mounted) return;
     switch (choice) {
@@ -468,6 +467,7 @@ class _VideoFeedState extends State<VideoFeed>
   /// Cast (or toggle off) a promote/demote vote, clearing any Love so the three stay mutually
   /// exclusive. Re-picking the active vote clears it. Optimistic, reconciled from the writes.
   Future<void> _setPromote(FeedItem item, int value) async {
+    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     final id = item.event.id;
     if (_reactBusy.contains(id)) return;
     _reactBusy.add(id);

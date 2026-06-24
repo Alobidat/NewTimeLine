@@ -174,6 +174,8 @@ class OverlayRail extends StatelessWidget {
           bottom: 24,
           child: _Caption(
             event: event,
+            author: author,
+            onOpenCreator: onOpenCreator,
             onInfo: onInfo,
             onOpenGraph: onOpenGraph,
             onAddVideo: onAddVideo,
@@ -391,9 +393,13 @@ class _Caption extends StatelessWidget {
     required this.event,
     required this.onInfo,
     required this.onOpenGraph,
+    this.author,
+    this.onOpenCreator,
     this.onAddVideo,
   });
   final EventRead event;
+  final CommentAuthor? author;
+  final VoidCallback? onOpenCreator;
   final VoidCallback onInfo;
   final VoidCallback onOpenGraph;
   final VoidCallback? onAddVideo;
@@ -411,6 +417,26 @@ class _Caption extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Author attribution (user-generated clips only) — who posted this, tappable to their
+        // profile; the avatar + follow live on the rail.
+        if (author != null) ...[
+          GestureDetector(
+            key: const Key('caption-author'),
+            onTap: onOpenCreator,
+            child: Text(
+              '@${author!.handle}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                shadows: [Shadow(blurRadius: 6, color: Colors.black87)],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
         Text(
           event.title,
           maxLines: 2,

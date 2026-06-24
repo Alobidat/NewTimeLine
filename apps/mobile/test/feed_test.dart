@@ -200,6 +200,9 @@ void main() {
       expect(find.byKey(const Key('rail-author')), findsOneWidget);
       expect(find.byKey(const Key('rail-follow-badge')), findsOneWidget);
       expect(find.byKey(const Key('caption-more')), findsOneWidget);
+      // The author is also attributed in the caption (@handle), tappable to their profile.
+      expect(find.byKey(const Key('caption-author')), findsOneWidget);
+      expect(find.text('@jane'), findsOneWidget);
     });
 
     testWidgets('swipe up pages to the next event video', (tester) async {
