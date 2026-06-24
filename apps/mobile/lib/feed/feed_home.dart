@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../account/account_screen.dart';
 import '../api/client.dart';
+import '../profile/avatar.dart';
 import '../profile/profile_screen.dart';
 import '../shell/experience_screen.dart';
 import '../state/auth_state.dart';
@@ -132,19 +133,24 @@ class _FeedHomeState extends State<FeedHome>
                     ),
                   ),
                   // Account / sign-in entry — in the Row so it never overlaps the +/⋮.
+                  // When signed in, show the user's profile picture (initials fallback);
+                  // otherwise the outlined account icon as a sign-in affordance.
                   AnimatedBuilder(
                     animation: _auth,
-                    builder: (context, _) => IconButton(
-                      key: const Key('account-entry'),
-                      tooltip: _auth.isSignedIn ? 'Account' : 'Sign in',
-                      icon: Icon(
-                        _auth.isSignedIn
-                            ? Icons.account_circle
-                            : Icons.account_circle_outlined,
-                        color: Colors.white,
-                      ),
-                      onPressed: _openAccount,
-                    ),
+                    builder: (context, _) {
+                      final user = _auth.user;
+                      return IconButton(
+                        key: const Key('account-entry'),
+                        tooltip: _auth.isSignedIn ? 'Account' : 'Sign in',
+                        icon: _auth.isSignedIn && user != null
+                            ? Avatar(label: user.label, url: user.avatarUrl, radius: 14)
+                            : const Icon(
+                                Icons.account_circle_outlined,
+                                color: Colors.white,
+                              ),
+                        onPressed: _openAccount,
+                      );
+                    },
                   ),
                   // (The "+" upload entry moved to the feed's bottom bar — see VideoFeed /
                   // OverlayRail "Add video". The overflow menu below keeps a secondary path.)
