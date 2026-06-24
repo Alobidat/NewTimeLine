@@ -93,13 +93,15 @@ async def counts(session: AsyncSession) -> dict[str, int]:
                 "(SELECT count(*) FROM entities) AS entities, "
                 "(SELECT count(*) FROM event_relations) AS relations, "
                 "(SELECT count(*) FROM media) AS media, "
-                "(SELECT count(*) FROM sources) AS sources"
+                "(SELECT count(*) FROM sources) AS sources, "
+                "(SELECT count(*) FROM moderation_flags WHERE status='open') AS moderation_open"
             )
         )
     ).first()
     return {
         "events": row.events, "entities": row.entities, "relations": row.relations,
         "media": row.media, "sources": row.sources,
+        "moderation_open": row.moderation_open,
     }
 
 

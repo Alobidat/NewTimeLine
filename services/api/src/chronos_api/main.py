@@ -19,6 +19,7 @@ from chronos_api.routers import (
     account,
     admin,
     admin_bots,
+    admin_moderation,
     auth,
     entities,
     events,
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(account.router)
     app.include_router(admin.router)
     app.include_router(admin_bots.router)
+    app.include_router(admin_moderation.router)
     return app
 
 

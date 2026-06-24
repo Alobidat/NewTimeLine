@@ -24,7 +24,7 @@ import uuid
 
 import httpx
 import redis as redislib
-from chronos_core import config_service, objectstore, upload as upload_core
+from chronos_core import config_service, objectstore, run_queue, upload as upload_core
 from chronos_core.models.user import User
 from chronos_core.run_queue import push_job
 from chronos_core.schemas.event import GeoPoint
@@ -218,6 +218,8 @@ async def upload_video(
     # event is published immediately, so the geocode agent picks it up right away.
     if geo is None:
         _enqueue_geocode()
+    # Async LLM moderation pass (Phase 6) — fire-and-forget; flags land in the admin queue.
+    run_queue.enqueue("moderate-event", {"event_id": str(event.id)})
 
     return {
         "event_id": str(event.id),

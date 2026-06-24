@@ -34,6 +34,7 @@ from chronos_agents.media_check import check_media
 from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.media_gap import flag_media_gaps
 from chronos_agents.media_quality import improve_media
+from chronos_agents.moderation import moderate_comment, moderate_event, moderate_pending
 from chronos_agents.persona_gen import generate_personas
 from chronos_agents.relate import link_relations
 from chronos_agents.seed_iran_us import seed_iran_us
@@ -80,6 +81,15 @@ _COMMANDS = {
         "agent:bots.interact",
         lambda a: persona_interact(bot_id=getattr(a, "bot_id", None), count=a.count),
     ),
+    "moderate-event": (
+        "agent:moderation",
+        lambda a: moderate_event(getattr(a, "event_id", None)),
+    ),
+    "moderate-comment": (
+        "agent:moderation",
+        lambda a: moderate_comment(getattr(a, "comment_id", None)),
+    ),
+    "moderate-pending": ("agent:moderation", lambda a: moderate_pending()),
     "bots-tick": ("agent:bots.scheduler", lambda a: bots_tick()),
     "bots-bootstrap": (
         "agent:bots.scheduler",
@@ -124,6 +134,11 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--keyword", default=None, help="Event keyword to search")
     collect.add_argument("--location", default=None, help="Location (country/city/area)")
     collect.add_argument("--actor", default=None, help="Actor name(s)")
+    me = sub.add_parser("moderate-event", help="LLM-moderate one event (by --event-id)")
+    me.add_argument("--event-id", default=None, dest="event_id")
+    mc = sub.add_parser("moderate-comment", help="LLM-moderate one comment (by --comment-id)")
+    mc.add_argument("--comment-id", default=None, dest="comment_id")
+    sub.add_parser("moderate-pending", help="Batch-moderate recent user events (backstop)")
     sub.add_parser("worker", help="Long-running queue worker (consumes admin run-now jobs)")
     return parser
 

@@ -77,6 +77,16 @@ REGISTRY: list[ComponentManifest] = [
         stat_keys=["candidates", "enriched", "failed"], doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:moderation", kind="agent", title="Moderation (LLM)",
+        description="Async LLM review of user posts + comments; raises admin-queue flags and "
+                    "holds egregious content.",
+        command="moderate-pending", config_prefix="moderation",
+        enabled_key="moderation.enabled",
+        capabilities=["llm-call", "moderate"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["reviewed", "flagged"], doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="agent:relate", kind="agent", title="Relation Linker",
         description="Builds the directed history graph from shared entities + time order.",
         command="relate", config_prefix="agents.relate",

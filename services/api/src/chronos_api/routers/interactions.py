@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 from chronos_core import interactions_repo as repo
-from chronos_core import social_repo
+from chronos_core import run_queue, social_repo
 from chronos_core.schemas.interaction import (
     CommentAuthor,
     CommentCreate,
@@ -139,6 +139,8 @@ async def create_comment(
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     await session.flush()
+    # Async LLM moderation pass (Phase 6) — fire-and-forget; flags land in the admin queue.
+    run_queue.enqueue("moderate-comment", {"comment_id": str(comment.id)})
     return await _enrich_one(session, comment, actor)
 
 

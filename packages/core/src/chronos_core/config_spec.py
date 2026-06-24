@@ -109,6 +109,17 @@ SPECS: list[ConfigSpec] = [
     _i("agents.enrich.max_tokens", 800, "Max tokens / call",
        scope="agent:enrich", component_id="agent:enrich", minimum=64, maximum=8192),
 
+    # LLM moderation (Phase 6) — reviews user posts/comments; flags + optionally holds.
+    _b("moderation.enabled", True, "Enabled", scope="agent:moderation",
+       component_id="agent:moderation",
+       help="Run the async LLM moderation pass over user posts + comments."),
+    _i("moderation.hold_threshold", 90, "Auto-hold severity (0-100)",
+       scope="agent:moderation", component_id="agent:moderation", minimum=0, maximum=100,
+       help="Flagged content is *held* (event→pending, comment→flagged) only at or above this "
+            "severity; below it the post stays live with an open flag for the admin queue."),
+    _i("moderation.max_tokens", 200, "Max tokens / call",
+       scope="agent:moderation", component_id="agent:moderation", minimum=32, maximum=2048),
+
     # Relation linker
     _b("agents.relate.enabled", True, "Enabled", scope="agent:relate", component_id="agent:relate"),
     _i("agents.relate.batch_size", 50, "Batch size",

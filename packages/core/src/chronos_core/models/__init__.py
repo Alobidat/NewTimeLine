@@ -16,6 +16,7 @@ from chronos_core.models.interaction import (
     SourceVote,
 )
 from chronos_core.models.media import EventMedia, Media, MediaSource
+from chronos_core.models.moderation import ModerationFlag
 from chronos_core.models.relation import EventRelation
 from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote
 from chronos_core.models.source import EventSource, Source
@@ -38,6 +39,7 @@ __all__ = [
     "EventMedia",
     "Media",
     "MediaSource",
+    "ModerationFlag",
     "EventRelation",
     "ActivityLog",
     "Bookmark",
