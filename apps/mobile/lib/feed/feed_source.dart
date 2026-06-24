@@ -39,6 +39,7 @@ class FeedItem {
     this.heroMediaId,
     this.heroIsClip = false,
     this.author,
+    this.authorKind = 'user',
   });
 
   final EventRead event;
@@ -49,9 +50,14 @@ class FeedItem {
   /// screen. Defaults false (no hero → placeholder).
   final bool heroIsClip;
 
-  /// The clip's author (user-generated clips only; null for agent/seed events) — identity for
-  /// the rail avatar + follow affordance.
+  /// Who to attribute the clip to (rail avatar + follow): the uploading *user* for
+  /// user-generated clips, else the clip's primary *entity* (e.g. NASA) for agent-curated
+  /// events. Null only when nothing is known.
   final CommentAuthor? author;
+
+  /// Whether [author] is a `user` (follow + open their profile) or an `entity` (follow the
+  /// entity; no personal profile). Drives the follow target + tap behaviour.
+  final String authorKind;
 
   String get id => event.id;
 
@@ -65,6 +71,7 @@ class FeedItem {
     author: j['author'] is Map<String, dynamic>
         ? CommentAuthor.fromJson(j['author'] as Map<String, dynamic>)
         : null,
+    authorKind: j['author_kind'] as String? ?? 'user',
   );
 }
 

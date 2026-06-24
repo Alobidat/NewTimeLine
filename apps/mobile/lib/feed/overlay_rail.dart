@@ -50,6 +50,7 @@ class OverlayRail extends StatelessWidget {
     required this.onInfo,
     required this.onOpenGraph,
     this.author,
+    this.authorKind = 'user',
     this.onOpenCreator,
     this.onFollowAuthor,
     this.onAddVideo,
@@ -59,8 +60,12 @@ class OverlayRail extends StatelessWidget {
   final ApiClient api;
   final EventRead event;
 
-  /// The clip's author (user-generated clips only) — identity for the avatar + follow badge.
+  /// Who the clip is attributed to (the uploading user, or an entity like NASA for agent
+  /// clips) — identity for the avatar + follow badge.
   final CommentAuthor? author;
+
+  /// 'user' (open profile on tap) or 'entity' (no personal profile). Drives the caption label.
+  final String authorKind;
 
   /// Aggregate engagement counts for [event], shown under the matching buttons. Null while the
   /// counts are still loading (buttons show no number until then).
@@ -123,8 +128,9 @@ class OverlayRail extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Author avatar + follow — only for user-generated clips with an author.
-                  if (event.authorId != null)
+                  // Author avatar + follow — the uploading user, or the clip's primary entity
+                  // (e.g. NASA) for agent-curated world events. Always present when attributable.
+                  if (author != null)
                     _AvatarRailButton(
                       author: author,
                       followsAuthor: followsAuthor,
@@ -175,6 +181,7 @@ class OverlayRail extends StatelessWidget {
           child: _Caption(
             event: event,
             author: author,
+            authorKind: authorKind,
             onOpenCreator: onOpenCreator,
             onInfo: onInfo,
             onOpenGraph: onOpenGraph,
@@ -394,11 +401,13 @@ class _Caption extends StatelessWidget {
     required this.onInfo,
     required this.onOpenGraph,
     this.author,
+    this.authorKind = 'user',
     this.onOpenCreator,
     this.onAddVideo,
   });
   final EventRead event;
   final CommentAuthor? author;
+  final String authorKind;
   final VoidCallback? onOpenCreator;
   final VoidCallback onInfo;
   final VoidCallback onOpenGraph;
@@ -424,7 +433,7 @@ class _Caption extends StatelessWidget {
             key: const Key('caption-author'),
             onTap: onOpenCreator,
             child: Text(
-              '@${author!.handle}',
+              authorKind == 'entity' ? author!.label : '@${author!.handle}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -574,66 +583,153 @@ Future<ReactChoice?> showReactSelector(
   ReactState current,
   Offset at,
 ) {
-  return showMenu<ReactChoice>(
-    context: context,
-    position: _anchorAt(context, at),
-    items: [
-      _choiceItem(ReactChoice.love, 'react-choice-love', Icons.favorite, 'Love',
-          Colors.red, current == ReactState.loved),
-      _choiceItem(ReactChoice.promote, 'react-choice-promote', Icons.arrow_upward, 'Promote',
-          Colors.green, current == ReactState.promoted),
-      _choiceItem(ReactChoice.demote, 'react-choice-demote', Icons.arrow_downward, 'Demote',
-          Colors.orange, current == ReactState.demoted),
-    ],
-  );
+  return _showHorizontalPicker<ReactChoice>(context, at, [
+    _PickerOption(ReactChoice.love, 'react-choice-love', Icons.favorite, 'Love',
+        Colors.redAccent, current == ReactState.loved),
+    _PickerOption(ReactChoice.promote, 'react-choice-promote', Icons.arrow_upward,
+        'Promote', Colors.lightGreenAccent, current == ReactState.promoted),
+    _PickerOption(ReactChoice.demote, 'react-choice-demote', Icons.arrow_downward,
+        'Demote', Colors.orangeAccent, current == ReactState.demoted),
+  ]);
 }
 
-/// What the Share long-press menu can do.
+/// What the Share long-press picker can do.
 enum ShareChoice { repost, shareLink }
 
-/// The Share long-press menu (lifted up from the button): repost to followers, or share a link.
+/// The Share long-press picker (icons expanding left from the button): repost, or share a link.
 Future<ShareChoice?> showShareSelector(
   BuildContext context,
   Offset at, {
   required bool reposted,
 }) {
-  return showMenu<ShareChoice>(
-    context: context,
-    position: _anchorAt(context, at),
-    items: [
-      _choiceItem(ShareChoice.repost, 'share-choice-repost', Icons.repeat,
-          reposted ? 'Reposted' : 'Repost', Colors.green, reposted),
-      _choiceItem(ShareChoice.shareLink, 'share-choice-link', Icons.ios_share,
-          'Share link', Colors.blueAccent, false),
-    ],
-  );
+  return _showHorizontalPicker<ShareChoice>(context, at, [
+    _PickerOption(ShareChoice.repost, 'share-choice-repost', Icons.repeat,
+        reposted ? 'Reposted' : 'Repost', Colors.lightGreenAccent, reposted),
+    _PickerOption(ShareChoice.shareLink, 'share-choice-link', Icons.ios_share,
+        'Link', Colors.lightBlueAccent, false),
+  ]);
 }
 
-/// Anchor a popup menu at the press position so it "lifts" off the button (showMenu auto-flips
-/// upward near the bottom edge) rather than sliding a drawer up from the screen bottom.
-RelativeRect _anchorAt(BuildContext context, Offset at) {
-  final size = MediaQuery.of(context).size;
-  return RelativeRect.fromLTRB(at.dx, at.dy, size.width - at.dx, size.height - at.dy);
+/// One option in a horizontal long-press picker.
+class _PickerOption<T> {
+  const _PickerOption(this.value, this.keyName, this.icon, this.label, this.color, this.active);
+  final T value;
+  final String keyName;
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool active;
 }
 
-PopupMenuItem<T> _choiceItem<T>(
-  T value,
-  String keyName,
-  IconData icon,
-  String label,
-  Color color,
-  bool active,
+/// Show the [options] as the SAME rail-style icons expanding **horizontally to the left** of the
+/// pressed button (at global [at]); tapping one returns it, tapping elsewhere dismisses. A
+/// transparent route so it overlays the feed and animates the icons sliding out from the button.
+Future<T?> _showHorizontalPicker<T>(
+  BuildContext context,
+  Offset at,
+  List<_PickerOption<T>> options,
 ) {
-  return PopupMenuItem<T>(
-    key: Key(keyName),
-    value: value,
-    child: Row(
-      children: [
-        Icon(icon, color: active ? color : null, size: 20),
-        const SizedBox(width: 12),
-        Text(label, style: TextStyle(fontWeight: active ? FontWeight.w700 : null)),
-        if (active) ...[const Spacer(), const Icon(Icons.check, size: 18)],
-      ],
+  return Navigator.of(context).push<T>(
+    PageRouteBuilder<T>(
+      opaque: false,
+      barrierColor: Colors.black.withValues(alpha: 0.2),
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      transitionDuration: const Duration(milliseconds: 170),
+      reverseTransitionDuration: const Duration(milliseconds: 120),
+      pageBuilder: (ctx, anim, _) {
+        final size = MediaQuery.of(ctx).size;
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+            Positioned(
+              // Vertically centre the row on the press point; anchor its RIGHT edge just left
+              // of the button so the icons grow leftward.
+              top: (at.dy - 34).clamp(0.0, size.height - 72),
+              right: (size.width - at.dx + 6).clamp(0.0, size.width - 60),
+              child: FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.35, 0),
+                    end: Offset.zero,
+                  ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                  child: _PickerRow<T>(
+                    options: options,
+                    onPick: (v) => Navigator.of(ctx).pop(v),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     ),
   );
+}
+
+/// The horizontal strip of rail-style icon buttons shown by [_showHorizontalPicker].
+class _PickerRow<T> extends StatelessWidget {
+  const _PickerRow({required this.options, required this.onPick});
+  final List<_PickerOption<T>> options;
+  final ValueChanged<T> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(36),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final o in options)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: InkResponse(
+                  key: Key(o.keyName),
+                  onTap: () => onPick(o.value),
+                  radius: 28,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: o.active
+                              ? o.color.withValues(alpha: 0.25)
+                              : Colors.white.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(o.icon,
+                            color: o.active ? o.color : Colors.white, size: 24),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        o.label,
+                        style: TextStyle(
+                          color: o.active ? o.color : Colors.white,
+                          fontSize: 10,
+                          fontWeight: o.active ? FontWeight.w700 : FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

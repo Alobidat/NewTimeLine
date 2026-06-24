@@ -205,6 +205,44 @@ void main() {
       expect(find.text('@jane'), findsOneWidget);
     });
 
+    testWidgets('an agent clip is attributed to its entity (avatar + follow, no @)',
+        (tester) async {
+      // A NASA world-event clip has no user uploader (author_id null) but is attributed to the
+      // entity NASA, so the avatar + follow badge still show and the caption names it (no "@").
+      final mock = MockClient((req) async {
+        if (req.url.path.startsWith('/feed/')) {
+          return http.Response(
+            jsonEncode({
+              'tab': 'foryou',
+              'items': [
+                {
+                  'event': _eventJson('e1', 'Apollo 11 Plaque', 1969), // no author_id
+                  'hero_media_id': null,
+                  'hero_is_clip': true,
+                  'author': {'id': 'ent-nasa', 'handle': 'nasa', 'display_name': 'NASA'},
+                  'author_kind': 'entity',
+                  'score': 1.0,
+                },
+              ],
+              'next_cursor': null,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('[]', 200, headers: {'content-type': 'application/json'});
+      });
+      final api = ApiClient(baseUrl: 'http://test', client: mock);
+      addTearDown(api.close);
+      await pumpFeed(tester, api);
+
+      expect(find.byKey(const Key('rail-author')), findsOneWidget);
+      expect(find.byKey(const Key('rail-follow-badge')), findsOneWidget);
+      // Entity attribution names the entity without an "@" handle.
+      expect(find.text('NASA'), findsOneWidget);
+      expect(find.text('@nasa'), findsNothing);
+    });
+
     testWidgets('swipe up pages to the next event video', (tester) async {
       final api = _api(timelineEvents: [
         _eventJson('e1', 'Berlin Wall falls', 1989),

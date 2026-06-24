@@ -393,11 +393,11 @@ class _VideoFeedState extends State<VideoFeed>
         if (mounted) setState(() {});
       }).catchError((_) {}).whenComplete(() => _railStateLoading.remove(id));
     }
-    final author = item.event.authorId;
-    if (author != null && !_followAuthor.containsKey(author)) {
-      _followAuthor[author] = false; // optimistic default until the state lands
-      widget.api.followState('user', author).then((f) {
-        if (mounted) setState(() => _followAuthor[author] = f);
+    final author = item.author;
+    if (author != null && !_followAuthor.containsKey(author.id)) {
+      _followAuthor[author.id] = false; // optimistic default until the state lands
+      widget.api.followState(item.authorKind, author.id).then((f) {
+        if (mounted) setState(() => _followAuthor[author.id] = f);
       }).catchError((_) {});
     }
   }
@@ -528,15 +528,15 @@ class _VideoFeedState extends State<VideoFeed>
   /// Follow the clip's author from the avatar's "+" badge. Optimistic: flip the local follow
   /// state (keyed by author) so the badge disappears immediately, rolling back on error.
   Future<void> _followAuthorAction(FeedItem item) async {
-    final author = item.event.authorId;
+    final author = item.author;
     if (author == null) return;
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
-    setState(() => _followAuthor[author] = true);
+    setState(() => _followAuthor[author.id] = true);
     try {
-      await widget.api.follow('user', author);
-      _toast('Following ${item.author?.label ?? 'creator'}');
+      await widget.api.follow(item.authorKind, author.id); // 'user' or 'entity'
+      _toast('Following ${author.label}');
     } catch (_) {
-      if (mounted) setState(() => _followAuthor[author] = false);
+      if (mounted) setState(() => _followAuthor[author.id] = false);
       _toast('Could not follow.');
     }
   }
@@ -736,9 +736,10 @@ class _VideoFeedState extends State<VideoFeed>
             api: widget.api,
             event: current.event,
             author: current.author,
+            authorKind: current.authorKind,
             bookmarked: _bookmarked.contains(current.id),
             reactState: _reactStateOf(current.event.id),
-            followsAuthor: _followAuthor[current.event.authorId] ?? false,
+            followsAuthor: _followAuthor[current.author?.id] ?? false,
             onReactLove: () => _loveToggle(current),
             onReactMenu: (at) => _chooseReact(current, at),
             onComment: () => _comment(current),
@@ -746,10 +747,12 @@ class _VideoFeedState extends State<VideoFeed>
             onShare: () => _share(current),
             onRepost: (at) => _shareMenu(current, at),
             onInfo: () => _info(current),
-            onOpenCreator:
-                current.event.authorId != null ? () => _openCreator(current) : null,
+            // Only user authors have a personal profile to open; an entity (NASA) doesn't.
+            onOpenCreator: current.authorKind == 'user' && current.event.authorId != null
+                ? () => _openCreator(current)
+                : null,
             onFollowAuthor:
-                current.event.authorId != null ? () => _followAuthorAction(current) : null,
+                current.author != null ? () => _followAuthorAction(current) : null,
             onOpenGraph: () => _openGraph(current),
             onAddVideo: widget.onAddVideo,
             stats: _stats[current.event.id],
