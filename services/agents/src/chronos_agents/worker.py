@@ -14,7 +14,6 @@ import asyncio
 import logging
 
 import redis as redislib
-
 from chronos_core import config_service
 from chronos_core.db import session_scope
 from chronos_core.run_queue import pop_job
@@ -25,7 +24,11 @@ log = logging.getLogger(__name__)
 
 # Baseline args for queue-triggered runs (no interactive CLI). The job's own ``args`` are
 # layered on top so subject fields (keyword/location/actor) reach the collect agent.
-_BASE_ARGS = {"limit": 300, "keyword": None, "location": None, "actor": None}
+_BASE_ARGS = {
+    "limit": 300, "keyword": None, "location": None, "actor": None,
+    # Bot engine jobs: a count (bots to act / personas to make) + an optional explicit bot id.
+    "count": 1, "bot_id": None, "posts_per_bot": 2,
+}
 
 
 def _args_from_job(job: dict) -> argparse.Namespace:
@@ -33,14 +36,40 @@ def _args_from_job(job: dict) -> argparse.Namespace:
     return argparse.Namespace(**{**_BASE_ARGS, **(job.get("args") or {})})
 
 
+async def _bots_ticker() -> None:
+    """Periodically run the bot scheduler tick (enqueues post/interact jobs this worker drains).
+
+    Gated by ``bots.enabled`` inside ``bots_tick`` itself; the interval is config-tunable. This is
+    the heartbeat that makes the AI-user feed self-sustaining without an external cron.
+    """
+    from chronos_agents.bots.scheduler import bots_tick  # noqa: PLC0415
+
+    while True:
+        try:
+            async with session_scope() as session:
+                interval = int(
+                    await config_service.get(session, "bots.tick_interval_seconds", 600)
+                )
+            await bots_tick()
+        except Exception:
+            log.exception("bots ticker error")
+            interval = 600
+        await asyncio.sleep(max(interval, 30))
+
+
 async def run_worker() -> None:
-    """Block-pop jobs from ``chronos:run_queue`` and execute them."""
+    """Block-pop jobs from ``chronos:run_queue`` and execute them.
+
+    Also runs a background ticker that periodically schedules AI-user activity (post/interact),
+    so a single long-running worker both drains the queue and keeps the bot feed alive.
+    """
     # Lazy import to avoid circular deps; run.py imports the agents.
     from chronos_agents.run import _COMMANDS  # noqa: PLC0415
 
     async with session_scope() as session:
         await config_service.ensure_defaults(session)
 
+    ticker = asyncio.create_task(_bots_ticker())
     r = redislib.from_url(get_settings().redis_url, decode_responses=True)
     log.info("Agent worker listening on chronos:run_queue …")
     try:
@@ -62,4 +91,5 @@ async def run_worker() -> None:
             except Exception:
                 log.exception("Error running %r", command)
     finally:
+        ticker.cancel()
         r.close()

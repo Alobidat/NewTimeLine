@@ -83,6 +83,36 @@ class AdminClient {
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
+  // ── AI users (bots) ──────────────────────────────────────────────────────────────────
+  Future<BotRoster> bots({int limit = 200}) async => BotRoster.fromJson(
+    await _get('/admin/bots', {'limit': limit.toString()}) as Map<String, dynamic>,
+  );
+
+  Future<BotDetail> bot(String id) async =>
+      BotDetail.fromJson(await _get('/admin/bots/$id') as Map<String, dynamic>);
+
+  Future<BotView> updateBot(String id, Map<String, dynamic> patch) async {
+    final uri = Uri.parse('$baseUrl/admin/bots/$id');
+    final resp = await _http.patch(uri, headers: _headers, body: jsonEncode(patch));
+    if (resp.statusCode != 200) _fail(uri, resp);
+    return BotView.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  /// Enqueue a one-off post/interact job for a bot, or bootstrap/retract. Returns the body.
+  Future<Map<String, dynamic>> _post(String path, [Object? body]) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final resp = await _http.post(uri, headers: _headers, body: body == null ? null : jsonEncode(body));
+    if (resp.statusCode != 200) _fail(uri, resp);
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  Future<void> botAction(String id, String action) => _post('/admin/bots/$id/actions/$action');
+
+  Future<void> retractPost(String eventId) => _post('/admin/bots/posts/$eventId/retract');
+
+  Future<void> bootstrapBots(int count, int postsPerBot) =>
+      _post('/admin/bots/bootstrap', {'count': count, 'posts_per_bot': postsPerBot});
+
   /// Update a config key (validated server-side against its spec). Returns the updated entry.
   Future<ConfigEntry> setConfig(String key, dynamic value) async {
     final uri = Uri.parse('$baseUrl/admin/config/$key');

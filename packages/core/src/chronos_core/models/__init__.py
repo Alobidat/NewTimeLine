@@ -2,6 +2,7 @@
 (needed by Alembic autogenerate + create_all)."""
 
 from chronos_core.models.agent_run import AgentRun
+from chronos_core.models.bot import BotProfile
 from chronos_core.models.config import Config, ConfigAudit
 from chronos_core.models.entity import Entity, EventEntity
 from chronos_core.models.enums import EventStatus, IngestState, TimePrecision
@@ -21,6 +22,7 @@ from chronos_core.models.user import User, UserAgreement, UserIdentity
 
 __all__ = [
     "AgentRun",
+    "BotProfile",
     "Config",
     "ConfigAudit",
     "Entity",

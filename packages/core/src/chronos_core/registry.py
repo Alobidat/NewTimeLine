@@ -150,6 +150,47 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/event-presentation.md",
     ),
     ComponentManifest(
+        id="agent:persona.gen", kind="agent", title="Persona Generator",
+        description="Creates AI-user accounts: LLM-written personas (name/handle/bio/interests) "
+                    "with license-clean stock-photo avatars stored in the object store.",
+        command="persona-gen", config_prefix="bots.persona_gen",
+        capabilities=["llm-call", "create-users", "avatars"],
+        actions=["run-now"], stat_keys=["requested", "created", "skipped", "failed"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
+        id="agent:bots.post", kind="agent", title="Persona Poster",
+        description="AI users discover license-verified free clips in their interests and "
+                    "auto-publish them (after a local-LLM quality/relevance check).",
+        command="persona-post", config_prefix="bots",
+        enabled_key="bots.posts_enabled",
+        capabilities=["discover-media", "llm-call", "auto-publish", "license-gated"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["selected", "posted", "skipped", "rejected", "no_clip"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
+        id="agent:bots.scheduler", kind="agent", title="Bot Scheduler",
+        description="Periodic tick: finds overdue AI users (cadence + daily caps) and enqueues "
+                    "post/interact jobs, capped per tick. The heartbeat of the living feed.",
+        command="bots-tick", config_prefix="bots", enabled_key="bots.enabled",
+        capabilities=["schedule", "enqueue"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["due_post", "due_interact", "enqueued"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
+        id="agent:bots.interact", kind="agent", title="Persona Interactor",
+        description="AI users react to, comment on, and follow each other's in-interest posts "
+                    "(local-LLM decisions in the persona's voice).",
+        command="persona-interact", config_prefix="bots",
+        enabled_key="bots.interacts_enabled",
+        capabilities=["llm-call", "react", "comment", "follow"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["selected", "reactions", "comments", "follows", "events_seen"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="service:llm", kind="service", title="LLM Router",
         description="Provider-agnostic, budget-aware LLM routing (vLLM/Ollama/OpenAI + Claude).",
         config_prefix="llm",

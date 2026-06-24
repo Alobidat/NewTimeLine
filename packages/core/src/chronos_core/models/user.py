@@ -54,6 +54,9 @@ class User(UuidPk, Base):
     # True once a provider asserted a verified email OR the user confirmed an emailed code.
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reputation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # True for AI-user (bot persona) accounts. Indexed so "is this a bot?" is a cheap predicate
+    # without joining ``bot_profiles``; keeps bots distinguishable from humans in any metric.
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     prefs: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

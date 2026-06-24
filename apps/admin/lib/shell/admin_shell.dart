@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../api/admin_client.dart';
+import '../screens/bots_screen.dart';
 import '../screens/component_detail_screen.dart';
 import '../screens/components_screen.dart';
 import '../screens/config_screen.dart';
@@ -21,6 +22,7 @@ class _Section {
 
 const _sections = [
   _Section('Overview', Icons.dashboard),
+  _Section('AI Users', Icons.smart_toy),
   _Section('Components', Icons.hub),
   _Section('Config', Icons.tune),
   _Section('Runs', Icons.history),
@@ -56,12 +58,14 @@ class _AdminShellState extends State<AdminShell> {
       case 0:
         return OverviewScreen(client: _client, onOpenComponent: _openComponent);
       case 1:
-        return ComponentsScreen(client: _client);
+        return BotsScreen(client: _client);
       case 2:
-        return ConfigScreen(client: _client);
+        return ComponentsScreen(client: _client);
       case 3:
-        return RunsScreen(client: _client);
+        return ConfigScreen(client: _client);
       case 4:
+        return RunsScreen(client: _client);
+      case 5:
         return StorageScreen(client: _client);
       default:
         return SystemScreen(client: _client);

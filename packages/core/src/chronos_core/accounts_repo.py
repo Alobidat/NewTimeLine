@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_core.models.bot import BotProfile
 from chronos_core.models.interaction import Comment, Reaction, SourceVote
 from chronos_core.models.media import EventMedia
 from chronos_core.models.relation import EventRelation
@@ -193,6 +194,8 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
     bookmarks = (
         await session.scalars(select(Bookmark).where(Bookmark.user_id == user_id))
     ).all()
+    # Bot persona (only present for AI-user accounts; cascades off ``users`` on purge).
+    bot_profile = await session.get(BotProfile, user_id) if user.is_bot else None
 
     return {
         "schema": "chronos.user_export.v1",
@@ -203,9 +206,22 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
             "email": user.email,
             "email_verified": user.email_verified,
             "reputation": user.reputation,
+            "is_bot": user.is_bot,
             "prefs": user.prefs,
             "created_at": user.created_at.isoformat() if user.created_at else None,
         },
+        "bot_profile": (
+            {
+                "interests": bot_profile.interests,
+                "interest_weights": bot_profile.interest_weights,
+                "tone": bot_profile.tone,
+                "persona": bot_profile.persona,
+                "posts_count": bot_profile.posts_count,
+                "interactions_count": bot_profile.interactions_count,
+            }
+            if bot_profile
+            else None
+        ),
         "identities": [
             {"provider": i.provider, "provider_sub": i.provider_sub, "email": i.email,
              "linked_at": i.linked_at.isoformat() if i.linked_at else None}

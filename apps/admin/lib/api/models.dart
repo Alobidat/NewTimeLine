@@ -240,6 +240,165 @@ class SystemView {
   );
 }
 
+/// AI-user (bot) roster row — mirrors chronos_core.schemas.admin_bots.BotView.
+class BotView {
+  BotView({
+    required this.id,
+    required this.handle,
+    required this.interests,
+    required this.enabled,
+    required this.postsEnabled,
+    required this.interactsEnabled,
+    required this.postsCount,
+    required this.interactionsCount,
+    this.displayName,
+    this.avatarUrl,
+    this.tone,
+    this.lastPostAt,
+    this.lastInteractAt,
+  });
+
+  final String id;
+  final String handle;
+  final String? displayName;
+  final String? avatarUrl;
+  final List<String> interests;
+  final String? tone;
+  final bool enabled;
+  final bool postsEnabled;
+  final bool interactsEnabled;
+  final int postsCount;
+  final int interactionsCount;
+  final DateTime? lastPostAt;
+  final DateTime? lastInteractAt;
+
+  String get label => (displayName ?? handle);
+
+  factory BotView.fromJson(Map<String, dynamic> j) => BotView(
+    id: j['id'] as String,
+    handle: j['handle'] as String,
+    displayName: j['display_name'] as String?,
+    avatarUrl: j['avatar_url'] as String?,
+    interests: _strList(j['interests']),
+    tone: j['tone'] as String?,
+    enabled: j['enabled'] as bool? ?? true,
+    postsEnabled: j['posts_enabled'] as bool? ?? true,
+    interactsEnabled: j['interacts_enabled'] as bool? ?? true,
+    postsCount: (j['posts_count'] as num?)?.toInt() ?? 0,
+    interactionsCount: (j['interactions_count'] as num?)?.toInt() ?? 0,
+    lastPostAt: _dt(j['last_post_at']),
+    lastInteractAt: _dt(j['last_interact_at']),
+  );
+}
+
+class BotRoster {
+  BotRoster({required this.total, required this.enabled, required this.bots});
+  final int total;
+  final int enabled;
+  final List<BotView> bots;
+
+  factory BotRoster.fromJson(Map<String, dynamic> j) => BotRoster(
+    total: (j['total'] as num?)?.toInt() ?? 0,
+    enabled: (j['enabled'] as num?)?.toInt() ?? 0,
+    bots: (j['bots'] as List? ?? const [])
+        .map((e) => BotView.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
+class BotPostView {
+  BotPostView({required this.eventId, required this.title, required this.status, this.category});
+  final String eventId;
+  final String title;
+  final String status;
+  final String? category;
+
+  factory BotPostView.fromJson(Map<String, dynamic> j) => BotPostView(
+    eventId: j['event_id'] as String,
+    title: j['title'] as String? ?? '',
+    status: j['status'] as String? ?? '',
+    category: j['category'] as String?,
+  );
+}
+
+class BotCommentView {
+  BotCommentView({required this.eventId, required this.body});
+  final String eventId;
+  final String body;
+
+  factory BotCommentView.fromJson(Map<String, dynamic> j) =>
+      BotCommentView(eventId: j['event_id'] as String, body: j['body'] as String? ?? '');
+}
+
+class BotDetail extends BotView {
+  BotDetail({
+    required super.id,
+    required super.handle,
+    required super.interests,
+    required super.enabled,
+    required super.postsEnabled,
+    required super.interactsEnabled,
+    required super.postsCount,
+    required super.interactionsCount,
+    super.displayName,
+    super.avatarUrl,
+    super.tone,
+    super.lastPostAt,
+    super.lastInteractAt,
+    this.persona,
+    required this.postCadenceMin,
+    required this.interactCadenceMin,
+    required this.qualityThreshold,
+    required this.dailyPostCap,
+    required this.dailyInteractCap,
+    required this.followers,
+    required this.following,
+    required this.recentPosts,
+    required this.recentComments,
+  });
+
+  final String? persona;
+  final int postCadenceMin;
+  final int interactCadenceMin;
+  final int qualityThreshold;
+  final int dailyPostCap;
+  final int dailyInteractCap;
+  final int followers;
+  final int following;
+  final List<BotPostView> recentPosts;
+  final List<BotCommentView> recentComments;
+
+  factory BotDetail.fromJson(Map<String, dynamic> j) => BotDetail(
+    id: j['id'] as String,
+    handle: j['handle'] as String,
+    displayName: j['display_name'] as String?,
+    avatarUrl: j['avatar_url'] as String?,
+    interests: _strList(j['interests']),
+    tone: j['tone'] as String?,
+    enabled: j['enabled'] as bool? ?? true,
+    postsEnabled: j['posts_enabled'] as bool? ?? true,
+    interactsEnabled: j['interacts_enabled'] as bool? ?? true,
+    postsCount: (j['posts_count'] as num?)?.toInt() ?? 0,
+    interactionsCount: (j['interactions_count'] as num?)?.toInt() ?? 0,
+    lastPostAt: _dt(j['last_post_at']),
+    lastInteractAt: _dt(j['last_interact_at']),
+    persona: j['persona'] as String?,
+    postCadenceMin: (j['post_cadence_min'] as num?)?.toInt() ?? 0,
+    interactCadenceMin: (j['interact_cadence_min'] as num?)?.toInt() ?? 0,
+    qualityThreshold: (j['quality_threshold'] as num?)?.toInt() ?? 0,
+    dailyPostCap: (j['daily_post_cap'] as num?)?.toInt() ?? 0,
+    dailyInteractCap: (j['daily_interact_cap'] as num?)?.toInt() ?? 0,
+    followers: (j['followers'] as num?)?.toInt() ?? 0,
+    following: (j['following'] as num?)?.toInt() ?? 0,
+    recentPosts: (j['recent_posts'] as List? ?? const [])
+        .map((e) => BotPostView.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    recentComments: (j['recent_comments'] as List? ?? const [])
+        .map((e) => BotCommentView.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
 List<String> _strList(dynamic v) =>
     (v as List? ?? const []).map((e) => e.toString()).toList();
 

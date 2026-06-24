@@ -146,6 +146,26 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  worker:
+    # Long-running queue consumer: drains admin run-now / search-collect jobs AND runs the
+    # AI-user scheduler tick on an interval (the bots' heartbeat — posts + interactions).
+    build:
+      context: .
+      dockerfile: services/agents/Dockerfile
+    image: chronos/agents:0.1
+    command: ["worker"]
+    environment: *app-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   webapp:
     # Serves the pre-built Flutter web bundle (built on a dev machine and copied to
     # ./webdist on the host — Flutter isn't installed on the LXC). Static files only.

@@ -22,14 +22,19 @@ from chronos_core import config_service
 from chronos_core.db import session_scope
 from chronos_core.runs import record_run
 
+from chronos_agents.bots.bootstrap import bootstrap as bots_bootstrap
+from chronos_agents.bots.interact import persona_interact
+from chronos_agents.bots.post import persona_post
+from chronos_agents.bots.scheduler import bots_tick
 from chronos_agents.dedup import run_dedup
-from chronos_agents.geocode import run_geocode
 from chronos_agents.enrich import enrich_pending
+from chronos_agents.geocode import run_geocode
 from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.media_check import check_media
 from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.media_gap import flag_media_gaps
 from chronos_agents.media_quality import improve_media
+from chronos_agents.persona_gen import generate_personas
 from chronos_agents.relate import link_relations
 from chronos_agents.seed_iran_us import seed_iran_us
 from chronos_agents.seed_video import seed_video
@@ -66,6 +71,20 @@ _COMMANDS = {
         "agent:seed.video",
         lambda a: seed_video(per_topic=a.per_topic, max_total=a.max_total),
     ),
+    "persona-gen": ("agent:persona.gen", lambda a: generate_personas(count=a.count)),
+    "persona-post": (
+        "agent:bots.post",
+        lambda a: persona_post(bot_id=getattr(a, "bot_id", None), count=a.count),
+    ),
+    "persona-interact": (
+        "agent:bots.interact",
+        lambda a: persona_interact(bot_id=getattr(a, "bot_id", None), count=a.count),
+    ),
+    "bots-tick": ("agent:bots.scheduler", lambda a: bots_tick()),
+    "bots-bootstrap": (
+        "agent:bots.scheduler",
+        lambda a: bots_bootstrap(count=a.count, posts_per_bot=getattr(a, "posts_per_bot", 2)),
+    ),
 }
 
 
@@ -87,6 +106,18 @@ def _build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--max-total", type=int, default=100, help="Max events to seed")
     sub.add_parser("geocode", help="Geocode events + place entities via Nominatim (OSM)")
     sub.add_parser("media-gap", help="Re-collect media for text-only events (clips-first)")
+    pg = sub.add_parser("persona-gen", help="Generate AI-user personas + avatars")
+    pg.add_argument("--count", type=int, default=20, help="How many personas to create")
+    pp = sub.add_parser("persona-post", help="Have AI users discover + post free clips")
+    pp.add_argument("--bot-id", default=None, help="A specific bot user id (else: overdue bots)")
+    pp.add_argument("--count", type=int, default=1, help="Bots to act when no --bot-id")
+    pi = sub.add_parser("persona-interact", help="Have AI users react/comment/follow")
+    pi.add_argument("--bot-id", default=None, help="A specific bot user id (else: overdue bots)")
+    pi.add_argument("--count", type=int, default=1, help="Bots to act when no --bot-id")
+    sub.add_parser("bots-tick", help="Scheduler tick: enqueue jobs for overdue bots")
+    bb = sub.add_parser("bots-bootstrap", help="Bulk-create AI users + seed their first posts")
+    bb.add_argument("--count", type=int, default=50, help="How many personas to create")
+    bb.add_argument("--posts-per-bot", type=int, default=2, help="Initial posts per bot")
     collect = sub.add_parser(
         "collect", help="On-demand collect events for a subject from all enabled adapters"
     )

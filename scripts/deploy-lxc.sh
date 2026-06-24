@@ -72,9 +72,12 @@ fi
 # 4. Backend images. Rebuild migrate too — it carries the Alembic scripts, so a new
 # migration must land in its image or `up -d api` (which runs migrate) fails to reach head.
 if $BACKEND; then
-  log "rebuild migrate+api+agents, restart api"
-  if ( cd "$LIVE" && docker compose build migrate api agents && docker compose up -d api ) >>"$LOG" 2>&1; then
-    log "backend redeployed"
+  log "rebuild migrate+api+agents+worker, restart api+worker"
+  # The worker is a long-running service (queue consumer + AI-user scheduler tick); it shares
+  # the agents image, so building agents covers it. Start/refresh it alongside the api.
+  if ( cd "$LIVE" && docker compose build migrate api agents \
+        && docker compose up -d api worker ) >>"$LOG" 2>&1; then
+    log "backend redeployed (api + worker up)"
   else
     log "backend redeploy FAILED"
   fi

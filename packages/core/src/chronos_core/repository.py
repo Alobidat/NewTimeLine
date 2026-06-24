@@ -285,6 +285,8 @@ async def discover_media(
     height: int | None = None,
     duration_s: int | None = None,
     caption: str | None = None,
+    license: str | None = None,
+    credit: str | None = None,
     source_kind: str | None = None,
     source_id=None,
     added_by: str | None = None,
@@ -313,6 +315,10 @@ async def discover_media(
             existing.duration_s = duration_s
         if caption and not existing.caption:
             existing.caption = caption
+        if license and not existing.license:
+            existing.license = license
+        if credit and not existing.credit:
+            existing.credit = credit
         return existing
 
     sensitivity = media_policy.score_sensitivity(
@@ -332,6 +338,8 @@ async def discover_media(
         height=height,
         duration_s=duration_s,
         caption=caption,
+        license=license,
+        credit=credit,
         status=status,
         disposition=disposition,
         sensitivity=sensitivity,

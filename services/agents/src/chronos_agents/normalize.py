@@ -33,6 +33,10 @@ class CandidateMedia:
     height: int | None = None
     duration_s: int | None = None
     caption: str | None = None
+    # Provenance for license-gated sources (Commons/stock/NASA/…): the upstream license short
+    # name (e.g. "CC BY 4.0", "Public domain") and credit/author. Threaded onto the Media row.
+    license: str | None = None
+    credit: str | None = None
 
 
 @dataclass

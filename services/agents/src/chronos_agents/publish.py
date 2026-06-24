@@ -110,5 +110,6 @@ async def attach_media(
         await repository.discover_media(
             session, event, url=m.url, kind=m.kind, mime=m.mime, role=role, rank=rank,
             width=m.width, height=m.height, duration_s=m.duration_s, caption=m.caption,
+            license=m.license, credit=m.credit,
             source_kind=cand.source_kind, source_id=source_id, added_by=agent_name,
         )
