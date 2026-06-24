@@ -74,7 +74,13 @@ async def run_worker() -> None:
     log.info("Agent worker listening on chronos:run_queue …")
     try:
         while True:
-            job = await asyncio.to_thread(pop_job, r, 5)
+            try:
+                job = await asyncio.to_thread(pop_job, r, 5)
+            except (redislib.exceptions.TimeoutError, redislib.exceptions.ConnectionError):
+                # A BRPOP socket-read timeout on an empty queue (or a brief redis blip) just
+                # means "no job" — keep polling rather than crash the worker.
+                await asyncio.sleep(0.5)
+                continue
             if job is None:
                 continue
             command = job.get("command", "")
