@@ -78,6 +78,13 @@ if $BACKEND; then
   if ( cd "$LIVE" && docker compose build migrate api agents \
         && docker compose up -d api worker ) >>"$LOG" 2>&1; then
     log "backend redeployed (api + worker up)"
+    # Recreating the api gives it a new container IP, but the nginx frontends cache the old one
+    # at startup (proxy_pass http://api:8000) → 502 on /api/* until they re-resolve. Restart them.
+    if ( cd "$LIVE" && docker compose restart webapp adminapp ) >>"$LOG" 2>&1; then
+      log "frontends restarted (re-resolve api)"
+    else
+      log "frontend restart FAILED"
+    fi
   else
     log "backend redeploy FAILED"
   fi
