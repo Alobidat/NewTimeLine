@@ -22,11 +22,12 @@ import re
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_core.models.bot import BotProfile
-from chronos_core.models.interaction import Comment, Reaction, SourceVote
+from chronos_core.models.friendship import Friendship
+from chronos_core.models.interaction import Comment, CommentReaction, Reaction, SourceVote
 from chronos_core.models.media import EventMedia
 from chronos_core.models.relation import EventRelation
 from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote
@@ -214,6 +215,13 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
     bookmarks = (
         await session.scalars(select(Bookmark).where(Bookmark.user_id == user_id))
     ).all()
+    friendships = (
+        await session.scalars(
+            select(Friendship).where(
+                or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id)
+            )
+        )
+    ).all()
     # Bot persona (only present for AI-user accounts; cascades off ``users`` on purge).
     bot_profile = await session.get(BotProfile, user_id) if user.is_bot else None
 
@@ -286,6 +294,12 @@ async def export_user(session: AsyncSession, user_id: uuid.UUID) -> dict[str, An
              "created_at": b.created_at.isoformat() if b.created_at else None}
             for b in bookmarks
         ],
+        "friendships": [
+            {"requester_id": str(f.requester_id), "addressee_id": str(f.addressee_id),
+             "status": f.status,
+             "created_at": f.created_at.isoformat() if f.created_at else None}
+            for f in friendships
+        ],
     }
 
 
@@ -334,6 +348,16 @@ async def purge_user(session: AsyncSession, user_id: uuid.UUID, *, objectstore=N
     ).rowcount or 0
     counts["bookmarks"] = (
         await session.execute(delete(Bookmark).where(Bookmark.user_id == user_id))
+    ).rowcount or 0
+    counts["comment_reactions"] = (
+        await session.execute(delete(CommentReaction).where(CommentReaction.user_id == user_id))
+    ).rowcount or 0
+    counts["friendships"] = (
+        await session.execute(
+            delete(Friendship).where(
+                or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id)
+            )
+        )
     ).rowcount or 0
     # identities + agreements cascade off users; deleting the user removes them.
     counts["user"] = (

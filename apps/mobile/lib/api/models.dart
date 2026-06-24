@@ -662,6 +662,47 @@ class UserProfile {
   );
 }
 
+/// The viewer's friendship relation to a user (`/friends/state`) — drives the Friend button.
+/// [state] ∈ self|friends|incoming|outgoing|none.
+class FriendState {
+  FriendState({required this.targetId, required this.state, this.friendshipId});
+  final String targetId;
+  final String state;
+  final String? friendshipId;
+
+  bool get isFriends => state == 'friends';
+  bool get isIncoming => state == 'incoming';
+  bool get isOutgoing => state == 'outgoing';
+
+  factory FriendState.fromJson(Map<String, dynamic> j) => FriendState(
+    targetId: j['target_id'] as String,
+    state: j['state'] as String? ?? 'none',
+    friendshipId: j['friendship_id'] as String?,
+  );
+}
+
+/// A pending friend request (the other party + direction) for the requests inbox.
+class FriendRequest {
+  FriendRequest({
+    required this.friendshipId,
+    required this.user,
+    required this.direction,
+    required this.createdAt,
+  });
+  final String friendshipId;
+  final UserSummary user;
+  final String direction; // incoming | outgoing
+  final DateTime createdAt;
+
+  factory FriendRequest.fromJson(Map<String, dynamic> j) => FriendRequest(
+    friendshipId: j['friendship_id'] as String,
+    user: UserSummary.fromJson(j['user'] as Map<String, dynamic>),
+    direction: j['direction'] as String? ?? 'incoming',
+    createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+  );
+}
+
 /// A user in a follower/following list (identity + whether the caller follows them).
 class UserSummary {
   UserSummary({

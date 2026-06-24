@@ -363,6 +363,47 @@ class ApiClient {
         .toList();
   }
 
+  // ── Friends (explicit, mutual; request + accept). ──
+
+  /// The caller's friendship relation to [userId] (`GET /friends/state`).
+  Future<FriendState> friendState(String userId) async => FriendState.fromJson(
+    await _getJson('/friends/state', {'target_id': userId}) as Map<String, dynamic>,
+  );
+
+  /// Send a friend request to [userId] (`POST /friends/request`; auto-accepts a reverse one).
+  Future<FriendState> sendFriendRequest(String userId) async => FriendState.fromJson(
+    await _postJson('/friends/request', const {}, query: {'target_id': userId})
+        as Map<String, dynamic>,
+  );
+
+  /// Accept a pending request (`POST /friends/{id}/accept`).
+  Future<FriendState> acceptFriend(String friendshipId) async => FriendState.fromJson(
+    await _postJson('/friends/$friendshipId/accept', const {}) as Map<String, dynamic>,
+  );
+
+  /// Decline an incoming, or cancel an outgoing, request (`POST /friends/{id}/decline`).
+  Future<void> declineFriend(String friendshipId) async {
+    await _postJson('/friends/$friendshipId/decline', const {});
+  }
+
+  /// Remove an accepted friend by their user id (`DELETE /friends`).
+  Future<void> removeFriend(String userId) async {
+    await _delete('/friends', query: {'target_id': userId});
+  }
+
+  /// The caller's accepted friends (`GET /friends`).
+  Future<List<UserSummary>> friends() => _userList('/friends', 200);
+
+  /// The caller's pending friend requests (`GET /friends/requests`) → (incoming, outgoing).
+  Future<({List<FriendRequest> incoming, List<FriendRequest> outgoing})>
+      friendRequests() async {
+    final j = await _getJson('/friends/requests', const {}) as Map<String, dynamic>;
+    List<FriendRequest> parse(String k) => ((j[k] as List?) ?? const [])
+        .map((e) => FriendRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return (incoming: parse('incoming'), outgoing: parse('outgoing'));
+  }
+
   /// Source-credibility vote tallies for an event (+ the actor's own verdicts).
   Future<SourceVotes> sourceVotes(String eventId) async {
     return SourceVotes.fromJson(

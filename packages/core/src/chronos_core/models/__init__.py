@@ -7,6 +7,7 @@ from chronos_core.models.config import Config, ConfigAudit
 from chronos_core.models.entity import Entity, EventEntity
 from chronos_core.models.enums import EventStatus, IngestState, TimePrecision
 from chronos_core.models.event import EMBEDDING_DIM, Event, EventReference
+from chronos_core.models.friendship import Friendship
 from chronos_core.models.ingest import IngestItem
 from chronos_core.models.interaction import (
     Comment,
@@ -33,6 +34,7 @@ __all__ = [
     "EMBEDDING_DIM",
     "Event",
     "EventReference",
+    "Friendship",
     "EventMedia",
     "Media",
     "MediaSource",
