@@ -201,7 +201,7 @@ class _RailButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final under = count != null ? _fmt(count!) : label;
+    final showBadge = count != null && count! > 0;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: InkResponse(
@@ -210,25 +210,66 @@ class _RailButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.35),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: Colors.white, size: 24),
+            // Icon circle + a top-right count badge (notification-style, info-coloured).
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
+                ),
+                if (showBadge)
+                  Positioned(
+                    top: -4,
+                    right: -6,
+                    child: _CountBadge(text: _fmt(count!)),
+                  ),
+              ],
             ),
             const SizedBox(height: 3),
             Text(
-              under,
-              style: TextStyle(
+              label,
+              style: const TextStyle(
                 color: Colors.white,
-                fontSize: count != null ? 11 : 10,
-                fontWeight: count != null ? FontWeight.w600 : FontWeight.normal,
-                shadows: const [Shadow(blurRadius: 4, color: Colors.black87)],
+                fontSize: 10,
+                shadows: [Shadow(blurRadius: 4, color: Colors.black87)],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A small notification-style count badge with an "info" look (translucent blue pill, white
+/// text), sat at the top-right corner of a rail icon.
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2F88FF), // info blue
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: Colors.white, width: 1),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          height: 1.2,
         ),
       ),
     );

@@ -639,7 +639,7 @@ class _VideoFeedState extends State<VideoFeed>
         Positioned(
           left: 0,
           right: 0,
-          bottom: 120,
+          bottom: 84,
           child: Center(
             child: _SwipeNub(
               onUp: canUp ? () => _moveFeed(1) : null,
