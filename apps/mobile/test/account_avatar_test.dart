@@ -54,6 +54,8 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('account-entry')), findsOneWidget);
+    // The notifications bell appears when signed in.
+    expect(find.byKey(const Key('notifications-bell')), findsOneWidget);
     expect(_accountIcon(), findsOneWidget); // the Avatar is shown
     // The signed-out person icon is NOT used inside the account button.
     expect(
@@ -78,6 +80,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: FeedHome(api: api, auth: auth)));
     await tester.pump();
 
+    // No bell when signed out.
+    expect(find.byKey(const Key('notifications-bell')), findsNothing);
     expect(_accountIcon(), findsNothing);
     expect(
       find.descendant(

@@ -774,6 +774,64 @@ class UserSummary {
   );
 }
 
+/// One in-app notification (`GET /notifications`): who did what to your content, and when.
+/// Named `AppNotification` to avoid Flutter's built-in `Notification` class.
+class AppNotification {
+  AppNotification({
+    required this.id,
+    required this.kind,
+    this.actor,
+    this.eventId,
+    this.eventTitle,
+    this.read = false,
+    this.createdAt,
+  });
+
+  final String id;
+  final String kind; // follow | like | comment | reply | repost
+  final CommentAuthor? actor;
+  final String? eventId;
+  final String? eventTitle;
+  final bool read;
+  final DateTime? createdAt;
+
+  /// The human phrasing of [kind] (the actor name is rendered separately).
+  String get message => switch (kind) {
+        'follow' => 'started following you',
+        'like' => 'loved your clip',
+        'comment' => 'commented on your clip',
+        'reply' => 'replied to you',
+        'repost' => 'reposted your clip',
+        _ => 'interacted with you',
+      };
+
+  factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(
+    id: j['id'] as String,
+    kind: j['kind'] as String? ?? '',
+    actor: j['actor'] is Map<String, dynamic>
+        ? CommentAuthor.fromJson(j['actor'] as Map<String, dynamic>)
+        : null,
+    eventId: j['event_id'] as String?,
+    eventTitle: j['event_title'] as String?,
+    read: j['read'] as bool? ?? false,
+    createdAt: DateTime.tryParse(j['created_at'] as String? ?? ''),
+  );
+}
+
+/// A page of notifications + the unread count for the bell badge (`GET /notifications`).
+class NotificationList {
+  NotificationList({this.items = const [], this.unread = 0});
+  final List<AppNotification> items;
+  final int unread;
+
+  factory NotificationList.fromJson(Map<String, dynamic> j) => NotificationList(
+    items: ((j['items'] as List?) ?? const [])
+        .map((e) => AppNotification.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    unread: (j['unread'] as num?)?.toInt() ?? 0,
+  );
+}
+
 /// One thing a user follows — a `user`, an `entity` (e.g. NASA), or an `event` — resolved for
 /// the profile's Following list. `handle`/`avatarUrl` are user-only; `following` is whether the
 /// caller also follows it (drives the toggle).

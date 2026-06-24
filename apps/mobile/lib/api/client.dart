@@ -610,6 +610,18 @@ class ApiClient {
     );
   }
 
+  /// The signed-in user's notifications + unread count (`GET /notifications`).
+  Future<NotificationList> notifications({int limit = 50}) async =>
+      NotificationList.fromJson(
+        await _getJson('/notifications', {'limit': limit.toString()})
+            as Map<String, dynamic>,
+      );
+
+  /// Mark all the caller's notifications read (`POST /notifications/read`).
+  Future<void> markNotificationsRead() async {
+    await _postJson('/notifications/read', const {});
+  }
+
   /// The signed-in user's interest profile (`GET /me/interests`): weighted entities/
   /// categories/places the recommender learned from their activity.
   Future<InterestProfile> interests() async => InterestProfile.fromJson(

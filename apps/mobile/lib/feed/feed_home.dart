@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../account/account_screen.dart';
 import '../api/client.dart';
 import '../profile/avatar.dart';
+import '../profile/notifications_screen.dart';
 import '../profile/profile_screen.dart';
 import '../shell/experience_screen.dart';
 import '../state/auth_state.dart';
@@ -47,8 +48,38 @@ class _FeedHomeState extends State<FeedHome>
     vsync: this,
   );
 
+  /// Unread notification count for the bell badge (0 when signed out).
+  int _unread = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _auth.addListener(_loadUnread);
+    _loadUnread();
+  }
+
+  Future<void> _loadUnread() async {
+    if (!_auth.isSignedIn) {
+      if (mounted && _unread != 0) setState(() => _unread = 0);
+      return;
+    }
+    try {
+      final n = await _api.notifications(limit: 1);
+      if (mounted) setState(() => _unread = n.unread);
+    } catch (_) {/* signed-out / offline → leave the badge as-is */}
+  }
+
+  void _openNotifications() {
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(
+          builder: (_) => NotificationsScreen(api: _api, auth: _auth),
+        ))
+        .then((_) => _loadUnread()); // opening the inbox clears unread server-side
+  }
+
   @override
   void dispose() {
+    _auth.removeListener(_loadUnread);
     _tabs.dispose();
     if (_ownsAuth) _auth.dispose();
     if (_ownsApi) _api.close();
@@ -131,6 +162,24 @@ class _FeedHomeState extends State<FeedHome>
                         for (final tab in FeedTab.values) Tab(text: tab.label),
                       ],
                     ),
+                  ),
+                  // Notifications bell (signed-in only) with an unread badge.
+                  AnimatedBuilder(
+                    animation: _auth,
+                    builder: (context, _) {
+                      if (!_auth.isSignedIn) return const SizedBox.shrink();
+                      return IconButton(
+                        key: const Key('notifications-bell'),
+                        tooltip: 'Notifications',
+                        onPressed: _openNotifications,
+                        icon: Badge(
+                          isLabelVisible: _unread > 0,
+                          label: Text(_unread > 99 ? '99+' : '$_unread'),
+                          child: const Icon(Icons.notifications_outlined,
+                              color: Colors.white),
+                        ),
+                      );
+                    },
                   ),
                   // Account / sign-in entry — in the Row so it never overlaps the +/⋮.
                   // When signed in, show the user's profile picture (initials fallback);
