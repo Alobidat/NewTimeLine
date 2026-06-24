@@ -19,6 +19,7 @@ keyset cursor can replace it without changing the client contract.
 from __future__ import annotations
 
 import uuid
+from collections import deque
 
 from chronos_core import config_service
 from chronos_core.schemas.interaction import CommentAuthor
@@ -119,7 +120,10 @@ async def _weights(session: AsyncSession) -> dict[str, float]:
     # signature is digging back/forward through linked events, so a well-connected event is more
     # rewarding to land on and surfaces the chains the left/right navigation walks.
     base = {"recency": 1.0, "popularity": 0.6, "media": 0.8, "interest": 1.2,
-            "seen": 2.0, "links": 0.8}
+            "seen": 2.0, "links": 0.8,
+            # personalization + variety (item-1 feed-quality pass):
+            "follow": 1.5,   # event by a followed creator / tagged with a followed entity
+            "user": 0.5}     # a real user/bot upload (vs an agent-curated clip)
     base.update({k: float(v) for k, v in raw.items() if k in base})
     return base
 
@@ -172,6 +176,28 @@ async def _attach_attribution(session: AsyncSession, items: list[FeedItem]) -> N
 def _slug(name: str) -> str:
     """A handle-ish slug from an entity name (entities have no handle of their own)."""
     return "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")[:40] or "entity"
+
+
+def _diversify(items: list[FeedItem], gap: int = 2) -> list[FeedItem]:
+    """Reorder score-ranked [items] so clips sharing a creator/entity (else category) are spaced
+    out — no single cluster (e.g. the NASA Apollo set) dominates a page. Greedy: at each step
+    take the highest-remaining item whose key didn't appear in the last [gap] picks; if every
+    remaining item's key is recent, take the top remaining (preserves score order otherwise)."""
+
+    def key(it: FeedItem) -> str:
+        if it.author is not None:
+            return f"a:{it.author.id}"
+        return f"c:{it.event.category or it.event.id}"
+
+    remaining = list(items)  # already score-ordered
+    out: list[FeedItem] = []
+    recent: deque[str] = deque(maxlen=gap)
+    while remaining:
+        pick = next((j for j, it in enumerate(remaining) if key(it) not in recent), 0)
+        it = remaining.pop(pick)
+        out.append(it)
+        recent.append(key(it))
+    return out
 
 
 def _author(row) -> CommentAuthor | None:
@@ -298,12 +324,19 @@ async def fetch_foryou(
     w = await _weights(session)
     interest_ids = await _interest_event_ids(session, profile) if profile else set()
 
+    # Oversample a candidate pool, then diversify in Python (below) so one tightly-linked cluster
+    # (e.g. all the NASA Apollo clips) can't dominate a page. Bounded so the cost stays flat.
+    need = offset + page
+    pool = min(need * 5 + 20, 240)
+
     # Scoring blend, all terms in [0,1]-ish so the weights are comparable:
     #   recency    = newer events score higher; (years_ago) decayed over a ~2-year window so
     #                modern events dominate but the term is bounded in (0,1] for all of time.
     #   popularity = promotes + reactions + source_count, log-damped
     #   media      = +1 if the hero is a video clip (clips-first, ADR-0024)
     #   interest   = +1 if the event is in the interest candidate pool
+    #   follow     = +1 if by a followed creator OR tagged with a followed entity (personalize)
+    #   user       = +1 if a real user/bot upload (surface community posts among agent clips)
     #   seen       = -1 if the user already has an activity row on it (push it down)
     rows = (
         await session.execute(
@@ -319,6 +352,16 @@ async def fetch_foryou(
                 "  + :w_links * ln(1 + (SELECT count(*) FROM event_relations rl "
                 "        WHERE rl.src_event = e.id OR rl.dst_event = e.id)) "
                 "  + :w_interest * (CASE WHEN e.id = ANY(:interest) THEN 1.0 ELSE 0.0 END) "
+                "  + :w_follow * (CASE WHEN ("
+                "        (h.author_id IS NOT NULL AND EXISTS (SELECT 1 FROM follows f "
+                "            WHERE f.user_id=:uid AND f.target_type='user' "
+                "              AND f.target_id=h.author_id)) "
+                "        OR EXISTS (SELECT 1 FROM follows f "
+                "            JOIN event_entities ee ON ee.entity_id=f.target_id "
+                "            WHERE f.user_id=:uid AND f.target_type='entity' "
+                "              AND ee.event_id=e.id)) "
+                "     THEN 1.0 ELSE 0.0 END) "
+                "  + :w_user * (CASE WHEN h.author_id IS NOT NULL THEN 1.0 ELSE 0.0 END) "
                 "  - :w_seen * (CASE WHEN EXISTS (SELECT 1 FROM activity_log a "
                 "       WHERE a.user_id = :uid AND a.target_type='event' AND a.target_id=e.id) "
                 "     THEN 1.0 ELSE 0.0 END) "
@@ -326,22 +369,28 @@ async def fetch_foryou(
                 f"FROM events e {_HERO_JOIN} {_AUTHOR_JOIN} "
                 f"WHERE e.status = 'published' AND {_DISPLAYABLE} AND {_VISIBILITY} "
                 "ORDER BY score DESC, e.t_start DESC "
-                "LIMIT :lim OFFSET :off"
+                "LIMIT :lim OFFSET 0"
             ),
             {
                 "w_recency": w["recency"], "w_pop": w["popularity"], "w_media": w["media"],
                 "w_links": w["links"], "w_interest": w["interest"], "w_seen": w["seen"],
+                "w_follow": w["follow"], "w_user": w["user"],
                 "interest": list(interest_ids) or [uuid.UUID(int=0)],
-                "uid": user_id, "lim": page, "off": offset,
+                "uid": user_id, "lim": pool,
             },
         )
     ).all()
     items = [_item(r) for r in rows]
     await _attach_attribution(session, items)
+    # Diversify the full candidate pool, then slice the requested page out of it — so the top of
+    # the feed isn't a wall of near-identical clips from one creator/entity.
+    diversified = _diversify(items)
+    window = diversified[offset:offset + page]
+    more = len(diversified) > need and len(rows) >= pool
     return FeedResponse(
         tab="foryou",
-        items=items,
-        next_cursor=_next_cursor(offset, page, len(rows)),
+        items=window,
+        next_cursor=(f"o:{offset + page}" if more else None),
     )
 
 
