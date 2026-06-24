@@ -17,6 +17,8 @@ import '../domain/time_format.dart';
 import '../state/auth_state.dart';
 import 'avatar.dart';
 import 'follow_list_screen.dart';
+import 'friend_requests_screen.dart';
+import 'privacy_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.api, required this.auth});
@@ -95,12 +97,66 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void _openPrivacy() => Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => PrivacySettingsScreen(api: _api, auth: _auth),
+      ));
+
+  void _openFriendRequests() => Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => FriendRequestsScreen(api: _api, auth: _auth),
+      ));
+
+  /// Inline bio editor → PATCH /account/me → refresh the session.
+  Future<void> _editBio() async {
+    final ctrl = TextEditingController(text: _auth.user?.bio ?? '');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit bio'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 4,
+          maxLength: 2000,
+          decoration: const InputDecoration(hintText: 'Tell people about yourself…'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (saved != true) return;
+    try {
+      await _api.updateAccount(bio: ctrl.text.trim());
+      await _auth.refresh();
+      if (mounted) setState(() {});
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Could not save bio.')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
         actions: [
+          if (_auth.isSignedIn) ...[
+            IconButton(
+              key: const Key('profile-friend-requests'),
+              tooltip: 'Friend requests',
+              icon: const Icon(Icons.group_outlined),
+              onPressed: _openFriendRequests,
+            ),
+            IconButton(
+              key: const Key('profile-privacy'),
+              tooltip: 'Privacy',
+              icon: const Icon(Icons.lock_outline),
+              onPressed: _openPrivacy,
+            ),
+          ],
           IconButton(
             key: const Key('profile-account'),
             tooltip: 'Account & settings',
@@ -126,6 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         counts: _counts,
                         onFollowers: () => _openFollowList(followers: true),
                         onFollowing: () => _openFollowList(followers: false),
+                        onEditBio: _editBio,
                       ),
                       const SizedBox(height: 8),
                       if (_loading) const LinearProgressIndicator(),
@@ -198,14 +255,17 @@ class _Header extends StatelessWidget {
     required this.counts,
     required this.onFollowers,
     required this.onFollowing,
+    required this.onEditBio,
   });
   final SessionUser? user;
   final FollowCounts? counts;
   final VoidCallback onFollowers;
   final VoidCallback onFollowing;
+  final VoidCallback onEditBio;
 
   @override
   Widget build(BuildContext context) {
+    final bio = user?.bio;
     return Row(
       children: [
         Avatar(label: user?.label ?? 'You', url: user?.avatarUrl, radius: 28),
@@ -214,11 +274,29 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(user?.label ?? 'You',
-                  style: Theme.of(context).textTheme.titleLarge),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(user?.label ?? 'You',
+                        style: Theme.of(context).textTheme.titleLarge),
+                  ),
+                  IconButton(
+                    key: const Key('profile-edit-bio'),
+                    tooltip: 'Edit bio',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    onPressed: onEditBio,
+                  ),
+                ],
+              ),
               if (user?.email != null)
                 Text(user!.email!,
                     style: Theme.of(context).textTheme.bodySmall),
+              if (bio != null && bio.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(bio, style: Theme.of(context).textTheme.bodyMedium),
+                ),
               const SizedBox(height: 6),
               Row(
                 children: [

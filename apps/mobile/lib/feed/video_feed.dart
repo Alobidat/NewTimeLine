@@ -24,6 +24,7 @@ import '../api/client.dart';
 import '../api/models.dart';
 import '../auth/interaction_gate.dart';
 import '../event/comments_page.dart';
+import '../profile/user_profile_page.dart';
 import '../state/auth_state.dart';
 import 'event_graph_view.dart';
 import 'feed_clip_player.dart';
@@ -413,16 +414,17 @@ class _VideoFeedState extends State<VideoFeed>
   }
 
   /// Follow the clip's creator (only offered when the event carries an author id).
-  Future<void> _followCreator(FeedItem item) async {
+  /// Open the clip creator's profile (only offered when the event carries an author id). The
+  /// profile page hosts the Follow / Friend actions.
+  void _openCreator(FeedItem item) {
     final author = item.event.authorId;
     if (author == null) return;
-    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
-    try {
-      await widget.api.follow('user', author);
-      _toast('Following the creator');
-    } catch (_) {
-      _toast('Could not follow the creator.');
-    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            UserProfilePage(api: widget.api, auth: widget.auth, userId: author),
+      ),
+    );
   }
 
   /// Load the engagement counts for [eventId] once (cached). Safe to call from build — it
@@ -593,7 +595,7 @@ class _VideoFeedState extends State<VideoFeed>
             onPromote: (up) => _promote(current, up),
             onFollow: () => _follow(current),
             onFollowCreator:
-                current.event.authorId != null ? () => _followCreator(current) : null,
+                current.event.authorId != null ? () => _openCreator(current) : null,
             onBookmark: () => _bookmark(current),
             onShare: () => _share(current),
             onOpenGraph: () => _openGraph(current),
