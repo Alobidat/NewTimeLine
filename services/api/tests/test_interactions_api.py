@@ -148,6 +148,15 @@ def test_cast_source_vote_shape(client, monkeypatch):
 
     monkeypatch.setattr(repo, "cast_source_vote", fake_cast)
     monkeypatch.setattr(repo, "source_vote_tallies", fake_tallies)
+    # The trust-layer recompute is DB-backed (raw SQL); stub it for this wiring test.
+    import chronos_core.validation_repo as vrepo
+
+    async def _noop_async(*a, **k):
+        return 0
+
+    monkeypatch.setattr(vrepo, "recompute_source_quality", _noop_async)
+    monkeypatch.setattr(vrepo, "recompute_event_confidence", _noop_async)
+    monkeypatch.setattr(vrepo, "award_reputation", _noop_async)
 
     resp = client.post(
         f"/events/{uuid.uuid4()}/source-votes",

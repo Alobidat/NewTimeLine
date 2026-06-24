@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 from chronos_core import interactions_repo as repo
-from chronos_core import notifications_repo, run_queue, social_repo
+from chronos_core import notifications_repo, run_queue, social_repo, validation_repo
 from chronos_core.schemas.interaction import (
     CommentAuthor,
     CommentCreate,
@@ -337,5 +337,10 @@ async def cast_source_vote(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     await session.flush()
+    # Trust layer (Phase 4): a verdict immediately re-derives the source's quality_score + the
+    # event's confidence (reputation-weighted), and earns the voter a little reputation.
+    await validation_repo.recompute_source_quality(session, data.source_id)
+    await validation_repo.recompute_event_confidence(session, event_id)
+    await validation_repo.award_reputation(session, actor)
     tallies = await repo.source_vote_tallies(session, event_id)
     return SourceVoteResult(source_id=data.source_id, verdict=data.verdict, tallies=tallies)
