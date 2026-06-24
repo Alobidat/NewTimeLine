@@ -349,9 +349,27 @@ class _InterestsSection extends StatelessWidget {
   const _InterestsSection({required this.profile});
   final InterestProfile? profile;
 
+  /// Dedup by display label: a place entity is in both the generic `entities` bucket and the
+  /// `places` bucket, so collapse same-label chips and keep the more specific kind (its icon).
+  List<InterestItem> _deduped(List<InterestItem> items) {
+    const priority = {'places': 0, 'categories': 1, 'sources': 2, 'entities': 3};
+    final byLabel = <String, InterestItem>{};
+    for (final it in items) {
+      final key = it.label.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      final cur = byLabel[key];
+      if (cur == null ||
+          (priority[it.kind] ?? 9) < (priority[cur.kind] ?? 9)) {
+        byLabel[key] = it;
+      }
+    }
+    return byLabel.values.toList()
+      ..sort((a, b) => b.weight.compareTo(a.weight));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final items = profile?.items ?? const <InterestItem>[];
+    final items = _deduped(profile?.items ?? const <InterestItem>[]);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

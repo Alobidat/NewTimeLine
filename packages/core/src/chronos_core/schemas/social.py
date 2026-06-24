@@ -170,12 +170,15 @@ class InterestProfile(BaseModel):
     """A decayed, weighted interest profile (debug/inspection of GET /me/interests).
 
     Each map is ``{id-or-name: weight}`` (descending). ``entities``/``sources`` key by uuid
-    (string); ``categories`` by category name; ``places`` by entity uuid (kind=place)."""
+    (string); ``categories`` by category name; ``places`` by entity uuid (kind=place).
+    ``labels`` resolves those uuids → human display names for the UI (entity/source names);
+    keys absent from it (e.g. categories) are already human-readable."""
 
     entities: dict[str, float] = Field(default_factory=dict)
     categories: dict[str, float] = Field(default_factory=dict)
     places: dict[str, float] = Field(default_factory=dict)
     sources: dict[str, float] = Field(default_factory=dict)
+    labels: dict[str, str] = Field(default_factory=dict)   # uuid -> display name
     sample_size: int = 0               # activity rows considered
 
 

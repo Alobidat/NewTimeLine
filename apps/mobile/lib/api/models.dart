@@ -930,17 +930,19 @@ class InterestProfile {
     }
     // The live `/me/interests` shape (chronos_core.schemas.social.InterestProfile): per-kind
     // `{id-or-name: weight}` maps. `categories` keys are display names; `entities`/`places`/
-    // `sources` key by uuid (no name on the wire), so the id doubles as the label for now.
+    // `sources` key by uuid, resolved to a human name via the `labels` map (id -> name).
+    final labels = (j['labels'] as Map?)?.cast<String, dynamic>() ?? const {};
     final out = <InterestItem>[];
     for (final kind in const ['entities', 'categories', 'places', 'sources']) {
       final bucket = j[kind];
       if (bucket is Map) {
         bucket.forEach((key, weight) {
+          final id = key.toString();
           out.add(InterestItem(
             kind: kind,
-            label: key.toString(),
+            label: (labels[id] as String?) ?? id,
             weight: (weight as num?)?.toDouble() ?? 0,
-            id: kind == 'categories' ? null : key.toString(),
+            id: kind == 'categories' ? null : id,
           ));
         });
       } else if (bucket is List) {

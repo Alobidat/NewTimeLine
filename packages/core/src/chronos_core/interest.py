@@ -113,13 +113,57 @@ async def compute_profile(
             entity_ids=ents, place_ids=places, source_ids=srcs,
         )
 
+    entities = _top(acc.entities)
+    categories = _top(acc.categories)
+    places = _top(acc.places)
+    sources = _top(acc.sources)
+    labels = await _resolve_labels(
+        session,
+        entity_ids=set(entities) | set(places),
+        source_ids=set(sources),
+    )
     return InterestProfile(
-        entities=_top(acc.entities),
-        categories=_top(acc.categories),
-        places=_top(acc.places),
-        sources=_top(acc.sources),
+        entities=entities,
+        categories=categories,
+        places=places,
+        sources=sources,
+        labels=labels,
         sample_size=acc.n,
     )
+
+
+async def _resolve_labels(
+    session: AsyncSession, *, entity_ids: set[str], source_ids: set[str]
+) -> dict[str, str]:
+    """Map the profile's entity/place/source uuids → human display names for the UI.
+
+    Entities/places resolve to ``entities.name``; sources to their title/publisher/domain.
+    Unresolvable ids are simply omitted (the UI falls back to the raw key)."""
+    labels: dict[str, str] = {}
+    if entity_ids:
+        rows = (
+            await session.execute(
+                text("SELECT id, name FROM entities WHERE id = ANY(:ids)"),
+                {"ids": [uuid.UUID(i) for i in entity_ids]},
+            )
+        ).all()
+        for r in rows:
+            if r.name:
+                labels[str(r.id)] = r.name
+    if source_ids:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id, COALESCE(NULLIF(title,''), NULLIF(publisher,''), domain) AS name "
+                    "FROM sources WHERE id = ANY(:ids)"
+                ),
+                {"ids": [uuid.UUID(i) for i in source_ids]},
+            )
+        ).all()
+        for r in rows:
+            if r.name:
+                labels[str(r.id)] = r.name
+    return labels
 
 
 def _aware(dt: datetime) -> datetime:
