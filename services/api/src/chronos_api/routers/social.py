@@ -17,14 +17,17 @@ from __future__ import annotations
 
 import uuid
 
-from chronos_core import interest, social_repo as repo
+from chronos_core import friends_repo, interest, social_repo as repo
 from chronos_core.schemas.event import EventRead
+from chronos_core.schemas.privacy import PrivacySettings
 from chronos_core.schemas.social import (
     BookmarkResult,
+    FeedItem,
     FollowCounts,
     FollowList,
     FollowResult,
     FollowTarget,
+    InteractionItem,
     InterestProfile,
     PromoteCast,
     PromoteResult,
@@ -38,6 +41,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_api import feed_queries, privacy as privacy_resolver
 from chronos_api.auth_stub import get_actor, require_verified_actor
 from chronos_api.deps import get_session
 from chronos_api.queries import _EVENT_COLS, _event_read
@@ -192,25 +196,51 @@ async def user_profile(
     session: AsyncSession = Depends(get_session),
     actor: uuid.UUID = Depends(get_actor),
 ) -> UserProfile:
-    """A public user profile + the caller's relation (follow state / is-self)."""
+    """A public user profile + the caller's relation (follow/friend state) + which audience-
+    gated facets the caller may view. The bio is nulled when the caller can't view it."""
     user = await repo.get_user(session, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    privacy = PrivacySettings.from_prefs(user.prefs)
+    rel = await privacy_resolver.relationship(session, actor, user_id)
+    fstate, fid = await friends_repo.friendship_state(session, viewer=actor, target=user_id)
+    can = lambda field: privacy_resolver.satisfies(rel, getattr(privacy, field))  # noqa: E731
     return UserProfile(
         id=user.id,
         handle=user.handle,
         display_name=user.display_name,
         avatar_url=user.avatar_url,
+        bio=user.bio if can("bio") else None,
         reputation=user.reputation,
         followers=await repo.follower_count(
             session, target_type="user", target_id=user_id
         ),
         following=await repo.following_count(session, user_id=user_id),
+        friends=await friends_repo.friend_count(session, user_id),
         is_following=await repo.is_following(
             session, user_id=actor, target_type="user", target_id=user_id
         ),
-        is_self=str(actor) == str(user_id),
+        is_self=rel == privacy_resolver.SELF,
+        friend_state=fstate,
+        friendship_id=fid,
+        can_view_posts=can("posts"),
+        can_view_followers=can("followers"),
+        can_view_following=can("following"),
+        can_view_interactions=can("interactions"),
     )
+
+
+async def _gate_facet(
+    session: AsyncSession, actor: uuid.UUID, user_id: uuid.UUID, field: str
+) -> None:
+    """403 unless the caller's relationship satisfies ``user.prefs.privacy[field]``."""
+    user = await repo.get_user(session, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    privacy = PrivacySettings.from_prefs(user.prefs)
+    rel = await privacy_resolver.relationship(session, actor, user_id)
+    if not privacy_resolver.satisfies(rel, getattr(privacy, field)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"{field} are private")
 
 
 @router.get("/users/{user_id}/followers", response_model=UserSummaryList)
@@ -221,7 +251,8 @@ async def user_followers(
     session: AsyncSession = Depends(get_session),
     actor: uuid.UUID = Depends(get_actor),
 ) -> UserSummaryList:
-    """The users who follow ``user_id`` (most-recent-first), each marked if the caller follows."""
+    """The users who follow ``user_id`` (gated by the ``followers`` audience)."""
+    await _gate_facet(session, actor, user_id, "followers")
     ids = await repo.followers(
         session, target_type="user", target_id=user_id, limit=limit, offset=offset
     )
@@ -236,12 +267,42 @@ async def user_following(
     session: AsyncSession = Depends(get_session),
     actor: uuid.UUID = Depends(get_actor),
 ) -> UserSummaryList:
-    """The *users* ``user_id`` follows (most-recent-first), each marked if the caller follows."""
+    """The *users* ``user_id`` follows (gated by the ``following`` audience)."""
+    await _gate_facet(session, actor, user_id, "following")
     edges = await repo.following(
         session, user_id=user_id, target_type="user", limit=limit, offset=offset
     )
     ids = [tid for _t, tid in edges]
     return await _summaries(session, ids, actor)
+
+
+@router.get("/users/{user_id}/uploads", response_model=list[FeedItem])
+async def user_uploads(
+    user_id: uuid.UUID,
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> list[FeedItem]:
+    """A user's published posts (gated by the ``posts`` audience + each post's own visibility)."""
+    await _gate_facet(session, actor, user_id, "posts")
+    return await feed_queries.fetch_user_uploads(
+        session, author_id=user_id, viewer_id=actor, limit=limit, offset=offset
+    )
+
+
+@router.get("/users/{user_id}/interactions", response_model=list[InteractionItem])
+async def user_interactions(
+    user_id: uuid.UUID,
+    limit: int = Query(default=30, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(get_actor),
+) -> list[InteractionItem]:
+    """A user's recent actions on visible events (gated by the ``interactions`` audience)."""
+    await _gate_facet(session, actor, user_id, "interactions")
+    return await feed_queries.fetch_user_interactions(
+        session, target_id=user_id, viewer_id=actor, limit=limit
+    )
 
 
 # --- bookmarks ------------------------------------------------------------------------

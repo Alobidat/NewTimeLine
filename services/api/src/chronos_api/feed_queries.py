@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 
 from chronos_core import config_service
-from chronos_core.schemas.social import FeedItem, FeedResponse
+from chronos_core.schemas.social import FeedItem, FeedResponse, InteractionItem
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +67,26 @@ _DISPLAYABLE = (
     "))"
 )
 
+# Per-post audience gate (Phase 3). Keyed on the viewer ``:uid`` and the lateral hero
+# ``h.author_id`` (non-null only for user-generated clips; agent/seed/bot events have a NULL
+# author and are public by construction). Friends rank ABOVE followers, so a friend also
+# satisfies a 'followers' post. Anonymous ``:uid`` (the fixed anon UUID) matches no author /
+# follow / friendship → only public events pass. Applied as a WHERE fragment on every feed query.
+_FRIENDS_EXISTS = (
+    "EXISTS (SELECT 1 FROM friendships fr WHERE fr.status='accepted' AND ("
+    "  (fr.requester_id = :uid AND fr.addressee_id = h.author_id) "
+    "  OR (fr.addressee_id = :uid AND fr.requester_id = h.author_id)))"
+)
+_VISIBILITY = (
+    "(e.visibility = 'public' "
+    "  OR h.author_id = :uid "
+    "  OR (e.visibility = 'followers' AND ("
+    "        EXISTS (SELECT 1 FROM follows f WHERE f.user_id = :uid "
+    "                AND f.target_type='user' AND f.target_id = h.author_id) "
+    f"        OR {_FRIENDS_EXISTS})) "
+    f"  OR (e.visibility = 'friends' AND {_FRIENDS_EXISTS}))"
+)
+
 
 def _parse_cursor(cursor: str | None) -> int:
     """Decode the opaque offset cursor (``o:<n>``). Bad/absent → 0."""
@@ -110,6 +130,54 @@ def _item(row) -> FeedItem:
         hero_is_clip=bool(getattr(row, "hero_is_clip", False)),
         score=score,
     )
+
+
+# --- per-user (profile Posts / Interactions tabs, Phase 3) ----------------------------
+
+
+async def fetch_user_uploads(
+    session: AsyncSession, *, author_id: uuid.UUID, viewer_id: uuid.UUID,
+    limit: int = 30, offset: int = 0,
+) -> list[FeedItem]:
+    """A user's own published posts (hero-attributed to them), newest-first, gated per-post by
+    the viewer's audience (``_VISIBILITY``). The profile-level ``posts`` gate is applied by the
+    caller before this runs."""
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_FEED_COLS} FROM events e {_HERO_JOIN} "
+                "WHERE e.status = 'published' AND h.author_id = :author "
+                f"AND {_VISIBILITY} "
+                "ORDER BY e.created_at DESC LIMIT :lim OFFSET :off"
+            ),
+            {"author": author_id, "uid": viewer_id, "lim": limit, "off": offset},
+        )
+    ).all()
+    return [_item(r) for r in rows]
+
+
+async def fetch_user_interactions(
+    session: AsyncSession, *, target_id: uuid.UUID, viewer_id: uuid.UUID, limit: int = 30
+) -> list[InteractionItem]:
+    """A user's recent actions on events the viewer can see (newest-first). Joins the
+    activity log to events and gates each by ``_VISIBILITY``."""
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_FEED_COLS}, a.kind AS act_kind, a.created_at AS act_at "
+                "FROM activity_log a JOIN events e ON e.id = a.target_id "
+                f"{_HERO_JOIN} "
+                "WHERE a.user_id = :target AND a.target_type = 'event' "
+                f"AND e.status = 'published' AND {_VISIBILITY} "
+                "ORDER BY a.created_at DESC LIMIT :lim"
+            ),
+            {"target": target_id, "uid": viewer_id, "lim": limit},
+        )
+    ).all()
+    return [
+        InteractionItem(kind=r.act_kind, event=_event_read(r), created_at=r.act_at)
+        for r in rows
+    ]
 
 
 # --- foryou ---------------------------------------------------------------------------
@@ -175,7 +243,7 @@ async def fetch_foryou(
                 "     THEN 1.0 ELSE 0.0 END) "
                 ") AS score "
                 f"FROM events e {_HERO_JOIN} "
-                f"WHERE e.status = 'published' AND {_DISPLAYABLE} "
+                f"WHERE e.status = 'published' AND {_DISPLAYABLE} AND {_VISIBILITY} "
                 "ORDER BY score DESC, e.t_start DESC "
                 "LIMIT :lim OFFSET :off"
             ),
@@ -223,7 +291,7 @@ async def fetch_following(
                 # event follows → the followed event itself
                 "  OR EXISTS (SELECT 1 FROM follows f WHERE f.user_id = :uid "
                 "          AND f.target_type='event' AND f.target_id = e.id)) "
-                f"AND {_DISPLAYABLE} "
+                f"AND {_DISPLAYABLE} AND {_VISIBILITY} "
                 "ORDER BY e.t_start DESC, e.severity DESC "
                 "LIMIT :lim OFFSET :off"
             ),
@@ -265,7 +333,7 @@ async def fetch_discover(
                 "WHERE e.status = 'published' AND NOT EXISTS ("
                 "   SELECT 1 FROM activity_log a WHERE a.user_id = :uid "
                 "   AND a.target_type='event' AND a.target_id = e.id) "
-                f"AND {_DISPLAYABLE} "
+                f"AND {_DISPLAYABLE} AND {_VISIBILITY} "
                 "ORDER BY score DESC "
                 "LIMIT :lim OFFSET :off"
             ),

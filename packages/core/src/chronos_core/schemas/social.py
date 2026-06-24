@@ -8,6 +8,7 @@ it comes from the auth seam (``get_actor`` / ``require_verified_actor``).
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -53,18 +54,36 @@ class UserSummaryList(BaseModel):
     count: int = 0
 
 
+class InteractionItem(BaseModel):
+    """One recent action a user took on a (visible) event — for the profile Interactions tab."""
+
+    kind: str  # react|comment|promote|follow|...
+    event: EventRead
+    created_at: datetime
+
+
 class UserProfile(BaseModel):
-    """A public user profile: identity, reputation, follow counts, the caller's relation."""
+    """A public user profile: identity, reputation, follow/friend counts, the caller's relation,
+    and which audience-gated facets the caller may view."""
 
     id: uuid.UUID
     handle: str
     display_name: str | None = None
     avatar_url: str | None = None
+    bio: str | None = None  # nulled when the caller can't view it
     reputation: int = 0
     followers: int = 0
     following: int = 0
+    friends: int = 0
     is_following: bool = False  # does the caller follow this user
     is_self: bool = False
+    friend_state: str = "none"  # self|friends|incoming|outgoing|none
+    friendship_id: uuid.UUID | None = None
+    # Per-facet view permissions for the caller (drives which tabs/lists the client shows).
+    can_view_posts: bool = True
+    can_view_followers: bool = True
+    can_view_following: bool = True
+    can_view_interactions: bool = True
 
 
 # --- follows --------------------------------------------------------------------------

@@ -630,22 +630,38 @@ class UserProfile {
     required this.handle,
     this.displayName,
     this.avatarUrl,
+    this.bio,
     this.reputation = 0,
     this.followers = 0,
     this.following = 0,
+    this.friends = 0,
     this.isFollowing = false,
     this.isSelf = false,
+    this.friendState = 'none',
+    this.friendshipId,
+    this.canViewPosts = true,
+    this.canViewFollowers = true,
+    this.canViewFollowing = true,
+    this.canViewInteractions = true,
   });
 
   final String id;
   final String handle;
   final String? displayName;
   final String? avatarUrl;
+  final String? bio;
   final int reputation;
   final int followers;
   final int following;
+  final int friends;
   final bool isFollowing;
   final bool isSelf;
+  final String friendState; // self|friends|incoming|outgoing|none
+  final String? friendshipId;
+  final bool canViewPosts;
+  final bool canViewFollowers;
+  final bool canViewFollowing;
+  final bool canViewInteractions;
 
   String get label => displayName ?? handle;
 
@@ -654,11 +670,34 @@ class UserProfile {
     handle: j['handle'] as String? ?? '',
     displayName: j['display_name'] as String?,
     avatarUrl: j['avatar_url'] as String?,
+    bio: j['bio'] as String?,
     reputation: (j['reputation'] as num?)?.toInt() ?? 0,
     followers: (j['followers'] as num?)?.toInt() ?? 0,
     following: (j['following'] as num?)?.toInt() ?? 0,
+    friends: (j['friends'] as num?)?.toInt() ?? 0,
     isFollowing: j['is_following'] as bool? ?? false,
     isSelf: j['is_self'] as bool? ?? false,
+    friendState: j['friend_state'] as String? ?? 'none',
+    friendshipId: j['friendship_id'] as String?,
+    canViewPosts: j['can_view_posts'] as bool? ?? true,
+    canViewFollowers: j['can_view_followers'] as bool? ?? true,
+    canViewFollowing: j['can_view_following'] as bool? ?? true,
+    canViewInteractions: j['can_view_interactions'] as bool? ?? true,
+  );
+}
+
+/// One of a user's recent actions on a (visible) event — for the profile Interactions tab.
+class InteractionItem {
+  InteractionItem({required this.kind, required this.event, required this.createdAt});
+  final String kind; // react|comment|promote|follow|...
+  final EventRead event;
+  final DateTime createdAt;
+
+  factory InteractionItem.fromJson(Map<String, dynamic> j) => InteractionItem(
+    kind: j['kind'] as String? ?? '',
+    event: EventRead.fromJson(j['event'] as Map<String, dynamic>),
+    createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
   );
 }
 
