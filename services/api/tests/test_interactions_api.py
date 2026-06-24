@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 import chronos_core.interactions_repo as repo
+import chronos_core.notifications_repo as nrepo
 import chronos_core.social_repo as srepo
 import chronos_api.graph_queries as gq
 import pytest
@@ -187,6 +188,62 @@ def test_remove_link_only_reports_removed(client, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["removed"] is False
+
+
+# --- notifications generation ---------------------------------------------------------
+
+
+def test_like_notifies_the_event_author(client, monkeypatch):
+    captured = {}
+
+    async def fake_toggle(session, *, event_id, user_id, kind):
+        return True  # reaction just added
+
+    async def fake_notify_author(session, *, event_id, actor_id, kind):
+        captured.update(event_id=event_id, actor_id=actor_id, kind=kind)
+
+    monkeypatch.setattr(repo, "toggle_reaction", fake_toggle)
+    monkeypatch.setattr(nrepo, "notify_event_author", fake_notify_author)
+    ev = uuid.uuid4()
+    resp = client.post(f"/events/{ev}/reactions", json={"kind": "like"})
+    assert resp.status_code == 200
+    assert captured == {"event_id": ev, "actor_id": get_actor(None), "kind": "like"}
+
+
+def test_dislike_does_not_notify(client, monkeypatch):
+    calls = []
+
+    async def fake_toggle(session, *, event_id, user_id, kind):
+        return True
+
+    async def fake_notify_author(session, *, event_id, actor_id, kind):
+        calls.append(kind)
+
+    monkeypatch.setattr(repo, "toggle_reaction", fake_toggle)
+    monkeypatch.setattr(nrepo, "notify_event_author", fake_notify_author)
+    client.post(f"/events/{uuid.uuid4()}/reactions", json={"kind": "dislike"})
+    assert calls == []  # only 'like' pings the author
+
+
+def test_repost_notifies_the_event_author(client, monkeypatch):
+    captured = {}
+
+    async def fake_repost(session, *, user_id, event_id):
+        return True
+
+    async def fake_notify_author(session, *, event_id, actor_id, kind):
+        captured.update(kind=kind)
+
+    monkeypatch.setattr(srepo, "repost", fake_repost)
+    monkeypatch.setattr(srepo, "record_activity", lambda *a, **k: _noop())
+    monkeypatch.setattr(nrepo, "notify_event_author", fake_notify_author)
+    resp = client.post(f"/events/{uuid.uuid4()}/repost")
+    assert resp.status_code == 201
+    assert captured.get("kind") == "repost"
+
+
+async def _noop():
+    return None
 
 
 # --- repost ---------------------------------------------------------------------------

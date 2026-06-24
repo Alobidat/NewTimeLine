@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 from chronos_core import interactions_repo as repo
-from chronos_core import run_queue, social_repo
+from chronos_core import notifications_repo, run_queue, social_repo
 from chronos_core.schemas.interaction import (
     CommentAuthor,
     CommentCreate,
@@ -79,6 +79,9 @@ async def add_repost(
     if created:
         await social_repo.record_activity(
             session, user_id=actor, kind="share", target_type="event", target_id=event_id
+        )
+        await notifications_repo.notify_event_author(
+            session, event_id=event_id, actor_id=actor, kind="repost"
         )
     return RepostResult(event_id=event_id, reposted=True)
 
@@ -184,6 +187,19 @@ async def create_comment(
     await session.flush()
     # Async LLM moderation pass (Phase 6) — fire-and-forget; flags land in the admin queue.
     run_queue.enqueue("moderate-comment", {"comment_id": str(comment.id)})
+    # Notify: a reply pings the parent comment's author (kind='reply'); otherwise the event's
+    # author (kind='comment'). notify() no-ops on self/None so we never double-ping yourself.
+    if data.parent_id is not None:
+        parent = await repo.get_comment(session, data.parent_id)
+        if parent is not None:
+            await notifications_repo.notify(
+                session, recipient_id=parent.user_id, actor_id=actor,
+                kind="reply", event_id=event_id,
+            )
+    else:
+        await notifications_repo.notify_event_author(
+            session, event_id=event_id, actor_id=actor, kind="comment"
+        )
     return await _enrich_one(session, comment, actor)
 
 
@@ -276,6 +292,12 @@ async def toggle_reaction(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     await session.flush()
+    # Notify the event's author only on the "love" reaction being *added* (not un-reacts/other
+    # kinds), so the bell isn't spammed.
+    if active and data.kind == "like":
+        await notifications_repo.notify_event_author(
+            session, event_id=event_id, actor_id=actor, kind="like"
+        )
     counts = await repo.reaction_counts(session, event_id)
     mine = await repo.reactions_of(session, event_id, actor)
     return ReactionToggleResult(kind=data.kind, active=active, counts=counts, mine=mine)

@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import uuid
 
-from chronos_core import friends_repo, interest, social_repo as repo
+from chronos_core import friends_repo, interest, notifications_repo
+from chronos_core import social_repo as repo
 from chronos_core.schemas.event import EventRead
 from chronos_core.schemas.privacy import PrivacySettings
 from chronos_core.schemas.social import (
@@ -74,11 +75,18 @@ async def follow(
 ) -> FollowResult:
     """Follow a user|entity|event (idempotent)."""
     try:
-        await repo.follow(session, user_id=actor, target_type=target_type, target_id=target_id)
+        created = await repo.follow(
+            session, user_id=actor, target_type=target_type, target_id=target_id
+        )
         if target_type in _ACTIVITY_TARGET:
             await repo.record_activity(
                 session, user_id=actor, kind="follow",
                 target_type=_ACTIVITY_TARGET[target_type], target_id=target_id,
+            )
+        # Tell a *user* they got a new follower (only on a fresh edge — not idempotent re-follows).
+        if created and target_type == "user":
+            await notifications_repo.notify(
+                session, recipient_id=target_id, actor_id=actor, kind="follow"
             )
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc

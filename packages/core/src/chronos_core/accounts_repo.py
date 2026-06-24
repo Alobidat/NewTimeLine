@@ -30,7 +30,14 @@ from chronos_core.models.friendship import Friendship
 from chronos_core.models.interaction import Comment, CommentReaction, Reaction, SourceVote
 from chronos_core.models.media import EventMedia
 from chronos_core.models.relation import EventRelation
-from chronos_core.models.social import ActivityLog, Bookmark, Follow, Promote, Repost
+from chronos_core.models.social import (
+    ActivityLog,
+    Bookmark,
+    Follow,
+    Notification,
+    Promote,
+    Repost,
+)
 from chronos_core.models.user import User, UserAgreement, UserIdentity
 
 log = logging.getLogger("chronos.accounts")
@@ -359,6 +366,14 @@ async def purge_user(session: AsyncSession, user_id: uuid.UUID, *, objectstore=N
     ).rowcount or 0
     counts["reposts"] = (
         await session.execute(delete(Repost).where(Repost.user_id == user_id))
+    ).rowcount or 0
+    # Notifications both *to* and *about* the user (recipient or actor) are removed.
+    counts["notifications"] = (
+        await session.execute(
+            delete(Notification).where(
+                (Notification.recipient_id == user_id) | (Notification.actor_id == user_id)
+            )
+        )
     ).rowcount or 0
     counts["comment_reactions"] = (
         await session.execute(delete(CommentReaction).where(CommentReaction.user_id == user_id))

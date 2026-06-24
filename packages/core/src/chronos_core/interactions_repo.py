@@ -59,6 +59,11 @@ async def list_comments(
     return list((await session.scalars(stmt)).all())
 
 
+async def get_comment(session: AsyncSession, comment_id: uuid.UUID) -> Comment | None:
+    """Fetch one comment by id (used to resolve a reply's parent author for notifications)."""
+    return await session.get(Comment, comment_id)
+
+
 async def create_comment(
     session: AsyncSession,
     *,

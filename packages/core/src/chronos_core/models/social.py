@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     Index,
@@ -136,4 +137,34 @@ class Repost(Base):
     __table_args__ = (
         Index("ix_reposts_user_created", "user_id", "created_at"),
         Index("ix_reposts_event", "event_id"),
+    )
+
+
+NOTIFICATION_KINDS = ("follow", "like", "comment", "reply", "repost")
+
+
+class Notification(Base):
+    """An in-app notification: ``recipient_id`` is told that ``actor_id`` did ``kind`` to their
+    content (``event_id`` is the context, null for a plain follow). Generated synchronously by
+    the interaction routers; self-actions are skipped. ``recipient_id``/``actor_id`` are plain
+    uuids with no FK (the GDPR purge fans out explicitly in chronos_core.accounts_repo)."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    read: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_notifications_recipient_created", "recipient_id", "created_at"),
+        Index("ix_notifications_unread", "recipient_id",
+              postgresql_where=text("read = false")),
     )

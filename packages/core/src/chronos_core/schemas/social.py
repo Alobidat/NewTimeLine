@@ -22,6 +22,8 @@ __all__ = [
     "FollowTarget",
     "FollowList",
     "FollowedItem",
+    "NotificationRead",
+    "NotificationList",
     "UserSummary",
     "UserSummaryList",
     "UserProfile",
@@ -120,6 +122,25 @@ class FollowList(BaseModel):
 
     items: list[FollowTarget] = Field(default_factory=list)
     count: int = 0
+
+
+class NotificationRead(BaseModel):
+    """One in-app notification, resolved for display: who did what to which event, and when."""
+
+    id: uuid.UUID
+    kind: str  # follow | like | comment | reply | repost
+    actor: CommentAuthor | None = None
+    event_id: uuid.UUID | None = None
+    event_title: str | None = None
+    read: bool = False
+    created_at: datetime
+
+
+class NotificationList(BaseModel):
+    """A page of notifications + the unread count for the bell badge."""
+
+    items: list[NotificationRead] = Field(default_factory=list)
+    unread: int = 0
 
 
 class FollowedItem(BaseModel):
