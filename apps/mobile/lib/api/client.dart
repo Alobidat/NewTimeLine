@@ -778,6 +778,10 @@ class ApiClient {
   /// Absolute URL for a media item's bytes (streamed/redirected by the API).
   String mediaUrl(String mediaId) => '$baseUrl/media/$mediaId/raw';
 
+  /// The pre-generated JPEG poster/thumbnail for a media item (falls back server-side to /raw
+  /// for items without one). Used as the feed clip poster while the video buffers.
+  String mediaThumbUrl(String mediaId) => '$baseUrl/media/$mediaId/thumb';
+
   // ── User-generated video events (social-and-feed §3, ADR-0029). Write-gated; the server
   // returns 400 when the metadata-complete invariant (time/location/actors/link) is unmet.
 

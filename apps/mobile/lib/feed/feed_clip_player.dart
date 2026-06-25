@@ -166,7 +166,7 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
     if (kIsWeb) {
       return url == null
           ? const ColoredBox(color: Colors.black)
-          : webVideoView(url, muted: true);
+          : webVideoView(url, muted: true, posterUrl: widget.posterUrl);
     }
     return GestureDetector(
       onTap: _onTap,

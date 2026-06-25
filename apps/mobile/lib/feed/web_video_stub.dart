@@ -5,7 +5,7 @@ library;
 import 'package:flutter/widgets.dart';
 
 /// Returns a decorative full-bleed HTML `<video>` on web; unsupported elsewhere.
-Widget webVideoView(String url, {required bool muted}) =>
+Widget webVideoView(String url, {required bool muted, String? posterUrl}) =>
     throw UnsupportedError('webVideoView is web-only');
 
 /// Feed-wide mute notifier — web-only behaviour; inert off the web (native clips have their

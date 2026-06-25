@@ -46,12 +46,15 @@ void setFeedMuted(bool muted) {
   }
 }
 
-Widget webVideoView(String url, {required bool muted}) {
+Widget webVideoView(String url, {required bool muted, String? posterUrl}) {
   // One viewType per url so swapping the feed's active clip rebuilds the element with a new src.
   final viewType = 'chronos-feed-video:$url';
   if (_registered.add(viewType)) {
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int _) {
       final v = web.HTMLVideoElement();
+      // Poster shows instantly (and during buffering) until the first frame decodes — the feed
+      // never flashes black between swiping to a clip and its first frame.
+      if (posterUrl != null) v.poster = posterUrl;
       // Inherit the feed-wide mute preference (not the call-site arg): once the user has
       // unmuted, clips they swipe to should keep playing with sound. Set BEFORE src/play so
       // the browser's muted-autoplay allowance still applies on the muted (default) path.

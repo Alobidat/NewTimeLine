@@ -599,7 +599,10 @@ class _VideoFeedState extends State<VideoFeed>
             url: clipUrl,
             active: true,
             isClip: current.heroIsClip,
-            posterUrl: null,
+            // Clip heroes show their generated poster while the video buffers (no black flash).
+            posterUrl: current.heroMediaId != null && current.heroIsClip
+                ? widget.api.mediaThumbUrl(current.heroMediaId!)
+                : null,
           ),
         ),
         // The single transparent gesture surface that drives ALL four feed gestures. One
