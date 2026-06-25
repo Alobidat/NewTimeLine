@@ -340,6 +340,55 @@ class MetricSeries {
   );
 }
 
+/// One persisted WARNING+ log line (from the DB ring buffer).
+class LogRecordView {
+  LogRecordView({
+    required this.id,
+    required this.logger,
+    required this.level,
+    required this.message,
+    required this.ts,
+    this.componentId,
+  });
+
+  final String id;
+  final String? componentId;
+  final String logger;
+  final String level;
+  final String message;
+  final DateTime ts;
+
+  factory LogRecordView.fromJson(Map<String, dynamic> j) => LogRecordView(
+    id: j['id'] as String,
+    componentId: j['component_id'] as String?,
+    logger: j['logger'] as String? ?? '',
+    level: j['level'] as String? ?? '',
+    message: j['message'] as String? ?? '',
+    ts: _dt(j['ts'])!,
+  );
+}
+
+/// A component's runtime log-level control state.
+class LogLevelView {
+  LogLevelView({required this.componentId, this.key, this.level, required this.choices, this.note});
+
+  final String componentId;
+  final String? key; // config key controlling it (null = not directly controllable)
+  final String? level;
+  final List<String> choices;
+  final String? note;
+
+  bool get controllable => key != null;
+
+  factory LogLevelView.fromJson(Map<String, dynamic> j) => LogLevelView(
+    componentId: j['component_id'] as String,
+    key: j['key'] as String?,
+    level: j['level'] as String?,
+    choices: _strList(j['choices']),
+    note: j['note'] as String?,
+  );
+}
+
 /// AI-user (bot) roster row — mirrors chronos_core.schemas.admin_bots.BotView.
 class BotView {
   BotView({

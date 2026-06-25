@@ -91,6 +91,32 @@ class AdminClient {
     return list.map((e) => MetricSeries.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  /// Persisted WARNING+ log records for a component (filterable by level + substring).
+  Future<List<LogRecordView>> componentLogs(String id, {String? level, String? q, int limit = 100}) async {
+    final list = await _get('/admin/components/$id/logs', {
+      'level': ?level,
+      'q': ?q,
+      'limit': limit.toString(),
+    }) as List;
+    return list.map((e) => LogRecordView.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Live tail of a component container's stdout via the Docker API.
+  Future<String> logsTail(String id, {int tail = 200}) async {
+    final j = await _get('/admin/logs/tail/$id', {'tail': tail.toString()}) as Map<String, dynamic>;
+    return j['logs'] as String? ?? '';
+  }
+
+  Future<LogLevelView> logLevel(String id) async =>
+      LogLevelView.fromJson(await _get('/admin/components/$id/log-level') as Map<String, dynamic>);
+
+  Future<LogLevelView> setLogLevel(String id, String level) async {
+    final uri = Uri.parse('$baseUrl/admin/components/$id/log-level');
+    final resp = await _http.put(uri, headers: _headers, body: jsonEncode({'level': level}));
+    if (resp.statusCode != 200) _fail(uri, resp);
+    return LogLevelView.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
   /// Run a declared component action (e.g. enable/disable). Returns the response body.
   Future<Map<String, dynamic>> action(String componentId, String action) async {
     final uri = Uri.parse('$baseUrl/admin/components/$componentId/actions/$action');
