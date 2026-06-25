@@ -156,6 +156,33 @@ class MetricSeries(BaseModel):
     points: list[MetricPoint] = Field(default_factory=list)
 
 
+class LogRecordView(BaseModel):
+    """One persisted WARNING+ log line (from the DB ring buffer)."""
+
+    id: uuid.UUID
+    component_id: str | None = None
+    logger: str
+    level: str
+    message: str
+    ts: datetime
+
+
+class LogLevelView(BaseModel):
+    """A component's runtime log-level control state."""
+
+    component_id: str
+    key: str | None = None        # config key controlling it (None = not directly controllable)
+    level: str | None = None      # current effective level
+    choices: list[str] = Field(default_factory=list)
+    note: str | None = None       # e.g. "shared with service:worker" for agents
+
+
+class LogLevelUpdate(BaseModel):
+    """Write payload for a component's runtime log level."""
+
+    level: str
+
+
 class SystemView(BaseModel):
     """System status + pipeline throughput metrics for the Admin Portal."""
 

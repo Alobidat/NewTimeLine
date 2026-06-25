@@ -11,9 +11,10 @@ from dataclasses import asdict
 from datetime import datetime
 
 from chronos_core import config_service, registry
-from chronos_core.config_spec import SPECS, public_value
+from chronos_core.config_spec import SPEC_BY_KEY, SPECS, public_value
 from chronos_core.domain.health import RunInfo, derive_health
 from chronos_core.models.component_health import ComponentHealth
+from chronos_core.models.log_record import LogRecord
 from chronos_core.registry import ComponentManifest
 from chronos_core.runs import recent_runs
 from chronos_core.schemas.admin import (
@@ -23,6 +24,8 @@ from chronos_core.schemas.admin import (
     HealthView,
     HostMetricsView,
     IntegrityView,
+    LogLevelView,
+    LogRecordView,
     MetricPoint,
     MetricSeries,
     PlaneGroup,
@@ -30,8 +33,12 @@ from chronos_core.schemas.admin import (
     StorageView,
     SystemView,
 )
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Runtime log-level config key per directly-controllable process component.
+_LOG_LEVEL_KEY = {"service:api": "logging.api.level", "service:worker": "logging.worker.level"}
+_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 # Default UI plane per kind when a manifest doesn't declare one explicitly.
 _DEFAULT_PLANE = {"agent": "processing", "service": "api", "store": "store"}
@@ -294,3 +301,51 @@ async def metric_series(
             )
         s.points.append(MetricPoint(ts=r.ts, value=float(r.value)))
     return list(series.values())
+
+
+# ── Logs + runtime log levels ───────────────────────────────────────────────────────────────
+
+
+async def query_logs(
+    session: AsyncSession, *, component_id: str | None, level: str | None,
+    q: str | None, limit: int,
+) -> list[LogRecordView]:
+    """Most-recent persisted WARNING+ log records, filtered by component/level/text."""
+    stmt = select(LogRecord)
+    if component_id:
+        stmt = stmt.where(LogRecord.component_id == component_id)
+    if level:
+        stmt = stmt.where(LogRecord.level == level)
+    if q:
+        stmt = stmt.where(LogRecord.message.ilike(f"%{q}%"))
+    stmt = stmt.order_by(LogRecord.ts.desc()).limit(limit)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [
+        LogRecordView(
+            id=r.id, component_id=r.component_id, logger=r.logger,
+            level=r.level, message=r.message, ts=r.ts,
+        )
+        for r in rows
+    ]
+
+
+def log_level_view(component_id: str, values: dict) -> LogLevelView:
+    """A component's runtime log-level control state (directly controllable for the api +
+    worker processes; agents share the worker process's level)."""
+    key = _LOG_LEVEL_KEY.get(component_id)
+    if key:
+        spec = SPEC_BY_KEY.get(key)
+        return LogLevelView(
+            component_id=component_id, key=key,
+            level=values.get(key, spec.default if spec else "INFO"),
+            choices=(spec.choices if spec and spec.choices else _LOG_LEVELS),
+        )
+    m = registry.get(component_id)
+    if m and (m.kind == "agent" or m.plane == "processing"):
+        wk = _LOG_LEVEL_KEY["service:worker"]
+        return LogLevelView(
+            component_id=component_id, key=None, level=values.get(wk, "INFO"),
+            choices=_LOG_LEVELS, note="Runs in the worker process — set the level on Agent Worker.",
+        )
+    return LogLevelView(component_id=component_id, key=None, level=None, choices=[],
+                        note="No application logger (use container stdout).")

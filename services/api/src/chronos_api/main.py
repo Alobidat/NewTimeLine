@@ -7,10 +7,12 @@ Anonymous reads are allowed (ADR-0007); auth-gated writes arrive in Phase 4.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from chronos_core import config_service
 from chronos_core.db import session_scope
+from chronos_core.logging_setup import drain_log_buffer, init_logging, log_level_refresher
 from chronos_core.settings import get_settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,14 +41,20 @@ from chronos_api.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Seed Config Service defaults on startup (idempotent)."""
+    """Seed Config Service defaults + start the log drain/level-refresh tasks (idempotent)."""
     async with session_scope() as session:
         await config_service.ensure_defaults(session)
-    yield
+    tasks = [asyncio.create_task(drain_log_buffer()), asyncio.create_task(log_level_refresher())]
+    try:
+        yield
+    finally:
+        for t in tasks:
+            t.cancel()
 
 
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
+    init_logging("service:api")
     settings = get_settings()
     app = FastAPI(
         title="Chronos Event API",

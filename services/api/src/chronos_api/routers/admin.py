@@ -18,6 +18,7 @@ import redis as redislib
 from chronos_core import config_service, registry
 from chronos_core.config_spec import SPEC_BY_KEY, validate_value
 from chronos_core.db import session_scope
+from chronos_core.monitoring import docker_api
 from chronos_core.run_queue import QUEUE_KEY, push_job
 from chronos_core.runs import recent_runs
 from chronos_core.schemas.admin import (
@@ -27,6 +28,9 @@ from chronos_core.schemas.admin import (
     ConfigUpdate,
     HealthTreeView,
     HostMetricsView,
+    LogLevelUpdate,
+    LogLevelView,
+    LogRecordView,
     MetricSeries,
     OverviewView,
     RunView,
@@ -215,6 +219,76 @@ async def component_metrics(
     if registry.get(component_id) is None and component_id != "host":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown component")
     return await aq.metric_series(session, component_id, metric, window)
+
+
+# ── Logs + runtime log-level control ───────────────────────────────────────────────────────
+
+
+@router.get("/components/{component_id}/logs", response_model=list[LogRecordView])
+async def component_logs(
+    component_id: str,
+    level: str | None = Query(default=None, description="WARNING | ERROR | CRITICAL"),
+    q: str | None = Query(default=None, description="substring match on the message"),
+    limit: int = Query(default=100, ge=1, le=1000),
+    session: AsyncSession = Depends(get_session),
+) -> list[LogRecordView]:
+    """Persisted WARNING+ log records for one component (durable, searchable slice of stdout)."""
+    if registry.get(component_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown component")
+    return await aq.query_logs(session, component_id=component_id, level=level, q=q, limit=limit)
+
+
+@router.get("/logs/tail/{component_id}")
+async def logs_tail(
+    component_id: str,
+    tail: int = Query(default=200, ge=1, le=2000),
+) -> dict:
+    """Live tail of a component container's stdout/stderr via the Docker API (full firehose)."""
+    m = registry.get(component_id)
+    if m is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown component")
+    if not m.container:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "component has no container")
+    text = await docker_api.container_logs(m.container, tail=tail)
+    if text is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "docker logs unavailable")
+    return {"component": component_id, "container": m.container, "logs": text}
+
+
+@router.get("/components/{component_id}/log-level", response_model=LogLevelView)
+async def get_log_level(
+    component_id: str, session: AsyncSession = Depends(get_session)
+) -> LogLevelView:
+    """A component's runtime log level + whether it is directly controllable."""
+    if registry.get(component_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown component")
+    values = await aq.all_config_values(session)
+    return aq.log_level_view(component_id, values)
+
+
+@router.put("/components/{component_id}/log-level", response_model=LogLevelView)
+async def set_log_level(
+    component_id: str,
+    body: LogLevelUpdate,
+    actor: str = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> LogLevelView:
+    """Set a process component's runtime log level (audited; applied within a refresh cycle)."""
+    values = await aq.all_config_values(session)
+    view = aq.log_level_view(component_id, values)
+    if not view.key:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            view.note or "log level not directly controllable")
+    ok, err = validate_value(view.key, body.level)
+    if not ok:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, err or "invalid level")
+    spec = SPEC_BY_KEY.get(view.key)
+    await config_service.set_value(
+        session, view.key, body.level, scope=spec.scope if spec else "logging",
+        note=f"{actor}:log-level",
+    )
+    values = await aq.all_config_values(session)
+    return aq.log_level_view(component_id, values)
 
 
 # ── SSE constants ─────────────────────────────────────────────────────────────

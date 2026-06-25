@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 
 from chronos_core import config_service
 from chronos_core.db import session_scope
+from chronos_core.logging_setup import init_logging
 from chronos_core.monitoring import run_monitor
 from chronos_core.runs import record_run
 
@@ -169,7 +169,7 @@ async def _main(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    init_logging("service:worker")
     asyncio.run(_main(_build_parser().parse_args()))
 
 

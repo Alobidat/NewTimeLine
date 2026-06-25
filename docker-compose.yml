@@ -114,6 +114,9 @@ services:
     environment: *app-env
     ports:
       - "${API_PORT:-8000}:8000"
+    volumes:
+      # Read-only Docker socket so the admin log-tail endpoint can stream container stdout.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       postgres:
         condition: service_healthy

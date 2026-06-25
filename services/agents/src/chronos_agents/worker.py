@@ -16,6 +16,7 @@ import logging
 import redis as redislib
 from chronos_core import config_service
 from chronos_core.db import session_scope
+from chronos_core.logging_setup import drain_log_buffer, log_level_refresher
 from chronos_core.run_queue import pop_job
 from chronos_core.runs import record_run
 from chronos_core.settings import get_settings
@@ -133,6 +134,8 @@ async def run_worker() -> None:
     ticker = asyncio.create_task(_bots_ticker())
     maint = asyncio.create_task(_maintenance_ticker())
     monitor = asyncio.create_task(_monitor_ticker())
+    drain = asyncio.create_task(drain_log_buffer())
+    levels = asyncio.create_task(log_level_refresher())
     r = redislib.from_url(get_settings().redis_url, decode_responses=True)
     log.info("Agent worker listening on chronos:run_queue …")
     try:
@@ -163,4 +166,6 @@ async def run_worker() -> None:
         ticker.cancel()
         maint.cancel()
         monitor.cancel()
+        drain.cancel()
+        levels.cancel()
         r.close()
