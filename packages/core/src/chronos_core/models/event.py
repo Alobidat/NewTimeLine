@@ -86,6 +86,8 @@ class Event(UuidPk, Timestamps, Base):
         ForeignKey("events.id", ondelete="SET NULL")
     )
     created_by_agent: Mapped[str | None] = mapped_column(String(64))
+    # When the smart causal-linker (relate_smart) last processed this event for chain edges.
+    chain_built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     references: Mapped[list[EventReference]] = relationship(
         back_populates="event",

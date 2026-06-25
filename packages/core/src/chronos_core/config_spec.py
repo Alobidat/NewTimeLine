@@ -171,6 +171,25 @@ SPECS: list[ConfigSpec] = [
             "heavier. Source adapters pick the biggest clip up to this width."),
 
     # Deduper (pgvector cosine similarity, Phase 3b)
+    # Smart causal linker (Tier-2 LLM) — the back-and-forth history chain.
+    _b("agents.relate_smart.enabled", True, "Enabled",
+       scope="agent:relate.smart", component_id="agent:relate.smart"),
+    _i("agents.relate_smart.batch_size", 8, "Anchors / run",
+       scope="agent:relate.smart", component_id="agent:relate.smart", minimum=1, maximum=100,
+       help="Un-processed events to LLM-link per run (one LLM call each)."),
+    _i("agents.relate_smart.candidates", 10, "Candidates / anchor",
+       scope="agent:relate.smart", component_id="agent:relate.smart", minimum=2, maximum=40,
+       help="Embedding-similar events offered to the LLM to judge per anchor."),
+    ConfigSpec(key="agents.relate_smart.min_similarity", type="float",
+               scope="agent:relate.smart", component_id="agent:relate.smart",
+               default=0.45, label="Min cosine similarity", minimum=0.0, maximum=1.0,
+               help="Candidate floor: only embedding neighbours at/above this similarity."),
+    _i("agents.relate_smart.confidence_threshold", 70, "Confidence threshold",
+       scope="agent:relate.smart", component_id="agent:relate.smart", minimum=0, maximum=100,
+       help="Only keep links the LLM is at least this confident are real."),
+    _i("agents.relate_smart.max_tokens", 700, "Max tokens / call",
+       scope="agent:relate.smart", component_id="agent:relate.smart", minimum=128, maximum=4096),
+
     _b("agents.dedup.enabled", True, "Enabled",
        scope="agent:dedup", component_id="agent:dedup"),
     _i("agents.dedup.batch_size", 50, "Batch size",

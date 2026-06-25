@@ -96,6 +96,17 @@ REGISTRY: list[ComponentManifest] = [
         stat_keys=["candidates", "edges"], doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:relate.smart", kind="agent", title="Smart Causal Linker (Tier-2)",
+        description="LLM-builds the back-and-forth causal history chain (precursor/causal/"
+                    "sequel) from embedding-similar candidates — the 'what led to / happened "
+                    "after' dig that is the product's core differentiator.",
+        command="relate-smart", config_prefix="agents.relate_smart",
+        enabled_key="agents.relate_smart.enabled",
+        capabilities=["llm-call", "vector-search", "link-graph"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["anchors", "edges"], doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="agent:media.fetch", kind="agent", title="Media Fetcher",
         description="Captures store-disposition media into the object store (ADR-0018).",
         command="media-fetch", config_prefix="agents.media.fetch",

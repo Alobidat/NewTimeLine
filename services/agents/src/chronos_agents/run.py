@@ -37,6 +37,7 @@ from chronos_agents.media_quality import improve_media
 from chronos_agents.moderation import moderate_comment, moderate_event, moderate_pending
 from chronos_agents.persona_gen import generate_personas
 from chronos_agents.relate import link_relations
+from chronos_agents.relate_smart import run_smart_relate
 from chronos_agents.seed_iran_us import seed_iran_us
 from chronos_agents.seed_video import seed_video
 from chronos_agents.seed_wikidata import seed_wikidata
@@ -60,6 +61,7 @@ _COMMANDS = {
     "seed-wikidata": ("agent:seed.wikidata", lambda a: seed_wikidata(limit=a.limit)),
     "enrich": ("agent:enrich", lambda a: enrich_pending()),
     "relate": ("agent:relate", lambda a: link_relations()),
+    "relate-smart": ("agent:relate.smart", lambda a: run_smart_relate()),
     "dedup": ("agent:dedup", lambda a: run_dedup()),
     "geocode": ("agent:geocode", lambda a: run_geocode()),
     "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
@@ -106,6 +108,7 @@ def _build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--limit", type=int, default=300)
     sub.add_parser("enrich", help="LLM-enrich a batch of events (Tier-2)")
     sub.add_parser("relate", help="Link events into the history graph from shared entities")
+    sub.add_parser("relate-smart", help="LLM-build the causal history chain")
     sub.add_parser("dedup", help="Embed events + merge near-duplicates via pgvector")
     sub.add_parser("media-fetch", help="Download media flagged for local capture (ADR-0018)")
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
