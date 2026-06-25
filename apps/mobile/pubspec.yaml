@@ -37,6 +37,8 @@ dependencies:
 
   # HTTP client for the Chronos Event API.
   http: ^1.2.2
+  # MediaType for tagging multipart uploads with their real content type (server gates video/*).
+  http_parser: ^4.0.0
 
   # Map layer (pure-Dart, cross-platform; MapLibre-compatible raster/vector tiles).
   flutter_map: ^8.0.0

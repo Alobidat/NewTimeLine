@@ -2,9 +2,9 @@
 ///
 /// User-generated events must satisfy the ADR-0020 metadata-complete invariant — a **time**,
 /// a **location**, at least one **actor**, and at least one **linked event** — so this form
-/// collects all four plus the clip itself. There is no file-picker dependency yet, so the
-/// clip is supplied as a **source URL** the server fetches (the `source_url` path); a native
-/// picker can later fill `fileBytes` instead without changing this screen's contract.
+/// collects all four plus the clip itself. The clip can be **recorded/chosen from the device**
+/// (Creator-Studio Phase 1: `captureClip` → `fileBytes`, web today) or supplied as a **source
+/// URL** the server fetches (`source_url`). Either satisfies the "a clip is required" rule.
 ///
 /// The submit is **interaction-gated**: an anonymous tap walks the user through sign-in →
 /// consent → verify (`ensureCanInteract`) before the upload runs. On success the event lands
@@ -16,12 +16,28 @@ import 'package:flutter/material.dart';
 import '../api/client.dart';
 import '../auth/interaction_gate.dart';
 import '../state/auth_state.dart';
+import 'clip_source.dart';
+
+/// Picks a clip from the device — injectable so tests can supply one without a real picker.
+typedef ClipPicker = Future<PickedClip?> Function({bool fromCamera});
 
 class UploadScreen extends StatefulWidget {
-  const UploadScreen({super.key, required this.api, required this.auth});
+  const UploadScreen({
+    super.key,
+    required this.api,
+    required this.auth,
+    this.pickClip = captureClip,
+    this.captureSupported,
+  });
 
   final ApiClient api;
   final AuthState auth;
+
+  /// How a clip is captured/picked (defaults to the platform [captureClip]); overridable in tests.
+  final ClipPicker pickClip;
+
+  /// Force the capture UI on/off (defaults to the platform's [canCaptureClip]); for tests.
+  final bool? captureSupported;
 
   @override
   State<UploadScreen> createState() => _UploadScreenState();
@@ -38,6 +54,9 @@ class _UploadScreenState extends State<UploadScreen> {
 
   String _audience = 'public'; // who can see this post
   bool _busy = false;
+  PickedClip? _clip; // a recorded/chosen device clip (takes priority over the URL)
+
+  bool get _captureSupported => widget.captureSupported ?? canCaptureClip;
 
   @override
   void dispose() {
@@ -61,6 +80,23 @@ class _UploadScreenState extends State<UploadScreen> {
       .where((s) => s.isNotEmpty)
       .toList();
 
+  static String _fmtSize(int b) {
+    if (b >= 1 << 20) return '${(b / (1 << 20)).toStringAsFixed(1)} MB';
+    if (b >= 1 << 10) return '${(b / (1 << 10)).toStringAsFixed(0)} KB';
+    return '$b B';
+  }
+
+  /// Record (camera) or choose (gallery/file) a clip, then show it as the chosen video.
+  Future<void> _pick({required bool fromCamera}) async {
+    try {
+      final clip = await widget.pickClip(fromCamera: fromCamera);
+      if (clip == null || !mounted) return;
+      setState(() => _clip = clip);
+    } catch (e) {
+      _snack('Could not read that video: $e');
+    }
+  }
+
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     // Gate first so an anonymous user signs in before we attempt the write.
@@ -69,13 +105,18 @@ class _UploadScreenState extends State<UploadScreen> {
 
     setState(() => _busy = true);
     try {
+      final clip = _clip;
       final result = await widget.api.upload(
         title: _title.text.trim(),
         tStart: double.parse(_year.text.trim()),
         geoLabel: _location.text.trim(),
         actorNames: _csv(_actors.text),
         linkEventIds: _csv(_links.text),
-        sourceUrl: _sourceUrl.text.trim(),
+        // A recorded/chosen clip uploads as bytes; otherwise the server fetches the source URL.
+        fileBytes: clip?.bytes,
+        filename: clip?.filename,
+        mime: clip?.mime,
+        sourceUrl: clip == null ? _sourceUrl.text.trim() : null,
         audience: _audience,
       );
       if (!mounted) return;
@@ -166,23 +207,81 @@ class _UploadScreenState extends State<UploadScreen> {
                     ? 'Link at least one related event'
                     : null,
               ),
+              const SizedBox(height: 16),
+              // ── The clip itself: record/choose from the device, or paste a URL ──────────
+              if (_captureSupported) ...[
+                const Text('Your video',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                if (_clip == null)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          key: const Key('upload-record'),
+                          onPressed: () => _pick(fromCamera: true),
+                          icon: const Icon(Icons.videocam_outlined),
+                          label: const Text('Record'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          key: const Key('upload-choose'),
+                          onPressed: () => _pick(fromCamera: false),
+                          icon: const Icon(Icons.video_library_outlined),
+                          label: const Text('Choose'),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      key: const Key('upload-clip-chip'),
+                      leading: const Icon(Icons.movie_creation_outlined),
+                      title: Text(_clip!.filename,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(_fmtSize(_clip!.sizeBytes)),
+                      trailing: IconButton(
+                        key: const Key('upload-clip-clear'),
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Remove',
+                        onPressed: () => setState(() => _clip = null),
+                      ),
+                    ),
+                  ),
+                if (_clip == null) ...[
+                  const SizedBox(height: 8),
+                  Text('…or paste a link below',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                ],
+              ],
               const SizedBox(height: 12),
-              TextFormField(
-                key: const Key('upload-source-url'),
-                controller: _sourceUrl,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Clip URL',
-                  helperText: 'A direct link to the video file (mp4/webm)',
-                  border: OutlineInputBorder(),
+              // The source-URL path stays available (and is the only path off the web for now).
+              if (_clip == null)
+                TextFormField(
+                  key: const Key('upload-source-url'),
+                  controller: _sourceUrl,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Clip URL',
+                    helperText: 'A direct link to the video file (mp4/webm)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) {
+                    if (_clip != null) return null; // a chosen clip satisfies the requirement
+                    final s = v?.trim() ?? '';
+                    if (s.isEmpty) {
+                      return _captureSupported
+                          ? 'Record/choose a video, or paste a clip URL'
+                          : 'A clip URL is required';
+                    }
+                    final uri = Uri.tryParse(s);
+                    return (uri != null && uri.hasScheme) ? null : 'Enter a valid URL';
+                  },
                 ),
-                validator: (v) {
-                  final s = v?.trim() ?? '';
-                  if (s.isEmpty) return 'A clip URL is required';
-                  final uri = Uri.tryParse(s);
-                  return (uri != null && uri.hasScheme) ? null : 'Enter a valid URL';
-                },
-              ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 key: const Key('upload-audience'),

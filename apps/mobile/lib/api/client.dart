@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 
 import '../config.dart';
 import 'models.dart';
@@ -795,6 +796,7 @@ class ApiClient {
     required List<String> linkEventIds,
     List<int>? fileBytes,
     String? filename,
+    String? mime,
     String? sourceUrl,
     String? audience,
   }) async {
@@ -817,6 +819,9 @@ class ApiClient {
         'file',
         fileBytes,
         filename: filename ?? 'clip.mp4',
+        // Tag the part with its real type — the server only accepts video/* and reads the
+        // multipart Content-Type (defaults to application/octet-stream otherwise → 415).
+        contentType: mime != null && mime.isNotEmpty ? MediaType.parse(mime) : null,
       ));
     }
     final streamed = await _http.send(req);
