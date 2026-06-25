@@ -74,6 +74,34 @@ class Media(UuidPk, Timestamps, Base):
     __table_args__ = (UniqueConstraint("content_hash", name="uq_media_content_hash"),)
 
 
+class MediaVariant(UuidPk, Timestamps, Base):
+    """A derived rendition of a video ``Media`` — e.g. a web-playable mp4 (H.264/AAC) produced
+    by the transcode agent so every clip plays cross-browser regardless of its source codec.
+
+    ``rendition`` names the variant (``web`` = the default web-safe mp4). A variant may be a
+    real re-encode stored under its own ``storage_key``, or a **passthrough** that points at the
+    original's key when the source was already web-safe (so a clip is processed exactly once).
+    """
+
+    __tablename__ = "media_variants"
+
+    media_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("media.id", ondelete="CASCADE"), nullable=False
+    )
+    rendition: Mapped[str] = mapped_column(String(32), nullable=False)  # web | (future: hls, …)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    mime: Mapped[str | None] = mapped_column(String(128))
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    bytes: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16), default="stored", nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("media_id", "rendition", name="uq_media_variant_rendition"),
+        Index("ix_media_variants_media", "media_id"),
+    )
+
+
 class MediaSource(Base):
     """Each distinct host URL a media item has been seen at — the corroboration signal for
     'available at one or more sources'. ``is_stable`` marks durable hosts (Wikimedia, etc.)."""

@@ -70,10 +70,10 @@ async def _maintenance_ticker() -> None:
 
     # Order matters: enrich (summary/entities) → geocode (needs entities) → dedup (embeddings)
     # → relate (shared-entity backbone) → relate-smart (LLM causal chain, needs embeddings) →
-    # media-probe (measure clip widths) → media-quality (decides hero eligibility on those widths).
-    # A short stagger avoids hammering the LLM/Nominatim at once.
+    # media-probe (measure clip widths) → media-transcode (web-mp4 variant) → media-quality
+    # (decides hero eligibility on those widths). A short stagger avoids hammering APIs at once.
     pipeline = ("enrich", "geocode", "dedup", "relate", "relate-smart",
-                "media-probe", "media-quality")
+                "media-probe", "media-transcode", "media-quality")
     while True:
         try:
             async with session_scope() as session:

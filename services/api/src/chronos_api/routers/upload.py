@@ -219,8 +219,10 @@ async def upload_video(
     if geo is None:
         _enqueue_geocode()
     # Measure the clip (dimensions/duration) + extract a poster, so the feed gets a real poster
-    # and the quality guard can judge hero eligibility on the clip's measured width.
+    # and the quality guard can judge hero eligibility on the clip's measured width; then give it
+    # a web-playable mp4 variant so it plays cross-browser regardless of the source codec.
     run_queue.enqueue("media-probe", {})
+    run_queue.enqueue("media-transcode", {})
     # Async LLM moderation pass (Phase 6) — fire-and-forget; flags land in the admin queue.
     run_queue.enqueue("moderate-event", {"event_id": str(event.id)})
 

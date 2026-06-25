@@ -12,9 +12,10 @@ import uuid
 
 import httpx
 from chronos_core import objectstore
-from chronos_core.models.media import Media
+from chronos_core.models.media import Media, MediaVariant
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse, StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_api.deps import get_session
@@ -105,6 +106,18 @@ async def media_raw(
     if media is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "media not found")
     range_header = request.headers.get("range")
+    # Prefer the web-playable mp4 variant (transcode agent) so the clip plays cross-browser; fall
+    # back to the original binary, then to proxying the external origin.
+    variant = await session.scalar(
+        select(MediaVariant).where(
+            MediaVariant.media_id == media_id,
+            MediaVariant.rendition == "web",
+            MediaVariant.status == "stored",
+        )
+    )
+    if variant is not None:
+        data = await asyncio.to_thread(objectstore.get_bytes, variant.storage_key)
+        return _ranged_bytes(data, variant.mime or "video/mp4", range_header)
     if media.status == "stored" and media.storage_key:
         data = await asyncio.to_thread(objectstore.get_bytes, media.storage_key)
         return _ranged_bytes(data, media.mime or "application/octet-stream", range_header)

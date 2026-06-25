@@ -18,7 +18,7 @@ from chronos_core.models.interaction import (
     Reaction,
     SourceVote,
 )
-from chronos_core.models.media import EventMedia, Media, MediaSource
+from chronos_core.models.media import EventMedia, Media, MediaSource, MediaVariant
 from chronos_core.models.moderation import ModerationFlag
 from chronos_core.models.relation import EventRelation
 from chronos_core.models.social import (
@@ -52,6 +52,7 @@ __all__ = [
     "EventMedia",
     "Media",
     "MediaSource",
+    "MediaVariant",
     "ModerationFlag",
     "EventRelation",
     "ActivityLog",

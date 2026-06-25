@@ -36,6 +36,7 @@ from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.media_gap import flag_media_gaps
 from chronos_agents.media_probe import probe_pending
 from chronos_agents.media_quality import improve_media
+from chronos_agents.media_transcode import transcode_pending
 from chronos_agents.moderation import moderate_comment, moderate_event, moderate_pending
 from chronos_agents.persona_gen import generate_personas
 from chronos_agents.relate import link_relations
@@ -71,6 +72,9 @@ _COMMANDS = {
     "media-gap": ("agent:media.gap", lambda a: flag_media_gaps()),
     "media-probe": (
         "agent:media.probe", lambda a: probe_pending(full=getattr(a, "full", False)),
+    ),
+    "media-transcode": (
+        "agent:media.transcode", lambda a: transcode_pending(full=getattr(a, "full", False)),
     ),
     "media-quality": (
         "agent:media.quality", lambda a: improve_media(full=getattr(a, "full", False)),
@@ -134,6 +138,10 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Measure stored video clips (dimensions/duration) + extract posters")
     mp.add_argument("--all", action="store_true", dest="full",
                     help="Sweep all unprobed clips (one-time backlog clean-up)")
+    mt = sub.add_parser("media-transcode",
+                        help="Give stored clips a web-playable mp4 variant (H.264/AAC)")
+    mt.add_argument("--all", action="store_true", dest="full",
+                    help="Process the whole clip backlog at once")
     pg = sub.add_parser("persona-gen", help="Generate AI-user personas + avatars")
     pg.add_argument("--count", type=int, default=20, help="How many personas to create")
     pp = sub.add_parser("persona-post", help="Have AI users discover + post free clips")
