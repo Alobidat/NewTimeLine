@@ -33,19 +33,41 @@ def has_required_media(image_count: int, clip_count: int) -> bool:
     return image_count >= 1
 
 
-# Below this width an image is treated as an icon/placeholder, not a real picture — so we
-# never make a tiny logo the hero. Module default; collectors may override from config.
-MIN_IMAGE_WIDTH = 200
+# The hero resolution floor (ADR-0024): an image narrower than this reads as a thumbnail and
+# must never be an event's hero. Single source of truth — feed, attach, and the quality guard
+# all use this (config ``agents.media.min_image_width`` can override). Below GALLERY_MIN_WIDTH
+# an image is an icon/placeholder and is dropped entirely.
+MIN_IMAGE_WIDTH = 640
+GALLERY_MIN_WIDTH = 200
+# A clip narrower than this (when its width is known) is too low-res to be the hero.
+MIN_CLIP_WIDTH = 240
 
 
-def is_decent_image(width: int | None, *, min_width: int = MIN_IMAGE_WIDTH) -> bool:
-    """Whether an image is large enough to attach as real media (not an icon/placeholder).
-
-    Unknown width passes (we can't measure a remote image pre-download, so we don't reject
-    it on a missing signal — the media-fetcher records real dimensions later). A *known*
-    width below ``min_width`` fails (ADR-0024 quality floor).
+def is_decent_image(width: int | None, *, min_width: int = GALLERY_MIN_WIDTH) -> bool:
+    """Whether an image is large enough to keep at all (not an icon/placeholder) — the
+    **gallery** floor. Unknown width passes here (galleries tolerate not-yet-measured images);
+    a *known* width below ``min_width`` is dropped.
     """
     return width is None or width >= min_width
+
+
+def hero_eligible(
+    kind: str,
+    width: int | None,
+    *,
+    min_width: int = MIN_IMAGE_WIDTH,
+    min_clip_width: int = MIN_CLIP_WIDTH,
+) -> bool:
+    """Whether a media item may be an event's **hero** (ADR-0024 quality floor).
+
+    A clip is eligible (only a *known* sub-floor clip width is rejected). An image is eligible
+    only when its width is **measured and ≥ ``min_width``** — an unmeasured or tiny image is
+    never promoted to hero (the gap that let RSS thumbnails through). The media-quality guard
+    measures unknown widths so eligibility can be decided.
+    """
+    if kind in CLIP_KINDS:
+        return width is None or width >= min_clip_width
+    return width is not None and width >= min_width
 
 
 def media_role_rank(kind: str, index: int, *, prefer_clips: bool = True) -> tuple[str, int]:

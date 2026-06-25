@@ -66,14 +66,15 @@ _HERO_JOIN = """
 
 # Only surface events with something good to show: a clip (video/embed), OR an image that has a
 # description AND clears the resolution floor (640px). No hero, a context-less image, or a tiny
-# low-res one would render as a black/poor card — which the feed must never do. A NULL width is
-# tolerated (unknown until the media-quality agent back-fills it) so we don't hide good images
-# pending back-fill. Applied as a WHERE fragment on every feed + related query.
+# low-res one would render as a black/poor card — which the feed must never do. The hero image
+# width must be MEASURED and ≥ the floor: publish-time gating + the media-quality guard measure
+# widths, so a NULL (unmeasured) hero means "not yet verified" and is hidden rather than shown
+# (that NULL tolerance was how tiny thumbnails leaked). Applied on every feed + related query.
 _MIN_IMAGE_WIDTH = 640
 _DISPLAYABLE = (
     "h.media_id IS NOT NULL AND (h.is_clip OR ("
     "  e.summary IS NOT NULL AND length(btrim(e.summary)) > 0 "
-    f"  AND (h.width IS NULL OR h.width >= {_MIN_IMAGE_WIDTH})"
+    f"  AND h.width IS NOT NULL AND h.width >= {_MIN_IMAGE_WIDTH}"
     "))"
 )
 

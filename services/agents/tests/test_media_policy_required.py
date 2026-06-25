@@ -43,6 +43,17 @@ def test_media_role_rank_image_hero_when_clips_disabled():
 
 
 def test_is_decent_image_rejects_known_tiny_widths_keeps_unknown():
+    # The GALLERY floor: drop known icons, tolerate unknown (galleries don't need measurement).
     assert mp.is_decent_image(800) is True
     assert mp.is_decent_image(50, min_width=200) is False     # icon/placeholder
-    assert mp.is_decent_image(None) is True                   # unknown → keep (measure later)
+    assert mp.is_decent_image(None) is True                   # unknown → keep for gallery
+
+
+def test_hero_eligible_requires_measured_image_at_or_above_floor():
+    # The HERO floor (ADR-0024): an image must be MEASURED and >= 640; a clip is exempt.
+    assert mp.hero_eligible("image", 640) is True
+    assert mp.hero_eligible("image", 639) is False            # below the floor
+    assert mp.hero_eligible("image", None) is False           # unmeasured → never hero (the leak)
+    assert mp.hero_eligible("video", None) is True            # clip with unknown width is fine
+    assert mp.hero_eligible("video", 120) is False            # known sub-floor clip is rejected
+    assert mp.hero_eligible("video", 240) is True

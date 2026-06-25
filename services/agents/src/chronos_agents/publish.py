@@ -7,6 +7,7 @@ we skip (the article is already represented). Embedding-based dedup arrives in P
 
 from __future__ import annotations
 
+import httpx
 from chronos_core import config_service, repository
 from chronos_core.domain import media_policy
 from chronos_core.domain.severity import SeverityWeights
@@ -16,6 +17,7 @@ from chronos_core.schemas.event import EventCreate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_agents.media_measure import measure_image
 from chronos_agents.normalize import CandidateEvent
 
 
@@ -78,37 +80,58 @@ async def attach_media(
     agent_name: str,
     source_id,
 ) -> None:
-    """Register a candidate's media with clips-first ranking + a quality floor (ADR-0024).
+    """Register a candidate's media with clips-first ranking + the hero quality floor (ADR-0024).
 
-    A **clip is the hero** when one exists (else the best image); obviously-tiny images
-    (icons/placeholders, known width below ``agents.media.min_image_width``) are dropped.
+    The **hero must be displayable**: a clip, or an image whose width is *measured and* at least
+    ``agents.media.min_image_width``. Unmeasured images are measured here (bounded, best-effort)
+    so a tiny RSS/news thumbnail can never become the hero. When nothing qualifies the event is
+    left **hero-less** (so the feed's displayable filter hides it) and the media-quality guard
+    later upgrades it or holds it. Icon-sized images are dropped; the rest stay as gallery.
     The archival policy (ADR-0018) still decides store-vs-link per item.
     """
-    prefer_clips = bool(
-        await config_service.get(session, "agents.media.prefer_clips", True)
-    )
+    prefer_clips = bool(await config_service.get(session, "agents.media.prefer_clips", True))
     min_image_width = int(
-        await config_service.get(session, "agents.media.min_image_width", 200)
+        await config_service.get(session, "agents.media.min_image_width",
+                                 media_policy.MIN_IMAGE_WIDTH)
+    )
+    min_clip_width = int(
+        await config_service.get(session, "agents.media.min_clip_width",
+                                 media_policy.MIN_CLIP_WIDTH)
     )
 
-    # Quality floor: drop images we can already tell are too small to be real pictures.
+    # Measure unmeasured images up front so the hero floor is decided on real dimensions, not a
+    # missing signal (the gap that let unmeasured thumbnails through).
+    unmeasured = [m for m in cand.media if m.kind == "image" and m.width is None and m.url]
+    if unmeasured:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            for m in unmeasured:
+                dims = await measure_image(client, m.url)
+                if dims:
+                    m.width, m.height = dims
+
+    # Drop icon/placeholder images; keep real-enough ones for the gallery.
     items = [
         m for m in cand.media
-        if m.kind != "image"
-        or media_policy.is_decent_image(m.width, min_width=min_image_width)
+        if m.kind != "image" or media_policy.is_decent_image(m.width)
     ]
-    # Clips first so the first video can claim the hero (ADR-0024).
     clips = [m for m in items if m.kind in media_policy.CLIP_KINDS]
     rest = [m for m in items if m.kind not in media_policy.CLIP_KINDS]
     ordered = (clips + rest) if prefer_clips else (rest + clips)
 
-    # The first item in clip-first order is the hero (a clip when one exists, else the best
-    # image); the rest are gallery in order. Deciding here — not per-kind — is what lets a
-    # clip-less event still promote its first image to hero (ADR-0024).
+    # The hero is the first item that clears the hero floor (a clip, or a measured ≥floor
+    # image). If none qualifies the event stays hero-less and the feed hides it until the
+    # quality guard upgrades or holds it.
+    hero = next(
+        (m for m in ordered
+         if media_policy.hero_eligible(m.kind, m.width, min_width=min_image_width,
+                                       min_clip_width=min_clip_width)),
+        None,
+    )
     for rank, m in enumerate(ordered):
-        role = "hero" if rank == 0 else "gallery"
+        is_hero = m is hero
         await repository.discover_media(
-            session, event, url=m.url, kind=m.kind, mime=m.mime, role=role, rank=rank,
+            session, event, url=m.url, kind=m.kind, mime=m.mime,
+            role="hero" if is_hero else "gallery", rank=0 if is_hero else rank + 1,
             width=m.width, height=m.height, duration_s=m.duration_s, caption=m.caption,
             license=m.license, credit=m.credit,
             source_kind=cand.source_kind, source_id=source_id, added_by=agent_name,

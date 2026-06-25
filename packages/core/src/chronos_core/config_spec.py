@@ -169,10 +169,14 @@ SPECS: list[ConfigSpec] = [
     _b("agents.media.prefer_clips", True, "Prefer clips as hero",
        scope="agent:media", component_id="agent:collect",
        help="Rank a video clip ahead of images so the event hero is a clip when one exists."),
-    _i("agents.media.min_image_width", 200, "Min image width (px)",
+    _i("agents.media.min_image_width", 640, "Min hero image width (px)",
        scope="agent:media", component_id="agent:collect", minimum=0, maximum=4096,
-       help="Drop images whose known width is below this (icons/placeholders) so a real "
-            "picture is attached, not a logo. Unknown widths are kept (measured on fetch)."),
+       help="The hero resolution floor (ADR-0024): an image may only be an event's hero when "
+            "its width is MEASURED and at least this. Unmeasured images are measured at publish "
+            "time; below-floor or unmeasurable images are kept as gallery, never hero."),
+    _i("agents.media.min_clip_width", 240, "Min hero clip width (px)",
+       scope="agent:media", component_id="agent:collect", minimum=0, maximum=3840,
+       help="A clip with a known width below this is too low-res to be the hero."),
     _i("agents.media.max_clip_width", 720, "Max clip width (px)",
        scope="agent:media", component_id="agent:collect", minimum=120, maximum=3840,
        help="Largest browser-playable WebM rendition to fetch — higher = better quality, "
