@@ -31,6 +31,12 @@ class ComponentManifest(BaseModel):
     actions: list[str] = Field(default_factory=list)
     stat_keys: list[str] = Field(default_factory=list)     # notable result counters
     doc: str | None = None
+    # ── Monitoring (system-health subsystem) ──────────────────────────────────────────────
+    # All optional + default-safe so existing manifest consumers are untouched.
+    plane: str | None = None                 # edge|api|processing|store|client (UI grouping)
+    probe: dict | None = None                # live-probe descriptor, e.g. {"type": "redis"}
+    container: str | None = None             # compose *service* name → docker-stats mapping
+    health_source: str = "runs"              # "runs" (agent_runs) | "probe" (component_health)
 
 
 # Built-in components. Append here as the system grows — that is the extension point.
@@ -226,10 +232,64 @@ REGISTRY: list[ComponentManifest] = [
     ComponentManifest(
         id="store:postgres", kind="store", title="PostgreSQL + PostGIS",
         description="Canonical relational + geospatial + vector store.",
+        plane="store", container="postgres", health_source="probe",
+        probe={"type": "postgres"},
     ),
     ComponentManifest(
         id="store:object", kind="store", title="Object Store (S3/MinIO)",
         description="Archived media binaries and source snapshots.",
+        plane="store", container="minio", health_source="probe",
+        probe={"type": "object"},
+    ),
+    ComponentManifest(
+        id="store:redis", kind="store", title="Redis",
+        description="Cache, run-queue, LLM token-budget window, and monitoring heartbeat.",
+        plane="store", container="redis", health_source="probe",
+        probe={"type": "redis"},
+    ),
+    ComponentManifest(
+        id="store:rabbitmq", kind="store", title="RabbitMQ",
+        description="Message broker (provisioned for async task fan-out).",
+        plane="store", container="rabbitmq", health_source="probe",
+        probe={"type": "rabbitmq"},
+    ),
+    # ── Runtime services (the deployed processes; probe-backed health + container metrics) ──
+    ComponentManifest(
+        id="service:api", kind="service", title="API Server",
+        description="FastAPI event/admin/social HTTP surface (uvicorn).",
+        plane="api", container="api", health_source="probe",
+        probe={"type": "http", "live": "http://api:8000/healthz",
+               "ready": "http://api:8000/readyz"},
+    ),
+    ComponentManifest(
+        id="service:worker", kind="service", title="Agent Worker",
+        description="Long-running queue consumer + scheduler/maintenance/monitor tickers.",
+        plane="processing", container="worker", health_source="probe",
+        probe={"type": "heartbeat", "key": "chronos:monitor:heartbeat"},
+    ),
+    ComponentManifest(
+        id="service:web", kind="service", title="Web App (edge)",
+        description="nginx serving the Flutter mobile web bundle + /api reverse proxy (:8080).",
+        plane="edge", container="webapp", health_source="probe",
+        probe={"type": "http", "live": "http://webapp:80/"},
+    ),
+    ComponentManifest(
+        id="service:admin", kind="service", title="Admin Portal (edge)",
+        description="nginx serving the Flutter admin bundle + /api reverse proxy (:8081).",
+        plane="edge", container="adminapp", health_source="probe",
+        probe={"type": "http", "live": "http://adminapp:80/"},
+    ),
+    # ── The collector itself (self-reports via agent_runs, like every other agent) ──────────
+    ComponentManifest(
+        id="agent:monitor", kind="agent", title="Health Monitor",
+        description="Periodic collector: probes every component, samples container/host "
+                    "resource utilization (CPU/mem/net/disk), prunes metric + log retention.",
+        command="monitor", config_prefix="monitoring",
+        enabled_key="monitoring.enabled", plane="processing",
+        capabilities=["probe-components", "collect-metrics", "retention"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["probed", "samples", "pruned_metrics", "pruned_logs"],
+        doc="docs/monitoring.md",
     ),
 ]
 

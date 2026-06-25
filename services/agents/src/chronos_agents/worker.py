@@ -90,6 +90,33 @@ async def _maintenance_ticker() -> None:
         await asyncio.sleep(max(interval, 60))
 
 
+async def _monitor_ticker() -> None:
+    """Periodically run the health-monitoring collector: probe every component + sample
+    container/host resource utilization (CPU/mem/net/disk) into the metric time-series.
+
+    Gated by ``monitoring.enabled``; interval from ``monitoring.collector.interval_seconds``.
+    A single Collector instance persists across cycles so it can turn cumulative network/CPU
+    counters into per-second rates. Each cycle self-reports as an ``agent:monitor`` run.
+    """
+    from chronos_core.monitoring import Collector  # noqa: PLC0415
+
+    collector = Collector()
+    while True:
+        interval = 30
+        try:
+            async with session_scope() as session:
+                interval = int(
+                    await config_service.get(session, "monitoring.collector.interval_seconds", 30)
+                )
+                enabled = bool(await config_service.get(session, "monitoring.enabled", True))
+            if enabled:
+                async with record_run("agent:monitor", "monitor") as rec:
+                    rec.set_stats(await collector.cycle())
+        except Exception:
+            log.exception("monitor ticker error")
+        await asyncio.sleep(max(interval, 5))
+
+
 async def run_worker() -> None:
     """Block-pop jobs from ``chronos:run_queue`` and execute them.
 
@@ -105,6 +132,7 @@ async def run_worker() -> None:
 
     ticker = asyncio.create_task(_bots_ticker())
     maint = asyncio.create_task(_maintenance_ticker())
+    monitor = asyncio.create_task(_monitor_ticker())
     r = redislib.from_url(get_settings().redis_url, decode_responses=True)
     log.info("Agent worker listening on chronos:run_queue …")
     try:
@@ -134,4 +162,5 @@ async def run_worker() -> None:
     finally:
         ticker.cancel()
         maint.cancel()
+        monitor.cancel()
         r.close()

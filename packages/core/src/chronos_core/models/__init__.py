@@ -3,12 +3,15 @@
 
 from chronos_core.models.agent_run import AgentRun
 from chronos_core.models.bot import BotProfile
+from chronos_core.models.component_health import ComponentHealth
 from chronos_core.models.config import Config, ConfigAudit
 from chronos_core.models.entity import Entity, EventEntity
 from chronos_core.models.enums import EventStatus, IngestState, TimePrecision
 from chronos_core.models.event import EMBEDDING_DIM, Event, EventReference
 from chronos_core.models.friendship import Friendship
 from chronos_core.models.ingest import IngestItem
+from chronos_core.models.log_record import LogRecord
+from chronos_core.models.metric_sample import MetricSample
 from chronos_core.models.interaction import (
     Comment,
     CommentReaction,
@@ -32,8 +35,11 @@ from chronos_core.models.user import User, UserAgreement, UserIdentity
 __all__ = [
     "AgentRun",
     "BotProfile",
+    "ComponentHealth",
     "Config",
     "ConfigAudit",
+    "LogRecord",
+    "MetricSample",
     "Entity",
     "EventEntity",
     "EventStatus",

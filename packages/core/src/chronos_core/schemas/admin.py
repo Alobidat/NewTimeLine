@@ -11,10 +11,16 @@ from pydantic import BaseModel, Field
 
 
 class HealthView(BaseModel):
-    """Derived health for one component (see chronos_core.domain.health)."""
+    """Health for one component — run-derived (agents) or probe-derived (infra/services).
 
-    status: str                       # never | running | ok | stale | error
-    last_run_at: datetime | None = None
+    ``status`` keeps its run vocabulary for run-backed components; probe-backed components
+    report ok | down | degraded | unknown. ``level`` is an orthogonal severity the UI colours
+    by (mirrors status until thresholds land in Phase C)."""
+
+    status: str                       # never|running|ok|stale|error  OR  ok|down|degraded|unknown
+    level: str = "ok"                 # ok | warning | degraded | critical
+    message: str | None = None        # probe detail (e.g. "connection refused")
+    last_run_at: datetime | None = None  # last run (runs) or checked_at (probe)
     last_status: str | None = None
     runs: int = 0
     success_rate: float | None = None
@@ -32,6 +38,8 @@ class ComponentView(BaseModel):
     config_prefix: str | None = None
     enabled: bool | None = None       # None = not toggleable
     health: HealthView
+    plane: str | None = None          # edge | api | processing | store | client (UI grouping)
+    latest_metrics: dict | None = None  # latest probe/resource metrics snapshot
     doc: str | None = None
 
 
@@ -106,6 +114,46 @@ class StorageView(BaseModel):
     media_stored_bytes: int = 0
     totals: dict[str, int] = Field(default_factory=dict)
     integrity: "IntegrityView | None" = None  # event Time/Location/Actors coverage (ADR-0020)
+
+
+class HostMetricsView(BaseModel):
+    """Latest host resource utilization snapshot (the gauges atop the Health dashboard)."""
+
+    metrics: dict[str, float] = Field(default_factory=dict)  # disk/mem/cpu/load latest values
+    updated_at: datetime | None = None
+
+
+class PlaneGroup(BaseModel):
+    """Components sharing a plane (UI section), with the plane's worst-case rollup level."""
+
+    plane: str                        # edge | api | processing | store | client
+    level: str = "ok"                 # worst level across the group's components
+    components: list[ComponentView] = Field(default_factory=list)
+
+
+class HealthTreeView(BaseModel):
+    """The System Health dashboard payload: components grouped by plane + host gauges."""
+
+    planes: list[PlaneGroup] = Field(default_factory=list)
+    host: HostMetricsView = Field(default_factory=HostMetricsView)
+    level: str = "ok"                 # worst level across the whole system
+    generated_at: datetime | None = None
+
+
+class MetricPoint(BaseModel):
+    """One time-series sample."""
+
+    ts: datetime
+    value: float
+
+
+class MetricSeries(BaseModel):
+    """A component's readings for one metric over a time window (chart/sparkline source)."""
+
+    component_id: str
+    metric: str
+    unit: str | None = None
+    points: list[MetricPoint] = Field(default_factory=list)
 
 
 class SystemView(BaseModel):

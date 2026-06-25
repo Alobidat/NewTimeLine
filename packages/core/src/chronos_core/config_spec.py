@@ -74,6 +74,14 @@ def _b(key, default, label, *, scope, component_id, help=""):
                       help=help, component_id=component_id)
 
 
+def _e(key, default, label, choices, *, scope, component_id, help=""):
+    return ConfigSpec(key=key, type="enum", scope=scope, default=default, label=label,
+                      help=help, component_id=component_id, choices=choices)
+
+
+_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+
 SPECS: list[ConfigSpec] = [
     ConfigSpec(key="severity.weights", type="json", scope="severity", default={
         "impact": 0.5, "social": 0.2, "corroboration": 0.3},
@@ -390,6 +398,46 @@ SPECS: list[ConfigSpec] = [
     ConfigSpec(key="bots.sources.pixabay.api_key", type="string", scope="bots",
                component_id="agent:bots.post", default="", label="Pixabay API key",
                secret=True, help="Enables the Pixabay free-stock video provider."),
+
+    # ── System health / monitoring (the collector ticker in the worker) ───────────────────
+    _b("monitoring.enabled", True, "Health monitor enabled",
+       scope="monitoring", component_id="agent:monitor",
+       help="When on, the worker periodically probes every component and samples "
+            "container/host resource utilization (CPU/mem/net/disk)."),
+    _i("monitoring.collector.interval_seconds", 30, "Collector interval (seconds)",
+       scope="monitoring", component_id="agent:monitor", minimum=5, maximum=3600,
+       help="How often the monitor probes components and records resource samples."),
+    _i("monitoring.metric_retention_days", 14, "Metric retention (days)",
+       scope="monitoring", component_id="agent:monitor", minimum=1, maximum=365,
+       help="Resource samples older than this are pruned each collector cycle."),
+    _i("monitoring.log_retention_days", 7, "Log retention (days)",
+       scope="monitoring", component_id="agent:monitor", minimum=1, maximum=90,
+       help="Persisted WARNING+ log records older than this are pruned."),
+    _i("monitoring.log_buffer_max_rows", 50_000, "Log buffer max rows",
+       scope="monitoring", component_id="agent:monitor", minimum=1_000, maximum=1_000_000,
+       help="Ceiling on the persisted log ring buffer; oldest rows are trimmed past this."),
+    ConfigSpec(key="monitoring.thresholds", type="json", scope="monitoring",
+               component_id="agent:monitor",
+               default={
+                   "host.disk_used_pct": {"warning": 80, "critical": 92},
+                   "*.cpu_pct": {"warning": 85, "critical": 96},
+                   "store:postgres.connections": {"warning": 80, "critical": 95},
+               },
+               label="Degradation thresholds",
+               help="metric → {warning, critical} cut-offs the collector uses to set each "
+                    "component's level. Keys are '<component_id>.<metric>' or '*.<metric>'. "
+                    "Consumed in Phase C; safe to edit now."),
+
+    # ── Logging (centralized init + runtime per-process level control) ────────────────────
+    _e("logging.default.level", "INFO", "Default log level", _LOG_LEVELS,
+       scope="logging", component_id=None,
+       help="Fallback log level for any process without an explicit override below."),
+    _e("logging.api.level", "INFO", "API log level", _LOG_LEVELS,
+       scope="logging", component_id="service:api",
+       help="Runtime root log level for the API process (picked up within a refresh cycle)."),
+    _e("logging.worker.level", "INFO", "Worker log level", _LOG_LEVELS,
+       scope="logging", component_id="service:worker",
+       help="Runtime root log level for the worker process (picked up within a cycle)."),
 ]
 
 SPEC_BY_KEY: dict[str, ConfigSpec] = {s.key: s for s in SPECS}

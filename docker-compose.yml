@@ -157,6 +157,11 @@ services:
     environment: *app-env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Health monitor: read per-container resource stats via the Docker Engine API (read-only
+      # socket → list/stats are GETs). Host root (ro) gives host-accurate disk/mem/cpu figures.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/host:ro
     depends_on:
       postgres:
         condition: service_healthy

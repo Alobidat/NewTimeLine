@@ -20,6 +20,7 @@ import logging
 
 from chronos_core import config_service
 from chronos_core.db import session_scope
+from chronos_core.monitoring import run_monitor
 from chronos_core.runs import record_run
 
 from chronos_agents.bots.bootstrap import bootstrap as bots_bootstrap
@@ -92,6 +93,7 @@ _COMMANDS = {
         lambda a: moderate_comment(getattr(a, "comment_id", None)),
     ),
     "moderate-pending": ("agent:moderation", lambda a: moderate_pending()),
+    "monitor": ("agent:monitor", lambda a: run_monitor()),
     "bots-tick": ("agent:bots.scheduler", lambda a: bots_tick()),
     "bots-bootstrap": (
         "agent:bots.scheduler",
@@ -142,6 +144,7 @@ def _build_parser() -> argparse.ArgumentParser:
     mc = sub.add_parser("moderate-comment", help="LLM-moderate one comment (by --comment-id)")
     mc.add_argument("--comment-id", default=None, dest="comment_id")
     sub.add_parser("moderate-pending", help="Batch-moderate recent user events (backstop)")
+    sub.add_parser("monitor", help="Run one health-monitor cycle (probe + sample resources)")
     sub.add_parser("worker", help="Long-running queue worker (consumes admin run-now jobs)")
     return parser
 

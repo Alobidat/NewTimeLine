@@ -25,6 +25,9 @@ from chronos_core.schemas.admin import (
     ComponentView,
     ConfigEntry,
     ConfigUpdate,
+    HealthTreeView,
+    HostMetricsView,
+    MetricSeries,
     OverviewView,
     RunView,
     StorageView,
@@ -181,6 +184,37 @@ async def get_system(session: AsyncSession = Depends(get_session)) -> SystemView
     finally:
         await asyncio.to_thread(r.close)
     return await aq.system(session, get_settings().environment, queue_depth=queue_depth)
+
+
+# ── System-health monitoring (component probes + resource metrics) ─────────────────────────
+
+
+@router.get("/health", response_model=HealthTreeView)
+async def get_health(session: AsyncSession = Depends(get_session)) -> HealthTreeView:
+    """Full health tree: every component grouped by plane (live-probe + run health) + host
+    resource gauges + per-plane/system rollup levels. The System Health dashboard's source."""
+    now = datetime.now(UTC)
+    values = await aq.all_config_values(session)
+    return await aq.health_tree(session, now, values)
+
+
+@router.get("/metrics/host", response_model=HostMetricsView)
+async def get_host_metrics(session: AsyncSession = Depends(get_session)) -> HostMetricsView:
+    """Latest host resource utilization (disk/memory/CPU/load)."""
+    return await aq.host_metrics(session)
+
+
+@router.get("/components/{component_id}/metrics", response_model=list[MetricSeries])
+async def component_metrics(
+    component_id: str,
+    metric: str | None = Query(default=None, description="filter to one metric name"),
+    window: int = Query(default=3600, ge=60, le=2_592_000, description="lookback seconds"),
+    session: AsyncSession = Depends(get_session),
+) -> list[MetricSeries]:
+    """Resource time-series for one component over a window (one series per metric)."""
+    if registry.get(component_id) is None and component_id != "host":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown component")
+    return await aq.metric_series(session, component_id, metric, window)
 
 
 # ── SSE constants ─────────────────────────────────────────────────────────────
