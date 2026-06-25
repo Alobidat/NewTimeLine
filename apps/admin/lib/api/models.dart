@@ -4,13 +4,17 @@ library;
 class HealthView {
   HealthView({
     required this.status,
+    this.level = 'ok',
+    this.message,
     this.lastRunAt,
     this.lastStatus,
     this.runs = 0,
     this.successRate,
   });
 
-  final String status; // never | running | ok | stale | error
+  final String status; // never|running|ok|stale|error OR ok|down|degraded|unknown
+  final String level; // ok | warning | degraded | critical
+  final String? message;
   final DateTime? lastRunAt;
   final String? lastStatus;
   final int runs;
@@ -18,6 +22,8 @@ class HealthView {
 
   factory HealthView.fromJson(Map<String, dynamic> j) => HealthView(
     status: j['status'] as String? ?? 'never',
+    level: j['level'] as String? ?? 'ok',
+    message: j['message'] as String?,
     lastRunAt: _dt(j['last_run_at']),
     lastStatus: j['last_status'] as String?,
     runs: (j['runs'] as num?)?.toInt() ?? 0,
@@ -36,6 +42,8 @@ class ComponentView {
     required this.health,
     this.configPrefix,
     this.enabled,
+    this.plane,
+    this.latestMetrics,
     this.doc,
   });
 
@@ -48,6 +56,8 @@ class ComponentView {
   final HealthView health;
   final String? configPrefix;
   final bool? enabled;
+  final String? plane;
+  final Map<String, dynamic>? latestMetrics;
   final String? doc;
 
   factory ComponentView.fromJson(Map<String, dynamic> j) => ComponentView(
@@ -60,6 +70,8 @@ class ComponentView {
     health: HealthView.fromJson(j['health'] as Map<String, dynamic>),
     configPrefix: j['config_prefix'] as String?,
     enabled: j['enabled'] as bool?,
+    plane: j['plane'] as String?,
+    latestMetrics: (j['latest_metrics'] as Map?)?.cast<String, dynamic>(),
     doc: j['doc'] as String?,
   );
 }
@@ -75,6 +87,8 @@ class ComponentDetail extends ComponentView {
     required super.health,
     super.configPrefix,
     super.enabled,
+    super.plane,
+    super.latestMetrics,
     super.doc,
     required this.config,
     required this.recentRuns,
@@ -89,6 +103,7 @@ class ComponentDetail extends ComponentView {
       id: base.id, kind: base.kind, title: base.title, description: base.description,
       capabilities: base.capabilities, actions: base.actions, health: base.health,
       configPrefix: base.configPrefix, enabled: base.enabled, doc: base.doc,
+      plane: base.plane, latestMetrics: base.latestMetrics,
       config: (j['config'] as List? ?? [])
           .map((e) => ConfigEntry.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -237,6 +252,91 @@ class SystemView {
     configKeys: (j['config_keys'] as num?)?.toInt() ?? 0,
     components: (j['components'] as num?)?.toInt() ?? 0,
     runningAgents: (j['running_agents'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// Latest host resource snapshot (the gauges atop the System Health dashboard).
+class HostMetricsView {
+  HostMetricsView({required this.metrics, this.updatedAt});
+
+  final Map<String, double> metrics; // disk/mem/cpu/load latest values
+  final DateTime? updatedAt;
+
+  double? operator [](String k) => metrics[k];
+
+  factory HostMetricsView.fromJson(Map<String, dynamic> j) => HostMetricsView(
+    metrics: (j['metrics'] as Map? ?? const {})
+        .map((k, v) => MapEntry(k as String, (v as num).toDouble())),
+    updatedAt: _dt(j['updated_at']),
+  );
+}
+
+/// Components sharing a plane (a dashboard section) + the plane's worst-case level.
+class PlaneGroup {
+  PlaneGroup({required this.plane, required this.level, required this.components});
+
+  final String plane; // edge | api | processing | store | client
+  final String level; // ok | warning | degraded | critical
+  final List<ComponentView> components;
+
+  factory PlaneGroup.fromJson(Map<String, dynamic> j) => PlaneGroup(
+    plane: j['plane'] as String? ?? 'other',
+    level: j['level'] as String? ?? 'ok',
+    components: (j['components'] as List? ?? const [])
+        .map((e) => ComponentView.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
+/// The System Health dashboard payload: components grouped by plane + host gauges.
+class HealthTreeView {
+  HealthTreeView({
+    required this.planes,
+    required this.host,
+    required this.level,
+    this.generatedAt,
+  });
+
+  final List<PlaneGroup> planes;
+  final HostMetricsView host;
+  final String level; // worst level across the whole system
+  final DateTime? generatedAt;
+
+  factory HealthTreeView.fromJson(Map<String, dynamic> j) => HealthTreeView(
+    planes: (j['planes'] as List? ?? const [])
+        .map((e) => PlaneGroup.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    host: HostMetricsView.fromJson((j['host'] as Map?)?.cast<String, dynamic>() ?? const {}),
+    level: j['level'] as String? ?? 'ok',
+    generatedAt: _dt(j['generated_at']),
+  );
+}
+
+/// One time-series sample.
+class MetricPoint {
+  MetricPoint({required this.ts, required this.value});
+  final DateTime ts;
+  final double value;
+
+  factory MetricPoint.fromJson(Map<String, dynamic> j) =>
+      MetricPoint(ts: _dt(j['ts'])!, value: (j['value'] as num).toDouble());
+}
+
+/// A component's readings for one metric over a window (chart/sparkline source).
+class MetricSeries {
+  MetricSeries({required this.componentId, required this.metric, this.unit, required this.points});
+  final String componentId;
+  final String metric;
+  final String? unit;
+  final List<MetricPoint> points;
+
+  factory MetricSeries.fromJson(Map<String, dynamic> j) => MetricSeries(
+    componentId: j['component_id'] as String,
+    metric: j['metric'] as String,
+    unit: j['unit'] as String?,
+    points: (j['points'] as List? ?? const [])
+        .map((e) => MetricPoint.fromJson(e as Map<String, dynamic>))
+        .toList(),
   );
 }
 

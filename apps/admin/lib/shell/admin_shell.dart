@@ -10,6 +10,7 @@ import '../screens/component_detail_screen.dart';
 import '../screens/approvals_screen.dart';
 import '../screens/components_screen.dart';
 import '../screens/config_screen.dart';
+import '../screens/health_screen.dart';
 import '../screens/overview_screen.dart';
 import '../screens/runs_screen.dart';
 import '../screens/storage_screen.dart';
@@ -23,6 +24,7 @@ class _Section {
 
 const _sections = [
   _Section('Overview', Icons.dashboard),
+  _Section('Health', Icons.monitor_heart),
   _Section('AI Users', Icons.smart_toy),
   _Section('Approvals', Icons.gavel),
   _Section('Components', Icons.hub),
@@ -60,16 +62,18 @@ class _AdminShellState extends State<AdminShell> {
       case 0:
         return OverviewScreen(client: _client, onOpenComponent: _openComponent);
       case 1:
-        return BotsScreen(client: _client);
+        return HealthScreen(client: _client, onOpenComponent: _openComponent);
       case 2:
-        return ApprovalsScreen(client: _client);
+        return BotsScreen(client: _client);
       case 3:
-        return ComponentsScreen(client: _client);
+        return ApprovalsScreen(client: _client);
       case 4:
-        return ConfigScreen(client: _client);
+        return ComponentsScreen(client: _client);
       case 5:
-        return RunsScreen(client: _client);
+        return ConfigScreen(client: _client);
       case 6:
+        return RunsScreen(client: _client);
+      case 7:
         return StorageScreen(client: _client);
       default:
         return SystemScreen(client: _client);

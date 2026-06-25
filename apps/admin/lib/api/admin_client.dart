@@ -75,6 +75,22 @@ class AdminClient {
   Future<SystemView> system() async =>
       SystemView.fromJson(await _get('/admin/system') as Map<String, dynamic>);
 
+  // ── System health / monitoring ─────────────────────────────────────────────────────────
+  Future<HealthTreeView> health() async =>
+      HealthTreeView.fromJson(await _get('/admin/health') as Map<String, dynamic>);
+
+  Future<HostMetricsView> hostMetrics() async =>
+      HostMetricsView.fromJson(await _get('/admin/metrics/host') as Map<String, dynamic>);
+
+  /// Resource time-series for one component (one [MetricSeries] per metric name).
+  Future<List<MetricSeries>> componentMetrics(String id, {String? metric, int window = 3600}) async {
+    final list = await _get('/admin/components/$id/metrics', {
+      'metric': ?metric,
+      'window': window.toString(),
+    }) as List;
+    return list.map((e) => MetricSeries.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   /// Run a declared component action (e.g. enable/disable). Returns the response body.
   Future<Map<String, dynamic>> action(String componentId, String action) async {
     final uri = Uri.parse('$baseUrl/admin/components/$componentId/actions/$action');
