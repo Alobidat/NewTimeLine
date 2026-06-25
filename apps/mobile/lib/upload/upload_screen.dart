@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 
 import '../api/client.dart';
 import '../auth/interaction_gate.dart';
+import '../creator/recorder.dart' show canRecordInApp;
+import '../creator/recorder_screen.dart' show recordClipInApp;
 import '../state/auth_state.dart';
 import 'clip_source.dart';
 
@@ -101,9 +103,20 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   /// Record (camera) or choose (gallery/file) a clip, then show it as the chosen video.
+  ///
+  /// "Record" prefers the in-app live recorder when available (web getUserMedia + MediaRecorder);
+  /// if the recorder is unavailable it pops null and we fall back to the device file picker so the
+  /// flow never dead-ends. "Choose" always uses the file picker.
   Future<void> _pick({required bool fromCamera}) async {
     try {
-      final clip = await widget.pickClip(fromCamera: fromCamera);
+      PickedClip? clip;
+      if (fromCamera && canRecordInApp) {
+        clip = await recordClipInApp(context);
+        if (!mounted) return;
+        clip ??= await widget.pickClip(fromCamera: true); // recorder unavailable → file fallback
+      } else {
+        clip = await widget.pickClip(fromCamera: fromCamera);
+      }
       if (clip == null || !mounted) return;
       setState(() => _clip = clip);
     } catch (e) {
