@@ -6,12 +6,11 @@
 /// Rail (top → bottom):
 ///   • author avatar → tap opens the creator's profile; a "+" badge follows them when the
 ///     caller doesn't already (user-generated clips only).
-///   • React → tap toggles **Love** (the `like` reaction; heart turns red). Long-press opens a
-///     mutually-exclusive Love / Promote / Demote selector; the active one shows colored.
+///   • React → tap toggles **Love** (the `like` reaction; heart turns red). Press-and-hold runs a
+///     ~2s "Repost…" progress ring, then **loves *and* reposts** the clip in one gesture.
 ///   • comment → opens the threaded discussion page.
 ///   • save → bookmark toggle.
-///   • share → tap opens the share sheet; long-press **reposts** the clip to the caller's
-///     followers.
+///   • share → tap opens the share sheet (share a link). Reposting moved onto the React hold.
 /// The old separate promote/demote, follow-event, follow-creator and info buttons are gone —
 /// follow moved onto the avatar, info moved to the caption "…more".
 library;
@@ -24,13 +23,6 @@ import '../api/models.dart';
 import '../domain/time_format.dart';
 import '../profile/avatar.dart';
 
-/// The caller's current (mutually-exclusive) stance on a clip, derived by the host from the
-/// `like` reaction + the promote vote. Drives the React button's icon + color.
-enum ReactState { none, loved, promoted, demoted }
-
-/// A choice from the React long-press selector.
-enum ReactChoice { love, promote, demote }
-
 /// The overlay placed on top of each [FeedClipPlayer]. Stateless beyond the callbacks it
 /// fires; the heavy interaction widgets are opened as sheets/pages by the host.
 class OverlayRail extends StatelessWidget {
@@ -39,14 +31,13 @@ class OverlayRail extends StatelessWidget {
     required this.api,
     required this.event,
     required this.bookmarked,
-    required this.reactState,
+    required this.loved,
     required this.followsAuthor,
     required this.onReactLove,
-    required this.onReactMenu,
+    required this.onReactHoldRepost,
     required this.onComment,
     required this.onBookmark,
     required this.onShare,
-    required this.onRepost,
     required this.onInfo,
     required this.onOpenGraph,
     this.author,
@@ -74,23 +65,21 @@ class OverlayRail extends StatelessWidget {
   /// Whether the caller has this clip saved (filled vs outline bookmark icon).
   final bool bookmarked;
 
-  /// The caller's mutually-exclusive stance (love/promote/demote/none) — colors the React icon.
-  final ReactState reactState;
+  /// Whether the caller has loved (liked) this clip — fills the heart red.
+  final bool loved;
 
   /// Whether the caller already follows the clip's author (hides the "+" follow badge).
   final bool followsAuthor;
 
-  /// React: single tap toggles Love; long-press lifts a Love/Promote/Demote menu up from the
-  /// button (the [Offset] is the press position so the menu anchors there).
+  /// React: single tap toggles Love; press-and-hold runs the ~2s "Repost…" ring then fires
+  /// [onReactHoldRepost] (love + repost in one gesture).
   final VoidCallback onReactLove;
-  final void Function(Offset at) onReactMenu;
+  final VoidCallback onReactHoldRepost;
   final VoidCallback onComment;
   final VoidCallback onBookmark;
 
-  /// Share: tap opens the share sheet; long-press lifts a menu up from the button (Repost / share
-  /// link) anchored at the press position.
+  /// Share: tap opens the share sheet (share a link). Repost moved onto the React press-and-hold.
   final VoidCallback onShare;
-  final void Function(Offset at) onRepost;
 
   /// Opens the event's article/metadata sheet — wired to the caption's "…more".
   final VoidCallback onInfo;
@@ -137,14 +126,12 @@ class OverlayRail extends StatelessWidget {
                       onOpenCreator: onOpenCreator,
                       onFollowAuthor: onFollowAuthor,
                     ),
-                  _RailButton(
+                  _ReactRailButton(
                     key: const Key('rail-react'),
-                    icon: _reactIcon,
-                    iconColor: _reactColor,
-                    label: _reactLabel,
+                    loved: loved,
                     count: stats?.reactions,
-                    onTap: onReactLove,
-                    onLongPress: onReactMenu,
+                    onLove: onReactLove,
+                    onHoldRepost: onReactHoldRepost,
                   ),
                   _RailButton(
                     key: const Key('rail-comment'),
@@ -163,10 +150,9 @@ class OverlayRail extends StatelessWidget {
                   ),
                   _RailButton(
                     key: const Key('rail-share'),
-                    icon: Icons.reply_outlined, // mirrored arrow reads as share/repost
+                    icon: Icons.reply_outlined, // mirrored arrow reads as share
                     label: 'Share',
                     onTap: onShare,
-                    onLongPress: onRepost,
                   ),
                 ],
               ),
@@ -192,26 +178,6 @@ class OverlayRail extends StatelessWidget {
     );
   }
 
-  IconData get _reactIcon => switch (reactState) {
-        ReactState.loved => Icons.favorite,
-        ReactState.promoted => Icons.arrow_upward,
-        ReactState.demoted => Icons.arrow_downward,
-        ReactState.none => Icons.favorite_border,
-      };
-
-  Color get _reactColor => switch (reactState) {
-        ReactState.loved => Colors.redAccent,
-        ReactState.promoted => Colors.lightGreenAccent,
-        ReactState.demoted => Colors.orangeAccent,
-        ReactState.none => Colors.white,
-      };
-
-  String get _reactLabel => switch (reactState) {
-        ReactState.loved => 'Loved',
-        ReactState.promoted => 'Promoted',
-        ReactState.demoted => 'Demoted',
-        ReactState.none => 'Love',
-      };
 }
 
 /// The poster's avatar at the top of the rail: tap opens their profile, and a "+" badge follows
@@ -289,17 +255,12 @@ class _RailButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.onLongPress,
     this.iconColor = Colors.white,
     this.count,
   });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-
-  /// Long-press handler; receives the global press position so the host can lift a popup menu
-  /// up from the button itself (not a bottom drawer).
-  final void Function(Offset globalPosition)? onLongPress;
   final Color iconColor;
 
   /// Engagement count shown under the icon (TikTok-style). Null → show the action [label]
@@ -318,16 +279,12 @@ class _RailButton extends StatelessWidget {
     final showBadge = count != null && count! > 0;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onLongPressStart:
-            onLongPress == null ? null : (d) => onLongPress!(d.globalPosition),
-        child: InkResponse(
-          onTap: onTap,
-          radius: 26,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+      child: InkResponse(
+        onTap: onTap,
+        radius: 26,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             // Icon circle + a top-right count badge (notification-style, info-coloured).
             Stack(
               clipBehavior: Clip.none,
@@ -358,7 +315,6 @@ class _RailButton extends StatelessWidget {
               ),
             ),
           ],
-          ),
         ),
       ),
     );
@@ -389,6 +345,130 @@ class _CountBadge extends StatelessWidget {
           fontSize: 9,
           fontWeight: FontWeight.w700,
           height: 1.2,
+        ),
+      ),
+    );
+  }
+}
+
+/// The React button: tap toggles **Love** (heart fills red); **press-and-hold** runs a ~2s
+/// progress ring labelled "Repost…" and, on completing the hold, fires [onHoldRepost] — the host
+/// loves *and* reposts the clip. Releasing (or the gesture cancelling) before the ring fills
+/// aborts with no action. The ~500ms long-press threshold is what tells a quick tap (Love) apart
+/// from a deliberate hold (Repost).
+class _ReactRailButton extends StatefulWidget {
+  const _ReactRailButton({
+    super.key,
+    required this.loved,
+    required this.count,
+    required this.onLove,
+    required this.onHoldRepost,
+  });
+
+  final bool loved;
+  final int? count;
+  final VoidCallback onLove;
+  final VoidCallback onHoldRepost;
+
+  @override
+  State<_ReactRailButton> createState() => _ReactRailButtonState();
+}
+
+class _ReactRailButtonState extends State<_ReactRailButton>
+    with SingleTickerProviderStateMixin {
+  /// How long the user must hold before the love+repost fires.
+  static const _holdDuration = Duration(seconds: 2);
+
+  late final AnimationController _hold;
+
+  @override
+  void initState() {
+    super.initState();
+    _hold = AnimationController(vsync: this, duration: _holdDuration)
+      ..addListener(() => setState(() {}))
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          widget.onHoldRepost();
+          _hold.reset(); // back to a plain heart, ready for the next gesture
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _hold.dispose();
+    super.dispose();
+  }
+
+  void _startHold() => _hold.forward(from: 0);
+
+  /// Released / cancelled — abort unless the ring already completed (which resets itself).
+  void _cancelHold() {
+    if (_hold.isAnimating) _hold.reset();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final holding = _hold.value > 0; // ring filling → show repost affordance
+    final showBadge = !holding && widget.count != null && widget.count! > 0;
+    final icon = widget.loved ? Icons.favorite : Icons.favorite_border;
+    final iconColor = holding
+        ? Colors.lightGreenAccent
+        : (widget.loved ? Colors.redAccent : Colors.white);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onLove,
+        onLongPressStart: (_) => _startHold(),
+        onLongPressEnd: (_) => _cancelHold(),
+        onLongPressCancel: _cancelHold,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icon circle + (while holding) a filling progress ring; otherwise the count badge.
+            Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: iconColor, size: 24),
+                ),
+                if (holding)
+                  SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: CircularProgressIndicator(
+                      value: _hold.value,
+                      strokeWidth: 3,
+                      backgroundColor: Colors.white24,
+                      valueColor:
+                          const AlwaysStoppedAnimation(Colors.lightGreenAccent),
+                    ),
+                  ),
+                if (showBadge)
+                  Positioned(
+                    bottom: -4,
+                    right: -6,
+                    child: _CountBadge(text: _RailButton._fmt(widget.count!)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              holding ? 'Repost…' : (widget.loved ? 'Loved' : 'Love'),
+              style: TextStyle(
+                color: holding ? Colors.lightGreenAccent : Colors.white,
+                fontSize: 10,
+                shadows: const [Shadow(blurRadius: 4, color: Colors.black87)],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -575,161 +655,3 @@ class _BottomButton extends StatelessWidget {
   }
 }
 
-/// The React long-press selector: a compact sheet to pick a single mutually-exclusive stance
-/// (Love / Promote / Demote). Returns the chosen [ReactChoice], or null if dismissed. The
-/// [current] stance is highlighted so re-picking it (the host) toggles it back off.
-Future<ReactChoice?> showReactSelector(
-  BuildContext context,
-  ReactState current,
-  Offset at,
-) {
-  return _showHorizontalPicker<ReactChoice>(context, at, [
-    _PickerOption(ReactChoice.love, 'react-choice-love', Icons.favorite, 'Love',
-        Colors.redAccent, current == ReactState.loved),
-    _PickerOption(ReactChoice.promote, 'react-choice-promote', Icons.arrow_upward,
-        'Promote', Colors.lightGreenAccent, current == ReactState.promoted),
-    _PickerOption(ReactChoice.demote, 'react-choice-demote', Icons.arrow_downward,
-        'Demote', Colors.orangeAccent, current == ReactState.demoted),
-  ]);
-}
-
-/// What the Share long-press picker can do.
-enum ShareChoice { repost, shareLink }
-
-/// The Share long-press picker (icons expanding left from the button): repost, or share a link.
-Future<ShareChoice?> showShareSelector(
-  BuildContext context,
-  Offset at, {
-  required bool reposted,
-}) {
-  return _showHorizontalPicker<ShareChoice>(context, at, [
-    _PickerOption(ShareChoice.repost, 'share-choice-repost', Icons.repeat,
-        reposted ? 'Reposted' : 'Repost', Colors.lightGreenAccent, reposted),
-    _PickerOption(ShareChoice.shareLink, 'share-choice-link', Icons.ios_share,
-        'Link', Colors.lightBlueAccent, false),
-  ]);
-}
-
-/// One option in a horizontal long-press picker.
-class _PickerOption<T> {
-  const _PickerOption(this.value, this.keyName, this.icon, this.label, this.color, this.active);
-  final T value;
-  final String keyName;
-  final IconData icon;
-  final String label;
-  final Color color;
-  final bool active;
-}
-
-/// Show the [options] as the SAME rail-style icons expanding **horizontally to the left** of the
-/// pressed button (at global [at]); tapping one returns it, tapping elsewhere dismisses. A
-/// transparent route so it overlays the feed and animates the icons sliding out from the button.
-Future<T?> _showHorizontalPicker<T>(
-  BuildContext context,
-  Offset at,
-  List<_PickerOption<T>> options,
-) {
-  return Navigator.of(context).push<T>(
-    PageRouteBuilder<T>(
-      opaque: false,
-      barrierColor: Colors.black.withValues(alpha: 0.2),
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      transitionDuration: const Duration(milliseconds: 170),
-      reverseTransitionDuration: const Duration(milliseconds: 120),
-      pageBuilder: (ctx, anim, _) {
-        final size = MediaQuery.of(ctx).size;
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => Navigator.of(ctx).pop(),
-              ),
-            ),
-            Positioned(
-              // Vertically centre the row on the press point; anchor its RIGHT edge just left
-              // of the button so the icons grow leftward.
-              top: (at.dy - 34).clamp(0.0, size.height - 72),
-              right: (size.width - at.dx + 6).clamp(0.0, size.width - 60),
-              child: FadeTransition(
-                opacity: anim,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0.35, 0),
-                    end: Offset.zero,
-                  ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-                  child: _PickerRow<T>(
-                    options: options,
-                    onPick: (v) => Navigator.of(ctx).pop(v),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    ),
-  );
-}
-
-/// The horizontal strip of rail-style icon buttons shown by [_showHorizontalPicker].
-class _PickerRow<T> extends StatelessWidget {
-  const _PickerRow({required this.options, required this.onPick});
-  final List<_PickerOption<T>> options;
-  final ValueChanged<T> onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(36),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final o in options)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: InkResponse(
-                  key: Key(o.keyName),
-                  onTap: () => onPick(o.value),
-                  radius: 28,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: o.active
-                              ? o.color.withValues(alpha: 0.25)
-                              : Colors.white.withValues(alpha: 0.12),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(o.icon,
-                            color: o.active ? o.color : Colors.white, size: 24),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        o.label,
-                        style: TextStyle(
-                          color: o.active ? o.color : Colors.white,
-                          fontSize: 10,
-                          fontWeight: o.active ? FontWeight.w700 : FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}

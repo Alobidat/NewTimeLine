@@ -351,9 +351,9 @@ void main() {
       await tapAndExpectLogin(tester, api, const Key('rail-react'));
     });
 
-    // Promote/demote moved into the React long-press selector; follow moved onto the avatar
-    // "+" badge — both still gate through `ensureCanInteract`, exercised via the React button
-    // tap-gate above and the avatar-follow test in feed_test.dart.
+    // Promote/demote are gone — the React press-and-hold now loves+reposts; follow moved onto
+    // the avatar "+" badge. Both still gate through `ensureCanInteract`, exercised via the React
+    // button tap-gate above and the avatar-follow test in feed_test.dart.
 
     testWidgets('save/bookmark gates through sign-in', (tester) async {
       final api = oneClip();

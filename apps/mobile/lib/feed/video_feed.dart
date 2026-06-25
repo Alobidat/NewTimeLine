@@ -12,7 +12,7 @@
 ///     staying immersive.
 ///
 /// The list grows by paging the [FeedSource]; reaching the end fetches the next page. The
-/// overlay actions (promote/react/comment/follow) are wired to the live interaction API and
+/// overlay actions (react/repost/comment/follow) are wired to the live interaction API and
 /// each write is gated through `ensureCanInteract` (IU2): an anonymous tap walks the user
 /// through sign-in → consent → verify, then resumes the pending action.
 library;
@@ -82,15 +82,12 @@ class _VideoFeedState extends State<VideoFeed>
   final Set<String> _statsLoading = {};
 
   // The caller's own per-event state for the React button, loaded lazily alongside the counts:
-  //   _reactMine[id]    → has the caller "loved" (liked) this clip;
-  //   _promoteMine[id]  → the caller's promote vote (-1/0/1).
-  // Love and promote/demote are mutually exclusive in the UI (see [_loveToggle]/[_setPromote]).
+  //   _reactMine[id] → has the caller "loved" (liked) this clip.
   final Map<String, bool> _reactMine = {};
-  final Map<String, int> _promoteMine = {};
   final Set<String> _railStateLoading = {};
 
-  /// In-flight guard per event so a rapid re-tap can't half-apply a Love↔Promote transition
-  /// (each transition is two writes — set one dimension, clear the other).
+  /// In-flight guard per event so a rapid re-tap can't double-fire a like toggle while a
+  /// previous one is still reconciling with the server.
   final Set<String> _reactBusy = {};
 
   /// Whether the caller follows a clip's author, keyed by **authorId** (deduped across the many
@@ -367,29 +364,14 @@ class _VideoFeedState extends State<VideoFeed>
   // Every write goes through `ensureCanInteract` first (ADR-0026): an anonymous tap walks
   // sign-in → consent → verify and only then resumes the action. Reads (info) never gate.
 
-  /// The caller's mutually-exclusive stance on a clip (drives the React icon/color), derived
-  /// from the lazily-loaded like + promote state.
-  ReactState _reactStateOf(String eventId) {
-    if (_reactMine[eventId] == true) return ReactState.loved;
-    return switch (_promoteMine[eventId]) {
-      1 => ReactState.promoted,
-      -1 => ReactState.demoted,
-      _ => ReactState.none,
-    };
-  }
-
-  /// Lazily load the caller's React state (like + promote) for the on-screen clip, alongside
+  /// Lazily load the caller's React state (the `like` reaction) for the on-screen clip, alongside
   /// the counts. Cheap + cached; deduped like [_ensureStats]. Follow-state is keyed by author.
   void _ensureRailState(FeedItem item) {
     final id = item.event.id;
     if (!_reactMine.containsKey(id) && !_railStateLoading.contains(id)) {
       _railStateLoading.add(id);
-      Future.wait([
-        widget.api.reactions(id).then((r) => _reactMine[id] = r.isMine('like')),
-        widget.api
-            .promoteSummary('event', id)
-            .then((p) => _promoteMine[id] = p.mine),
-      ]).then((_) {
+      widget.api.reactions(id).then((r) {
+        _reactMine[id] = r.isMine('like');
         if (mounted) setState(() {});
       }).catchError((_) {}).whenComplete(() => _railStateLoading.remove(id));
     }
@@ -402,97 +384,57 @@ class _VideoFeedState extends State<VideoFeed>
     }
   }
 
-  /// Tap the React button → toggle Love (the `like` reaction). Mutually exclusive with
-  /// promote/demote: if a vote is set, clear it too. Optimistic, reconciled from the writes.
+  /// Tap the React button → toggle Love (the `like` reaction). Optimistic, reconciled from the
+  /// server's authoritative aggregate.
   Future<void> _loveToggle(FeedItem item) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     final id = item.event.id;
     if (_reactBusy.contains(id)) return;
     _reactBusy.add(id);
     final wasLoved = _reactMine[id] ?? false;
-    final hadVote = (_promoteMine[id] ?? 0) != 0;
-    setState(() {
-      _reactMine[id] = !wasLoved;
-      _promoteMine[id] = 0; // love clears any vote
-    });
+    setState(() => _reactMine[id] = !wasLoved);
     try {
-      if (hadVote) await widget.api.promote('event', id, 0);
       final r = await widget.api.toggleReaction(id, 'like');
       if (mounted) setState(() => _reactMine[id] = r.isMine('like'));
       _reloadStats(id);
     } catch (_) {
-      if (mounted) {
-        setState(() {
-          _reactMine[id] = wasLoved;
-          _promoteMine[id] = hadVote ? (_promoteMine[id] ?? 0) : 0;
-        });
-      }
+      if (mounted) setState(() => _reactMine[id] = wasLoved);
       _toast('Could not update your reaction.');
     } finally {
       _reactBusy.remove(id);
     }
   }
 
-  /// Long-press the React button → lift a Love/Promote/Demote menu up from the button ([at] is
-  /// the press position) and apply the mutually-exclusive pick. The menu shows first; each
-  /// action gates through sign-in only when actually chosen.
-  Future<void> _chooseReact(FeedItem item, Offset at) async {
-    final choice = await showReactSelector(context, _reactStateOf(item.event.id), at);
-    if (choice == null || !mounted) return;
-    switch (choice) {
-      case ReactChoice.love:
-        await _loveToggle(item);
-      case ReactChoice.promote:
-        await _setPromote(item, 1);
-      case ReactChoice.demote:
-        await _setPromote(item, -1);
-    }
-  }
-
-  /// Long-press the Share button → lift a menu up from the button (Repost / share link).
-  Future<void> _shareMenu(FeedItem item, Offset at) async {
-    final choice = await showShareSelector(
-      context, at,
-      reposted: _reposted.contains(item.event.id),
-    );
-    if (choice == null || !mounted) return;
-    switch (choice) {
-      case ShareChoice.repost:
-        await _repost(item);
-      case ShareChoice.shareLink:
-        _share(item);
-    }
-  }
-
-  /// Cast (or toggle off) a promote/demote vote, clearing any Love so the three stay mutually
-  /// exclusive. Re-picking the active vote clears it. Optimistic, reconciled from the writes.
-  Future<void> _setPromote(FeedItem item, int value) async {
+  /// Press-and-hold the React button (the ~2s "Repost…" ring completed) → love *and* repost the
+  /// clip in one gesture: like it (if not already) and repost to the caller's followers.
+  Future<void> _holdRepost(FeedItem item) async {
     if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
     final id = item.event.id;
-    if (_reactBusy.contains(id)) return;
-    _reactBusy.add(id);
-    final prevVote = _promoteMine[id] ?? 0;
-    final wasLoved = _reactMine[id] ?? false;
-    final next = prevVote == value ? 0 : value; // re-pick same → clear
-    setState(() {
-      _promoteMine[id] = next;
-      _reactMine[id] = false; // a vote clears love
-    });
+    // The hold means "love + repost". toggleReaction would *un*like an already-liked clip, so
+    // only fire the like when it isn't loved yet.
+    if (_reactMine[id] != true) {
+      setState(() => _reactMine[id] = true);
+      try {
+        final r = await widget.api.toggleReaction(id, 'like');
+        if (mounted) setState(() => _reactMine[id] = r.isMine('like'));
+        _reloadStats(id);
+      } catch (_) {
+        if (mounted) setState(() => _reactMine[id] = false);
+      }
+    }
+    // Then repost (idempotent — guarded by the session's reposted set).
+    if (_reposted.contains(id)) {
+      _toast('Liked · already reposted');
+      return;
+    }
+    setState(() => _reposted.add(id));
     try {
-      if (wasLoved) await widget.api.toggleReaction(id, 'like'); // clear the like
-      final res = await widget.api.promote('event', id, next);
-      if (mounted) setState(() => _promoteMine[id] = res.mine);
+      await widget.api.repost(id);
+      _toast('Loved and reposted to your followers');
       _reloadStats(id);
     } catch (_) {
-      if (mounted) {
-        setState(() {
-          _promoteMine[id] = prevVote;
-          _reactMine[id] = wasLoved;
-        });
-      }
-      _toast('Could not record your vote.');
-    } finally {
-      _reactBusy.remove(id);
+      if (mounted) setState(() => _reposted.remove(id));
+      _toast('Could not repost.');
     }
   }
 
@@ -538,24 +480,6 @@ class _VideoFeedState extends State<VideoFeed>
     } catch (_) {
       if (mounted) setState(() => _followAuthor[author.id] = false);
       _toast('Could not follow.');
-    }
-  }
-
-  /// Repost the clip to the caller's followers (Share long-press). Optimistic + a toast.
-  Future<void> _repost(FeedItem item) async {
-    if (!await ensureCanInteract(context, widget.api, widget.auth)) return;
-    final id = item.event.id;
-    if (_reposted.contains(id)) {
-      _toast('Already reposted');
-      return;
-    }
-    setState(() => _reposted.add(id));
-    try {
-      await widget.api.repost(id);
-      _toast('Reposted to your followers');
-    } catch (_) {
-      if (mounted) setState(() => _reposted.remove(id));
-      _toast('Could not repost.');
     }
   }
 
@@ -738,14 +662,13 @@ class _VideoFeedState extends State<VideoFeed>
             author: current.author,
             authorKind: current.authorKind,
             bookmarked: _bookmarked.contains(current.id),
-            reactState: _reactStateOf(current.event.id),
+            loved: _reactMine[current.event.id] ?? false,
             followsAuthor: _followAuthor[current.author?.id] ?? false,
             onReactLove: () => _loveToggle(current),
-            onReactMenu: (at) => _chooseReact(current, at),
+            onReactHoldRepost: () => _holdRepost(current),
             onComment: () => _comment(current),
             onBookmark: () => _bookmark(current),
             onShare: () => _share(current),
-            onRepost: (at) => _shareMenu(current, at),
             onInfo: () => _info(current),
             // Only user authors have a personal profile to open; an entity (NASA) doesn't.
             onOpenCreator: current.authorKind == 'user' && current.event.authorId != null

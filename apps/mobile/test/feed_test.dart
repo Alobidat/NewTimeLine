@@ -148,8 +148,8 @@ void main() {
       expect(find.byKey(const Key('rail-comment')), findsOneWidget);
       expect(find.byKey(const Key('rail-bookmark')), findsOneWidget);
       expect(find.byKey(const Key('rail-share')), findsOneWidget);
-      // Removed in the rail redesign: promote/demote (folded into React long-press), follow
-      // (moved onto the avatar), info (moved to the caption "…more").
+      // Removed in the rail redesign: promote/demote (gone — React press-and-hold now reposts),
+      // follow (moved onto the avatar), info (moved to the caption "…more").
       expect(find.byKey(const Key('rail-promote-up')), findsNothing);
       expect(find.byKey(const Key('rail-info')), findsNothing);
       // No author on these seed events → no avatar block.
@@ -319,58 +319,75 @@ void main() {
     });
   });
 
-  group('showReactSelector (lift-up menu)', () {
-    testWidgets('offers the three mutually-exclusive choices + returns the pick',
-        (tester) async {
-      ReactChoice? picked;
+  group('React button (tap = love, press-and-hold = repost)', () {
+    // Build a bare OverlayRail wired with spy callbacks so we can drive the React button's two
+    // gestures in isolation (no feed/network).
+    Future<({List<String> events})> pumpRail(WidgetTester tester) async {
+      final events = <String>[];
+      final api = ApiClient(baseUrl: 'http://test', client: MockClient((_) async {
+        return http.Response('{}', 200);
+      }));
+      addTearDown(api.close);
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: Builder(
-              builder: (ctx) => ElevatedButton(
-                onPressed: () async => picked = await showReactSelector(
-                    ctx, ReactState.none, const Offset(200, 400)),
-                child: const Text('open'),
-              ),
+            body: OverlayRail(
+              api: api,
+              event: _event('e1', 'Berlin Wall falls', 1989),
+              bookmarked: false,
+              loved: false,
+              followsAuthor: false,
+              onReactLove: () => events.add('love'),
+              onReactHoldRepost: () => events.add('hold-repost'),
+              onComment: () {},
+              onBookmark: () {},
+              onShare: () {},
+              onInfo: () {},
+              onOpenGraph: () {},
             ),
           ),
         ),
       );
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      // Love / Promote / Demote items are present in the anchored popup menu.
-      expect(find.byKey(const Key('react-choice-love')), findsOneWidget);
-      expect(find.byKey(const Key('react-choice-promote')), findsOneWidget);
-      expect(find.byKey(const Key('react-choice-demote')), findsOneWidget);
-      // Picking Promote returns that choice to the caller.
-      await tester.tap(find.byKey(const Key('react-choice-promote')));
-      await tester.pumpAndSettle();
-      expect(picked, ReactChoice.promote);
+      return (events: events);
+    }
+
+    testWidgets('a quick tap loves, not reposts', (tester) async {
+      final spy = await pumpRail(tester);
+      await tester.tap(find.byKey(const Key('rail-react')));
+      await tester.pump();
+      expect(spy.events, ['love']);
     });
 
-    testWidgets('share menu offers repost + share link', (tester) async {
-      ShareChoice? picked;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (ctx) => ElevatedButton(
-                onPressed: () async => picked = await showShareSelector(
-                    ctx, const Offset(200, 400), reposted: false),
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.tap(find.text('open'));
+    testWidgets('a 2s press-and-hold runs the Repost ring then fires repost',
+        (tester) async {
+      final spy = await pumpRail(tester);
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.byKey(const Key('rail-react'))));
+      await tester.pump(const Duration(milliseconds: 600)); // pass the long-press threshold…
+      await tester.pump(const Duration(milliseconds: 300)); // …then let the ring start filling.
+      // The "Repost…" affordance shows, nothing fired yet.
+      expect(find.text('Repost…'), findsOneWidget);
+      expect(spy.events, isEmpty);
+      // Hold through the full 2s ring → love + repost fires once.
+      await tester.pump(const Duration(seconds: 2));
+      await gesture.up();
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('share-choice-repost')), findsOneWidget);
-      expect(find.byKey(const Key('share-choice-link')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('share-choice-repost')));
-      await tester.pumpAndSettle();
-      expect(picked, ShareChoice.repost);
+      expect(spy.events, ['hold-repost']);
     });
+
+    testWidgets('releasing before the ring fills aborts (no repost)', (tester) async {
+      final spy = await pumpRail(tester);
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.byKey(const Key('rail-react'))));
+      await tester.pump(const Duration(milliseconds: 600)); // pass the threshold…
+      await tester.pump(const Duration(milliseconds: 300)); // …ring started…
+      expect(find.text('Repost…'), findsOneWidget);
+      await gesture.up(); // …released early, well before the 2s mark
+      await tester.pumpAndSettle();
+      expect(spy.events, isEmpty);
+      expect(find.text('Repost…'), findsNothing);
+    });
+
   });
 
   test('formatLabel sanity (feed caption uses it)', () {
