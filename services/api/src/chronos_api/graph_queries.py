@@ -29,6 +29,13 @@ from chronos_api.feed_queries import _HERO_JOIN, _DISPLAYABLE
 # co-occurrence and belong in the "related" panel, not the back/forth dig.
 CHAIN_KINDS = ("precursor", "causal", "sequel")
 
+# Rank causal/chain edges ahead of co-occurrence (same-place/same-actor/thematic) so the
+# "related" panel — and the feed's left/right walk, which takes the top neighbour — follows the
+# genuine history thread (what led to this / what happened after) rather than "shares a country".
+_CAUSAL_FIRST = (
+    "(CASE WHEN r.kind IN ('precursor','causal','sequel') THEN 0 ELSE 1 END)"
+)
+
 
 def _link_origin(created_by: str | None) -> str:
     """Classify a relation's provenance: ``user`` if ``created_by`` is a user UUID (set by
@@ -280,7 +287,7 @@ async def fetch_related(
                     "h.is_clip AS hero_is_clip, r.kind, r.weight, r.created_by "
                     f"FROM event_relations r JOIN events e ON e.id = r.src_event {_HERO_JOIN} "
                     f"WHERE r.dst_event = :id AND e.status = 'published' AND {_DISPLAYABLE} "
-                    "ORDER BY r.weight DESC LIMIT :limit"
+                    f"ORDER BY {_CAUSAL_FIRST}, r.weight DESC LIMIT :limit"
                 ),
                 {"id": event_id, "limit": limit},
             )
@@ -301,7 +308,7 @@ async def fetch_related(
                     "h.is_clip AS hero_is_clip, r.kind, r.weight, r.created_by "
                     f"FROM event_relations r JOIN events e ON e.id = r.dst_event {_HERO_JOIN} "
                     f"WHERE r.src_event = :id AND e.status = 'published' AND {_DISPLAYABLE} "
-                    "ORDER BY r.weight DESC LIMIT :limit"
+                    f"ORDER BY {_CAUSAL_FIRST}, r.weight DESC LIMIT :limit"
                 ),
                 {"id": event_id, "limit": limit},
             )
