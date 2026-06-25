@@ -99,15 +99,24 @@ async def _hero_image(session: AsyncSession, event_id) -> Media | None:
 
 
 async def _has_clip_hero(session: AsyncSession, event_id) -> bool:
-    return bool(
-        await session.scalar(
-            select(Media.id)
+    """Whether the event's hero is a clip that clears the floor. Embeds (YouTube etc.) have no
+    measurable width and always count; a stored video clears the floor unless its **measured**
+    width is known-tiny (``media_policy.MIN_CLIP_WIDTH``) — unmeasured video still passes until
+    the media-probe agent fills its width."""
+    row = (
+        await session.execute(
+            select(Media.kind, Media.width)
             .join(EventMedia, EventMedia.media_id == Media.id)
             .where(EventMedia.event_id == event_id, EventMedia.role == "hero",
                    Media.kind.in_(("video", "embed")))
+            .order_by(EventMedia.rank)
             .limit(1)
         )
-    )
+    ).first()
+    if row is None:
+        return False
+    kind, width = row
+    return kind == "embed" or media_policy.hero_eligible("video", width)
 
 
 async def _first_wiki_source(session: AsyncSession, event_id) -> str | None:
@@ -143,8 +152,10 @@ async def _violation_counts(session: AsyncSession) -> tuple[int, int]:
         "SELECT count(*) FROM events e WHERE e.status = 'published' AND NOT EXISTS ("
         "  SELECT 1 FROM event_media em JOIN media m ON m.id = em.media_id "
         "  WHERE em.event_id = e.id AND em.role = 'hero' "
-        "  AND (m.kind IN ('video','embed') OR (m.kind='image' AND m.width >= :floor)))"
-    ), {"floor": MIN_W})
+        "  AND (m.kind = 'embed' "
+        "       OR (m.kind = 'video' AND (m.width IS NULL OR m.width >= :clip_floor)) "
+        "       OR (m.kind = 'image' AND m.width >= :floor)))"
+    ), {"floor": MIN_W, "clip_floor": media_policy.MIN_CLIP_WIDTH})
     unmeasured = await session.scalar(
         select(func.count()).select_from(Media).where(Media.kind == "image", Media.width.is_(None))
     )
@@ -203,7 +214,7 @@ async def improve_media(*, batch: int = 200, full: bool = False) -> dict:
             async with session_scope() as session:
                 if await _has_clip_hero(session, event_id):
                     totals["still_ok"] += 1
-                    continue  # a clip hero already clears the floor
+                    continue  # a clip hero clears the floor (embed, or video ≥ min clip width)
                 hero = await _hero_image(session, event_id)
                 if hero is not None and media_policy.hero_eligible("image", hero.width):
                     totals["still_ok"] += 1

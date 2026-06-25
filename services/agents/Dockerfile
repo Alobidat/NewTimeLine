@@ -4,6 +4,12 @@ FROM python:3.12-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
+# ffmpeg/ffprobe: the media-probe agent measures clips + extracts posters, and it's the base
+# of the Creator-Studio render backend (future transcode/compositing jobs shell out to it too).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY packages/core /app/packages/core
 COPY services/agents /app/services/agents
 RUN pip install ./packages/core ./services/agents

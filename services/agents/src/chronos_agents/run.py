@@ -34,6 +34,7 @@ from chronos_agents.ingest_rss import ingest_rss
 from chronos_agents.media_check import check_media
 from chronos_agents.media_fetch import fetch_pending
 from chronos_agents.media_gap import flag_media_gaps
+from chronos_agents.media_probe import probe_pending
 from chronos_agents.media_quality import improve_media
 from chronos_agents.moderation import moderate_comment, moderate_event, moderate_pending
 from chronos_agents.persona_gen import generate_personas
@@ -68,6 +69,9 @@ _COMMANDS = {
     "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
     "media-check": ("agent:media.check", lambda a: check_media()),
     "media-gap": ("agent:media.gap", lambda a: flag_media_gaps()),
+    "media-probe": (
+        "agent:media.probe", lambda a: probe_pending(full=getattr(a, "full", False)),
+    ),
     "media-quality": (
         "agent:media.quality", lambda a: improve_media(full=getattr(a, "full", False)),
     ),
@@ -126,6 +130,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--max-total", type=int, default=100, help="Max events to seed")
     sub.add_parser("geocode", help="Geocode events + place entities via Nominatim (OSM)")
     sub.add_parser("media-gap", help="Re-collect media for text-only events (clips-first)")
+    mp = sub.add_parser("media-probe",
+                        help="Measure stored video clips (dimensions/duration) + extract posters")
+    mp.add_argument("--all", action="store_true", dest="full",
+                    help="Sweep all unprobed clips (one-time backlog clean-up)")
     pg = sub.add_parser("persona-gen", help="Generate AI-user personas + avatars")
     pg.add_argument("--count", type=int, default=20, help="How many personas to create")
     pp = sub.add_parser("persona-post", help="Have AI users discover + post free clips")

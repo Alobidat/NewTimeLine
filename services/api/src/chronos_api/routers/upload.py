@@ -218,6 +218,9 @@ async def upload_video(
     # event is published immediately, so the geocode agent picks it up right away.
     if geo is None:
         _enqueue_geocode()
+    # Measure the clip (dimensions/duration) + extract a poster, so the feed gets a real poster
+    # and the quality guard can judge hero eligibility on the clip's measured width.
+    run_queue.enqueue("media-probe", {})
     # Async LLM moderation pass (Phase 6) — fire-and-forget; flags land in the admin queue.
     run_queue.enqueue("moderate-event", {"event_id": str(event.id)})
 

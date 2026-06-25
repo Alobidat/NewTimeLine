@@ -69,9 +69,11 @@ async def _maintenance_ticker() -> None:
     from chronos_core import run_queue  # noqa: PLC0415
 
     # Order matters: enrich (summary/entities) → geocode (needs entities) → dedup (embeddings)
-    # → relate (shared-entity backbone) → relate-smart (LLM causal chain, needs embeddings).
+    # → relate (shared-entity backbone) → relate-smart (LLM causal chain, needs embeddings) →
+    # media-probe (measure clip widths) → media-quality (decides hero eligibility on those widths).
     # A short stagger avoids hammering the LLM/Nominatim at once.
-    pipeline = ("enrich", "geocode", "dedup", "relate", "relate-smart", "media-quality")
+    pipeline = ("enrich", "geocode", "dedup", "relate", "relate-smart",
+                "media-probe", "media-quality")
     while True:
         try:
             async with session_scope() as session:
