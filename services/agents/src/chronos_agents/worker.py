@@ -71,7 +71,7 @@ async def _maintenance_ticker() -> None:
     # Order matters: enrich (summary/entities) → geocode (needs entities) → dedup (embeddings)
     # → relate (shared-entity backbone) → relate-smart (LLM causal chain, needs embeddings).
     # A short stagger avoids hammering the LLM/Nominatim at once.
-    pipeline = ("enrich", "geocode", "dedup", "relate", "relate-smart")
+    pipeline = ("enrich", "geocode", "dedup", "relate", "relate-smart", "media-quality")
     while True:
         try:
             async with session_scope() as session:

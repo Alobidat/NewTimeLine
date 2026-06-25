@@ -426,6 +426,7 @@ SPECS: list[ConfigSpec] = [
                    "host.disk_used_pct": {"warning": 80, "critical": 92},
                    "*.cpu_pct": {"warning": 85, "critical": 96},
                    "store:postgres.connections": {"warning": 80, "critical": 95},
+                   "agent:media.quality.low_quality_pending": {"warning": 20, "critical": 100},
                },
                label="Degradation thresholds",
                help="metric → {warning, critical} cut-offs the collector uses to set each "

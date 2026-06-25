@@ -18,25 +18,28 @@ still can't get a quality hero simply stay filtered out of the feed (never shown
 
 from __future__ import annotations
 
-import io
 import logging
+from datetime import UTC, datetime
 
 import httpx
-from PIL import Image
-from chronos_core import config_service, repository
+from chronos_core import repository
 from chronos_core.db import session_scope
+from chronos_core.domain import media_policy
 from chronos_core.models.enums import EventStatus
 from chronos_core.models.event import Event
 from chronos_core.models.media import EventMedia, Media
-from sqlalchemy import select, update
+from chronos_core.models.metric_sample import MetricSample
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_agents.media_measure import measure_image
 from chronos_agents.publish import load_weights
 from chronos_agents.sources import wikimedia
 
 log = logging.getLogger("chronos.agents.media_quality")
 AGENT = "media-quality"
-MIN_W = wikimedia.MIN_IMAGE_WIDTH
+COMPONENT = "agent:media.quality"
+MIN_W = media_policy.MIN_IMAGE_WIDTH  # hero image floor (640) — single source of truth
 
 
 async def _backfill_widths(session: AsyncSession) -> int:
@@ -57,39 +60,24 @@ async def _backfill_widths(session: AsyncSession) -> int:
     return fixed
 
 
-_MAX_IMAGE_BYTES = 12 * 1024 * 1024  # don't pull more than this just to measure an image
-
-
 async def _measure_widths(client: httpx.AsyncClient, *, limit: int) -> int:
-    """Pass 2: download hero images whose width is still unknown and read their real pixel size
-    with Pillow, so the resolution floor can be enforced on non-Wikimedia (e.g. news) images too.
-    Bounded + best-effort: a fetch/decode failure leaves the row untouched."""
+    """Pass 2: measure **all** unmeasured images (not just heroes) by decoding their real pixel
+    size, so the resolution floor is checkable everywhere. Bounded + best-effort: a fetch/decode
+    failure leaves the row untouched (shared util ``media_measure.measure_image``)."""
     async with session_scope() as session:
         rows = (
             await session.execute(
                 select(Media.id, Media.source_url)
-                .join(EventMedia, EventMedia.media_id == Media.id)
-                .where(Media.kind == "image", Media.width.is_(None),
-                       EventMedia.role == "hero")
+                .where(Media.kind == "image", Media.width.is_(None))
                 .limit(limit)
             )
         ).all()
 
     measured = 0
     for mid, url in rows:
-        if not url:
-            continue
-        try:
-            resp = await client.get(url, timeout=20.0, follow_redirects=True)
-            resp.raise_for_status()
-            data = resp.content
-            if len(data) > _MAX_IMAGE_BYTES:
-                continue
-            with Image.open(io.BytesIO(data)) as im:
-                w, h = im.size
-        except Exception:
-            continue
-        if w:
+        dims = await measure_image(client, url or "")
+        if dims:
+            w, h = dims
             async with session_scope() as session:
                 await session.execute(
                     update(Media).where(Media.id == mid).values(width=w, height=h)
@@ -148,17 +136,56 @@ async def _attach_image(session: AsyncSession, event: Event, *, url: str, width:
     )
 
 
-async def improve_media(*, batch: int = 200) -> dict:
-    """Run the three quality passes over published events. Returns counts."""
+async def _violation_counts(session: AsyncSession) -> tuple[int, int]:
+    """(published events lacking a displayable hero, unmeasured image media) — the live backlog
+    the guard exists to drive to zero; emitted as monitoring metrics."""
+    low_q = await session.scalar(text(
+        "SELECT count(*) FROM events e WHERE e.status = 'published' AND NOT EXISTS ("
+        "  SELECT 1 FROM event_media em JOIN media m ON m.id = em.media_id "
+        "  WHERE em.event_id = e.id AND em.role = 'hero' "
+        "  AND (m.kind IN ('video','embed') OR (m.kind='image' AND m.width >= :floor)))"
+    ), {"floor": MIN_W})
+    unmeasured = await session.scalar(
+        select(func.count()).select_from(Media).where(Media.kind == "image", Media.width.is_(None))
+    )
+    return int(low_q or 0), int(unmeasured or 0)
+
+
+async def _emit_metrics(totals: dict) -> None:
+    """Record guard outcomes as monitoring metrics so the Health dashboard can trend + alert
+    on the low-quality backlog (component ``agent:media.quality``)."""
+    now = datetime.now(UTC)
+    async with session_scope() as session:
+        low_q, unmeasured = await _violation_counts(session)
+        session.add_all([
+            MetricSample(component_id=COMPONENT, metric="low_quality_pending",
+                         value=float(low_q), unit="count", ts=now),
+            MetricSample(component_id=COMPONENT, metric="unmeasured_images",
+                         value=float(unmeasured), unit="count", ts=now),
+            MetricSample(component_id=COMPONENT, metric="held",
+                         value=float(totals.get("held", 0)), unit="count", ts=now),
+        ])
+    totals["low_quality_pending"] = low_q
+    totals["unmeasured_images"] = unmeasured
+
+
+async def improve_media(*, batch: int = 200, full: bool = False) -> dict:
+    """Media Quality Guard (ADR-0024): measure widths, then ensure every published event has a
+    displayable hero — **upgrade** to a quality image where possible, else **hold** the event
+    (status → pending, out of the feed) until media can be acquired. ``full`` sweeps the whole
+    published corpus (one-time backlog clean-up) instead of the recent batch.
+    """
     totals = {"width_backfilled": 0, "width_measured": 0, "upgraded": 0,
-              "filled_gap": 0, "still_low": 0, "scanned": 0}
+              "filled_gap": 0, "held": 0, "still_ok": 0, "scanned": 0}
+    scan_limit = 1_000_000 if full else batch
+    measure_limit = 1_000_000 if full else batch
 
     async with session_scope() as session:
         totals["width_backfilled"] = await _backfill_widths(session)
 
     async with httpx.AsyncClient(headers={"User-Agent": wikimedia.USER_AGENT}) as client:
-        # Measure the rest (news images etc.) by actually decoding them, so the floor is real.
-        totals["width_measured"] = await _measure_widths(client, limit=batch)
+        # Measure all unmeasured images so the floor is decided on real pixels.
+        totals["width_measured"] = await _measure_widths(client, limit=measure_limit)
 
         async with session_scope() as session:
             events = (
@@ -166,7 +193,7 @@ async def improve_media(*, batch: int = 200) -> dict:
                     select(Event.id, Event.title)
                     .where(Event.status == EventStatus.PUBLISHED)
                     .order_by(Event.updated_at.desc())
-                    .limit(batch)
+                    .limit(scan_limit)
                 )
             ).all()
             weights = await load_weights(session)
@@ -175,10 +202,12 @@ async def improve_media(*, batch: int = 200) -> dict:
             totals["scanned"] += 1
             async with session_scope() as session:
                 if await _has_clip_hero(session, event_id):
-                    continue  # a clip hero already satisfies the floor
+                    totals["still_ok"] += 1
+                    continue  # a clip hero already clears the floor
                 hero = await _hero_image(session, event_id)
-                if hero is not None and (hero.width or 0) >= MIN_W:
-                    continue  # already good enough
+                if hero is not None and media_policy.hero_eligible("image", hero.width):
+                    totals["still_ok"] += 1
+                    continue  # already a quality image hero
                 event = await session.get(Event, event_id)
                 src = await _first_wiki_source(session, event_id)
 
@@ -192,13 +221,16 @@ async def improve_media(*, batch: int = 200) -> dict:
                         found = (ci.url, ci.width, ci.height, ci.page_url)
                         break
 
-                if found is None:
-                    totals["still_low"] += 1
-                    continue
-                url, w, h, page_url = found
-                await _attach_image(session, event, url=url, width=w, height=h,
-                                    page_url=page_url, weights=weights)
-                totals["filled_gap" if hero is None else "upgraded"] += 1
+                if found is not None:
+                    url, w, h, page_url = found
+                    await _attach_image(session, event, url=url, width=w, height=h,
+                                        page_url=page_url, weights=weights)
+                    totals["filled_gap" if hero is None else "upgraded"] += 1
+                else:
+                    # No quality hero available → hold the event out of the feed (ADR-0024).
+                    event.status = EventStatus.PENDING
+                    totals["held"] += 1
 
-    log.info("media-quality done: %s", totals)
+    await _emit_metrics(totals)
+    log.info("media-quality guard done: %s", totals)
     return totals

@@ -15,6 +15,7 @@ from chronos_core.config_spec import SPEC_BY_KEY, SPECS, public_value
 from chronos_core.domain.health import RunInfo, derive_health
 from chronos_core.models.component_health import ComponentHealth
 from chronos_core.models.log_record import LogRecord
+from chronos_core.monitoring.collector import level_from_metrics
 from chronos_core.registry import ComponentManifest
 from chronos_core.runs import recent_runs
 from chronos_core.schemas.admin import (
@@ -254,11 +255,41 @@ async def host_metrics(session: AsyncSession) -> HostMetricsView:
     )
 
 
+async def _all_latest_metrics(session: AsyncSession) -> dict[str, dict[str, float]]:
+    """Latest value of every metric per component (one query) → {component_id: {metric: value}}."""
+    rows = (await session.execute(text(
+        "SELECT DISTINCT ON (component_id, metric) component_id, metric, value "
+        "FROM metric_sample ORDER BY component_id, metric, ts DESC"
+    ))).all()
+    out: dict[str, dict[str, float]] = {}
+    for r in rows:
+        out.setdefault(r.component_id, {})[r.metric] = float(r.value)
+    return out
+
+
 async def health_tree(
     session: AsyncSession, now: datetime, values: dict
 ) -> HealthTreeView:
-    """Full health snapshot: every component grouped by plane + host gauges + rollups."""
+    """Full health snapshot: every component grouped by plane + host gauges + rollups.
+
+    Run-backed components (agents) are also made threshold-aware here: their latest resource/
+    domain metrics (e.g. the media guard's ``low_quality_pending``) are blended against
+    ``monitoring.thresholds`` so a breach raises their level — the same rule the collector
+    applies to probe components."""
     views = [await component_view(session, m, now, values) for m in registry.REGISTRY]
+
+    metrics_by_c = await _all_latest_metrics(session)
+    thresholds = values.get("monitoring.thresholds") or {}
+    for v in views:
+        m = metrics_by_c.get(v.id)
+        if not m:
+            continue
+        if v.latest_metrics is None:
+            v.latest_metrics = m
+        tlevel, msg = level_from_metrics(v.id, m, thresholds)
+        if _LEVEL_RANK.get(tlevel, 0) > _LEVEL_RANK.get(v.health.level, 0):
+            v.health.level = tlevel
+            v.health.message = v.health.message or msg
 
     by_plane: dict[str, list[ComponentView]] = {}
     for v in views:

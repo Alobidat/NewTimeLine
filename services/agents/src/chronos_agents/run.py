@@ -68,7 +68,9 @@ _COMMANDS = {
     "media-fetch": ("agent:media.fetch", lambda a: fetch_pending()),
     "media-check": ("agent:media.check", lambda a: check_media()),
     "media-gap": ("agent:media.gap", lambda a: flag_media_gaps()),
-    "media-quality": ("agent:media.quality", lambda a: improve_media()),
+    "media-quality": (
+        "agent:media.quality", lambda a: improve_media(full=getattr(a, "full", False)),
+    ),
     "collect": ("agent:collect", lambda a: run_collect(_subject_from_args(a))),
     "seed-iran-us": ("agent:seed.iran-us", lambda a: seed_iran_us()),
     "seed-video": (
@@ -114,7 +116,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("dedup", help="Embed events + merge near-duplicates via pgvector")
     sub.add_parser("media-fetch", help="Download media flagged for local capture (ADR-0018)")
     sub.add_parser("media-check", help="Re-check media availability + apply retention policy")
-    sub.add_parser("media-quality", help="Enforce the image-resolution floor; back-fill/upgrade heroes")
+    mq = sub.add_parser("media-quality",
+                        help="Quality guard: measure widths, upgrade/hold low-quality heroes")
+    mq.add_argument("--all", action="store_true", dest="full",
+                    help="Sweep the whole published corpus (one-time backlog clean-up)")
     sub.add_parser("seed-iran-us", help="Seed the curated US–Iran PoC history web")
     sv = sub.add_parser("seed-video", help="Seed video-hero events from Wikimedia Commons")
     sv.add_argument("--per-topic", type=int, default=6, help="Clips to pull per topic")
