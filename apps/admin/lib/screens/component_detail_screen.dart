@@ -152,30 +152,62 @@ class _OverviewTabState extends State<_OverviewTab> {
 
 // ── Metrics tab ──────────────────────────────────────────────────────────────────────────
 
-class _MetricsTab extends StatelessWidget {
+class _MetricsTab extends StatefulWidget {
   const _MetricsTab({required this.client, required this.componentId});
   final AdminClient client;
   final String componentId;
 
   @override
+  State<_MetricsTab> createState() => _MetricsTabState();
+}
+
+class _MetricsTabState extends State<_MetricsTab> {
+  static const _windows = {'1h': 3600, '6h': 21600, '24h': 86400};
+  String _window = '1h';
+  int _reload = 0;
+
+  @override
   Widget build(BuildContext context) {
-    return PollingBuilder<List<MetricSeries>>(
-      interval: const Duration(seconds: 5),
-      fetch: () => client.componentMetrics(componentId, window: 3600),
-      builder: (context, series) {
-        if (series.isEmpty) {
-          return const Center(child: Text('No resource samples in the last hour.'));
-        }
-        series.sort((a, b) => a.metric.compareTo(b.metric));
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text('Last hour', style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 8),
-            for (final s in series) _MetricCard(series: s),
-          ],
-        );
-      },
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: [
+              Text('Window', style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(width: 8),
+              SegmentedButton<String>(
+                segments: _windows.keys
+                    .map((w) => ButtonSegment(value: w, label: Text(w)))
+                    .toList(),
+                selected: {_window},
+                onSelectionChanged: (s) => setState(() {
+                  _window = s.first;
+                  _reload++;
+                }),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: PollingBuilder<List<MetricSeries>>(
+            key: ValueKey(_reload),
+            interval: const Duration(seconds: 5),
+            fetch: () =>
+                widget.client.componentMetrics(widget.componentId, window: _windows[_window]!),
+            builder: (context, series) {
+              if (series.isEmpty) {
+                return Center(child: Text('No resource samples in the last $_window.'));
+              }
+              series.sort((a, b) => a.metric.compareTo(b.metric));
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [for (final s in series) _MetricCard(series: s)],
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

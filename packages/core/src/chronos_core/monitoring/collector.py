@@ -24,8 +24,38 @@ from chronos_core.settings import get_settings
 
 log = logging.getLogger("chronos.monitoring.collector")
 
-# (metric, unit) pairs sampled per container from Docker stats (gauges).
-_CONTAINER_GAUGES = (("cpu_pct", "pct"), ("mem_rss_bytes", "bytes"), ("mem_used_pct", "pct"))
+# Severity ordering for blending probe + threshold verdicts (worst wins).
+_LEVEL_RANK = {"ok": 0, "warning": 1, "degraded": 2, "critical": 3}
+
+
+def _worst(*levels: str) -> str:
+    return max(levels, key=lambda lv: _LEVEL_RANK.get(lv, 0), default="ok")
+
+
+def level_from_metrics(
+    component_id: str, metrics: dict, thresholds: dict
+) -> tuple[str, str | None]:
+    """Worst severity level implied by a component's metrics vs configured thresholds.
+
+    Threshold keys are ``<component_id>.<metric>`` or ``*.<metric>`` → {warning, critical}.
+    Returns (level, message) where message names the first breached metric."""
+    level, message = "ok", None
+    for metric, value in (metrics or {}).items():
+        if not isinstance(value, (int, float)):
+            continue
+        th = thresholds.get(f"{component_id}.{metric}") or thresholds.get(f"*.{metric}")
+        if not th:
+            continue
+        crit, warn = th.get("critical"), th.get("warning")
+        hit = None
+        if crit is not None and value >= crit:
+            hit = "critical"
+        elif warn is not None and value >= warn:
+            hit = "warning"
+        if hit and _LEVEL_RANK[hit] > _LEVEL_RANK[level]:
+            level = hit
+            message = f"{metric} {value:.0f} ≥ {th.get(hit)}"
+    return level, message
 
 
 class Collector:
@@ -44,35 +74,50 @@ class Collector:
         # 0) Refresh the worker heartbeat first so the worker probe reads it fresh.
         self._write_heartbeat(settings)
 
-        # 1) Probe every probe-backed component → upsert component_health.
-        probed = 0
-        async with session_scope() as session:
-            for m in registry.REGISTRY:
-                if m.health_source != "probe" or not m.probe:
-                    continue
-                result = await run_probe(m.probe, settings)
-                await self._upsert_health(session, m.id, result, now)
-                probed += 1
+        # 1) Probe every probe-backed component (verdicts blended with thresholds in step 4).
+        probe_results: dict[str, object] = {}
+        for m in registry.REGISTRY:
+            if m.health_source == "probe" and m.probe:
+                probe_results[m.id] = await run_probe(m.probe, settings)
 
-        # 2) Per-container resource samples (Docker stats → rates).
+        # 2) Per-container resource samples (Docker stats → rates) + a latest-resource map.
         stats = await docker_api.container_stats()
         svc_to_component = {m.container: m.id for m in registry.REGISTRY if m.container}
+        resources: dict[str, dict] = {}
         for service, snap in stats.items():
             component_id = svc_to_component.get(service)
             if component_id is None:
                 continue
             samples.extend(self._container_samples(component_id, service, snap, now))
+            resources[component_id] = _resource_metrics(snap)
 
         # 3) Host resource samples.
         samples.extend(self._host_samples(now))
 
-        # 4) Persist samples + prune retention.
+        # 4) Blend probe verdict + threshold verdict per component → upsert health.
+        thresholds = await self._load_thresholds()
+        async with session_scope() as session:
+            for cid, result in probe_results.items():
+                merged = {**(result.metrics or {}), **resources.get(cid, {})}
+                tlevel, tmsg = level_from_metrics(cid, merged, thresholds)
+                level = _worst(result.level, tlevel)
+                message = result.message or (tmsg if tlevel != "ok" else None)
+                await self._upsert_health(session, cid, result.status, level, message, merged, now)
+
+        # 5) Persist samples + prune retention.
         async with session_scope() as session:
             session.add_all(samples)
         pruned = await self._prune(settings, now)
 
-        log.info("monitor cycle: probed=%d samples=%d", probed, len(samples))
-        return {"probed": probed, "samples": len(samples), **pruned}
+        log.info("monitor cycle: probed=%d samples=%d", len(probe_results), len(samples))
+        return {"probed": len(probe_results), "samples": len(samples), **pruned}
+
+    async def _load_thresholds(self) -> dict:
+        try:
+            async with session_scope() as session:
+                return await config_service.get(session, "monitoring.thresholds", {}) or {}
+        except Exception:  # noqa: BLE001
+            return {}
 
     # ── internals ──────────────────────────────────────────────────────────────────────────
 
@@ -88,18 +133,16 @@ class Collector:
         except Exception:  # noqa: BLE001
             log.warning("heartbeat write failed", exc_info=True)
 
-    async def _upsert_health(self, session, component_id, result, now) -> None:
+    async def _upsert_health(self, session, component_id, status, level, message, metrics, now):
         row = await session.get(ComponentHealth, component_id)
         if row is None:
             session.add(ComponentHealth(
-                component_id=component_id, status=result.status, level=result.level,
-                message=result.message, metrics=result.metrics or None, checked_at=now,
+                component_id=component_id, status=status, level=level,
+                message=message, metrics=metrics or None, checked_at=now,
             ))
         else:
-            row.status = result.status
-            row.level = result.level
-            row.message = result.message
-            row.metrics = result.metrics or None
+            row.status, row.level, row.message = status, level, message
+            row.metrics = metrics or None
             row.checked_at = now
 
     def _container_samples(self, component_id, service, snap, now) -> list[MetricSample]:
@@ -179,6 +222,18 @@ class Collector:
                 "AND started_at < now() - interval '12 hours'"
             ))
         return {"pruned_metrics": pm.rowcount or 0, "pruned_logs": pl.rowcount or 0}
+
+
+def _resource_metrics(snap: dict) -> dict:
+    """The container resource values used for threshold checks (cpu/mem utilization)."""
+    out: dict = {}
+    cpu = snap.get("cpu_pct")
+    if cpu is not None:
+        out["cpu_pct"] = cpu
+    rss, limit = snap.get("mem_rss_bytes"), snap.get("mem_limit_bytes")
+    if rss is not None and limit:
+        out["mem_used_pct"] = rss / limit * 100.0
+    return out
 
 
 async def run_monitor() -> dict:
