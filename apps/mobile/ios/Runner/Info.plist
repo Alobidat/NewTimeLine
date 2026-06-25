@@ -66,5 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Record videos to post to your timeline.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record audio with your videos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a video from your library to post.</string>
 </dict>
 </plist>

@@ -30,6 +30,7 @@ class UploadScreen extends StatefulWidget {
     required this.auth,
     this.pickClip = captureClip,
     this.captureSupported,
+    this.recordInApp,
     this.replyToEventId,
     this.replyToTitle,
   });
@@ -42,6 +43,10 @@ class UploadScreen extends StatefulWidget {
 
   /// Force the capture UI on/off (defaults to the platform's [canCaptureClip]); for tests.
   final bool? captureSupported;
+
+  /// Force the in-app live recorder on/off (defaults to the platform's [canRecordInApp]); for
+  /// tests — when false, "Record" goes straight to [pickClip] instead of opening the recorder.
+  final bool? recordInApp;
 
   /// When set, this upload is a **video reply** to that event: its id pre-fills the required
   /// link (satisfying the ADR-0020 "links" invariant) and a banner names what's being replied to.
@@ -66,6 +71,7 @@ class _UploadScreenState extends State<UploadScreen> {
   PickedClip? _clip; // a recorded/chosen device clip (takes priority over the URL)
 
   bool get _captureSupported => widget.captureSupported ?? canCaptureClip;
+  bool get _canRecord => widget.recordInApp ?? canRecordInApp;
 
   @override
   void initState() {
@@ -110,7 +116,7 @@ class _UploadScreenState extends State<UploadScreen> {
   Future<void> _pick({required bool fromCamera}) async {
     try {
       PickedClip? clip;
-      if (fromCamera && canRecordInApp) {
+      if (fromCamera && _canRecord) {
         clip = await recordClipInApp(context);
         if (!mounted) return;
         clip ??= await widget.pickClip(fromCamera: true); // recorder unavailable → file fallback

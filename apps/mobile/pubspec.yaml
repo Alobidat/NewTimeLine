@@ -50,6 +50,12 @@ dependencies:
   # Raw HTML <video> for the web feed (full-bleed object-fit: cover; feed/web_video_web.dart).
   web: ^1.1.0
 
+  # Native capture (android + iOS) behind the shared facades — one impl, both platforms:
+  #   camera      → the in-app live recorder (lib/creator/recorder_native.dart)
+  #   file_picker → pick a clip from the device (lib/upload/clip_source_io.dart)
+  camera: ^0.11.0
+  file_picker: ^8.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

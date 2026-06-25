@@ -1,8 +1,8 @@
 /// Platform-agnostic contract for the in-app camera recorder (Creator Studio Phase 1).
 ///
-/// The web implementation ([recorder_web.dart]) drives getUserMedia + MediaRecorder; the
-/// non-web stub ([recorder_stub.dart]) reports unavailable. The recorder UI ([RecorderScreen])
-/// talks only to this interface, so it's fully testable with a fake controller.
+/// The web implementation ([recorder_web.dart]) drives getUserMedia + MediaRecorder; the native
+/// implementation ([recorder_native.dart]) drives the `camera` plugin. The recorder UI
+/// ([RecorderScreen]) talks only to this interface, so it's fully testable with a fake controller.
 library;
 
 import 'package:flutter/widgets.dart';

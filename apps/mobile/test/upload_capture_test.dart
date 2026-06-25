@@ -34,7 +34,8 @@ void main() {
     await tester.pumpWidget(_host(UploadScreen(
       api: api,
       auth: AuthState(api: api),
-      captureSupported: true, // force the web capture UI on the test VM
+      captureSupported: true, // force the capture UI on the test VM
+      recordInApp: false, // "Record" uses the injected picker, not the live recorder
       pickClip: ({bool fromCamera = false}) async => clip,
     )));
 
