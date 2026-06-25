@@ -28,6 +28,8 @@ class UploadScreen extends StatefulWidget {
     required this.auth,
     this.pickClip = captureClip,
     this.captureSupported,
+    this.replyToEventId,
+    this.replyToTitle,
   });
 
   final ApiClient api;
@@ -38,6 +40,11 @@ class UploadScreen extends StatefulWidget {
 
   /// Force the capture UI on/off (defaults to the platform's [canCaptureClip]); for tests.
   final bool? captureSupported;
+
+  /// When set, this upload is a **video reply** to that event: its id pre-fills the required
+  /// link (satisfying the ADR-0020 "links" invariant) and a banner names what's being replied to.
+  final String? replyToEventId;
+  final String? replyToTitle;
 
   @override
   State<UploadScreen> createState() => _UploadScreenState();
@@ -57,6 +64,13 @@ class _UploadScreenState extends State<UploadScreen> {
   PickedClip? _clip; // a recorded/chosen device clip (takes priority over the URL)
 
   bool get _captureSupported => widget.captureSupported ?? canCaptureClip;
+
+  @override
+  void initState() {
+    super.initState();
+    // A video reply pre-fills the required "related event" link with its parent.
+    if (widget.replyToEventId != null) _links.text = widget.replyToEventId!;
+  }
 
   @override
   void dispose() {
@@ -133,8 +147,9 @@ class _UploadScreenState extends State<UploadScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isReply = widget.replyToEventId != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Upload a clip')),
+      appBar: AppBar(title: Text(isReply ? 'Reply with a video' : 'Upload a clip')),
       body: AbsorbPointer(
         absorbing: _busy,
         child: Form(
@@ -142,6 +157,25 @@ class _UploadScreenState extends State<UploadScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (isReply) ...[
+                Card(
+                  key: const Key('upload-reply-banner'),
+                  margin: EdgeInsets.zero,
+                  color: Theme.of(context).colorScheme.secondaryContainer,
+                  child: ListTile(
+                    leading: const Icon(Icons.reply),
+                    title: const Text('Replying with a video'),
+                    subtitle: Text(
+                      widget.replyToTitle?.trim().isNotEmpty == true
+                          ? 'to “${widget.replyToTitle!.trim()}”'
+                          : 'to the selected event',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               const Text(
                 'Every event needs a time, a place, who was involved, and at least one '
                 'related event it connects to.',

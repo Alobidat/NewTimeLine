@@ -16,6 +16,7 @@ import '../domain/time_format.dart';
 import '../profile/avatar.dart';
 import '../profile/user_profile_page.dart';
 import '../state/auth_state.dart';
+import '../upload/upload_screen.dart';
 import 'comments_section.dart' show CommentComposer, CommentNode, buildCommentTree;
 import 'media_gallery.dart' show MediaThumb, isShowableMedia, orderMediaClipsFirst;
 import 'media_viewer.dart';
@@ -82,10 +83,34 @@ class _CommentsPageState extends State<CommentsPage> {
     );
   }
 
+  /// Reply to this event with a video — opens the capture/upload flow pre-linked to it.
+  void _replyWithVideo() {
+    Navigator.of(context).push(
+      MaterialPageRoute<bool>(
+        builder: (_) => UploadScreen(
+          api: widget.api,
+          auth: widget.auth,
+          replyToEventId: widget.event.id,
+          replyToTitle: widget.event.title,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Discussion')),
+      appBar: AppBar(
+        title: const Text('Discussion'),
+        actions: [
+          IconButton(
+            key: const Key('discussion-reply-video'),
+            icon: const Icon(Icons.video_call_outlined),
+            tooltip: 'Reply with a video',
+            onPressed: _replyWithVideo,
+          ),
+        ],
+      ),
       body: Column(
         children: [
           _EventHeader(api: widget.api, event: widget.event, detail: _detail),

@@ -58,6 +58,27 @@ void main() {
     expect(find.byKey(const Key('upload-source-url')), findsOneWidget);
   });
 
+  testWidgets('reply mode pre-links the parent event and shows a reply banner',
+      (tester) async {
+    final api = _api();
+    addTearDown(api.close);
+    await tester.binding.setSurfaceSize(const Size(1200, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_host(UploadScreen(
+      api: api,
+      auth: AuthState(api: api),
+      captureSupported: false,
+      replyToEventId: 'evt-parent-123',
+      replyToTitle: 'The Berlin Wall falls',
+    )));
+
+    // A banner names what's being replied to, and the required link is pre-filled with the parent.
+    expect(find.byKey(const Key('upload-reply-banner')), findsOneWidget);
+    expect(find.textContaining('The Berlin Wall falls'), findsOneWidget);
+    expect(find.text('evt-parent-123'), findsOneWidget); // pre-filled in the links field
+  });
+
   testWidgets('without capture support, only the URL path is offered', (tester) async {
     final api = _api();
     addTearDown(api.close);
