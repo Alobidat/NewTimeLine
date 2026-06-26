@@ -22,7 +22,8 @@ LTXV_CKPT = "ltx-video-2b-v0.9.5.safetensors"
 LTXV_T5 = "t5xxl_fp16.safetensors"
 SDXL_CKPT = "sd_xl_base_1.0.safetensors"
 _DEFAULT_NEG = "low quality, worst quality, blurry, distorted, static, watermark, text, deformed"
-# SDXL stays sharp/coherent up to ~1:1.6; 832x1216 is the standard portrait the feed (9:16) crops.
+# 768x1344 is SDXL's native 9:16 aspect bucket — matches the phone feed full-bleed, so scenes
+# fill the frame with no side-cropping (832x1216 would lose ~18% of the width on a 9:16 canvas).
 _IMG_NEG = ("low quality, worst quality, blurry, deformed, disfigured, watermark, signature, "
             "text, caption, subtitles, logo, frame, border, ugly, jpeg artifacts")
 
@@ -162,8 +163,8 @@ def build_sdxl_text2image(
     prompt: str,
     *,
     negative: str = _IMG_NEG,
-    width: int = 832,
-    height: int = 1216,
+    width: int = 768,
+    height: int = 1344,
     steps: int = 30,
     cfg: float = 7.0,
     seed: int = 0,
@@ -192,8 +193,8 @@ async def generate_image(
     prompt: str,
     *,
     negative: str = _IMG_NEG,
-    width: int = 832,
-    height: int = 1216,
+    width: int = 768,
+    height: int = 1344,
     steps: int = 30,
     seed: int = 0,
     timeout_s: int = 300,
