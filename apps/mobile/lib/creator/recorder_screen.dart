@@ -69,11 +69,15 @@ class _RecorderScreenState extends State<RecorderScreen> {
 
   Future<void> _stop() async {
     _ticker?.cancel();
+    final recorded = _elapsed; // shutter-timer length → lets the editor offer a trim window
     setState(() {
       _recording = false;
       _finishing = true;
     });
-    final clip = await widget.controller.stopRecording();
+    var clip = await widget.controller.stopRecording();
+    if (clip != null && recorded > Duration.zero) {
+      clip = clip.copyWith(durationS: recorded.inMilliseconds / 1000.0);
+    }
     if (!mounted) return;
     Navigator.of(context).pop(clip);
   }

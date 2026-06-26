@@ -106,10 +106,15 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
 
-    // Tap to stop → screen pops the clip.
+    // Tap to stop → screen pops the captured clip, now carrying the recorded duration (~1s)
+    // so the editor can offer a trim window.
     await tester.tap(find.byKey(const Key('recorder-shutter')));
     await tester.pumpAndSettle();
-    expect(popped, same(clip));
+    expect(popped, isNotNull);
+    expect(popped!.bytes, same(clip.bytes));
+    expect(popped!.filename, clip.filename);
+    expect(popped!.mime, clip.mime);
+    expect(popped!.durationS, 1.0);
   });
 }
 

@@ -4,7 +4,12 @@ library;
 import 'dart:typed_data';
 
 class PickedClip {
-  const PickedClip({required this.bytes, required this.filename, required this.mime});
+  const PickedClip({
+    required this.bytes,
+    required this.filename,
+    required this.mime,
+    this.durationS,
+  });
 
   /// The raw clip bytes (handed straight to `ApiClient.upload(fileBytes: …)`).
   final Uint8List bytes;
@@ -16,6 +21,17 @@ class PickedClip {
   /// server accepts it (it gates on `video/*`).
   final String mime;
 
+  /// Clip length in seconds when known (in-app recordings track it via the shutter timer) —
+  /// lets the editor offer a trim window. Null for device-picked files we haven't measured.
+  final double? durationS;
+
   /// Size in bytes, for a friendly "12.3 MB" label before upload.
   int get sizeBytes => bytes.length;
+
+  PickedClip copyWith({double? durationS}) => PickedClip(
+        bytes: bytes,
+        filename: filename,
+        mime: mime,
+        durationS: durationS ?? this.durationS,
+      );
 }

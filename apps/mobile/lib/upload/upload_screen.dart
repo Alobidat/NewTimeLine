@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 
 import '../api/client.dart';
 import '../auth/interaction_gate.dart';
+import '../creator/clip_edit_controls.dart';
+import '../creator/clip_project.dart';
 import '../creator/recorder.dart' show canRecordInApp;
 import '../creator/recorder_screen.dart' show recordClipInApp;
 import '../state/auth_state.dart';
@@ -69,6 +71,7 @@ class _UploadScreenState extends State<UploadScreen> {
   String _audience = 'public'; // who can see this post
   bool _busy = false;
   PickedClip? _clip; // a recorded/chosen device clip (takes priority over the URL)
+  ClipProject _edit = const ClipProject(); // trim/speed applied to the chosen clip (server-side)
 
   bool get _captureSupported => widget.captureSupported ?? canCaptureClip;
   bool get _canRecord => widget.recordInApp ?? canRecordInApp;
@@ -124,7 +127,12 @@ class _UploadScreenState extends State<UploadScreen> {
         clip = await widget.pickClip(fromCamera: fromCamera);
       }
       if (clip == null || !mounted) return;
-      setState(() => _clip = clip);
+      setState(() {
+        _clip = clip;
+        // Seed the editor with the clip's duration (known for in-app recordings) so it can
+        // offer a trim window; speed is always available.
+        _edit = ClipProject(durationS: clip!.durationS);
+      });
     } catch (e) {
       _snack('Could not read that video: $e');
     }
@@ -151,6 +159,10 @@ class _UploadScreenState extends State<UploadScreen> {
         mime: clip?.mime,
         sourceUrl: clip == null ? _sourceUrl.text.trim() : null,
         audience: _audience,
+        // Trim/speed the user set on the clip (no-ops normalize to null → a plain upload).
+        trimStart: clip == null ? null : _edit.uploadTrimStart,
+        trimEnd: clip == null ? null : _edit.uploadTrimEnd,
+        speed: clip == null ? null : _edit.uploadSpeed,
       );
       if (!mounted) return;
       _snack(result.isPending
@@ -301,9 +313,18 @@ class _UploadScreenState extends State<UploadScreen> {
                         key: const Key('upload-clip-clear'),
                         icon: const Icon(Icons.close),
                         tooltip: 'Remove',
-                        onPressed: () => setState(() => _clip = null),
+                        onPressed: () => setState(() {
+                          _clip = null;
+                          _edit = const ClipProject();
+                        }),
                       ),
                     ),
+                  ),
+                // Trim/speed controls for the chosen clip (server applies them on publish).
+                if (_clip != null)
+                  ClipEditControls(
+                    project: _edit,
+                    onChanged: (p) => setState(() => _edit = p),
                   ),
                 if (_clip == null) ...[
                   const SizedBox(height: 8),

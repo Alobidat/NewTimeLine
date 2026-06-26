@@ -80,6 +80,73 @@ void main() {
     expect(find.text('evt-parent-123'), findsOneWidget); // pre-filled in the links field
   });
 
+  testWidgets('a chosen clip shows speed controls; trim is hidden without a known duration',
+      (tester) async {
+    final clip = PickedClip(
+      bytes: Uint8List.fromList(List.filled(1024, 7)),
+      filename: 'pick.mp4',
+      mime: 'video/mp4',
+    ); // a file pick: no duration → speed only
+    final api = _api();
+    addTearDown(api.close);
+    await tester.binding.setSurfaceSize(const Size(1200, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_host(UploadScreen(
+      api: api,
+      auth: AuthState(api: api),
+      captureSupported: true,
+      recordInApp: false,
+      pickClip: ({bool fromCamera = false}) async => clip,
+    )));
+
+    await tester.tap(find.byKey(const Key('upload-choose')));
+    await tester.pumpAndSettle();
+
+    // Speed chips present; default is 1×; no trim slider (duration unknown).
+    expect(find.byKey(const Key('clip-speed-0.5')), findsOneWidget);
+    expect(find.byKey(const Key('clip-speed-2.0')), findsOneWidget);
+    expect(find.byKey(const Key('clip-trim')), findsNothing);
+    expect(tester.widget<ChoiceChip>(find.byKey(const Key('clip-speed-1.0'))).selected, isTrue);
+
+    // Choosing 2× selects it and deselects 1×.
+    await tester.tap(find.byKey(const Key('clip-speed-2.0')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<ChoiceChip>(find.byKey(const Key('clip-speed-2.0'))).selected, isTrue);
+    expect(tester.widget<ChoiceChip>(find.byKey(const Key('clip-speed-1.0'))).selected, isFalse);
+
+    // Removing the clip tears the controls down.
+    await tester.tap(find.byKey(const Key('upload-clip-clear')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('clip-speed-2.0')), findsNothing);
+  });
+
+  testWidgets('a clip with a known duration offers a trim slider', (tester) async {
+    final clip = PickedClip(
+      bytes: Uint8List.fromList(List.filled(1024, 7)),
+      filename: 'take.mp4',
+      mime: 'video/mp4',
+      durationS: 12, // an in-app recording knows its length → trim available
+    );
+    final api = _api();
+    addTearDown(api.close);
+    await tester.binding.setSurfaceSize(const Size(1200, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_host(UploadScreen(
+      api: api,
+      auth: AuthState(api: api),
+      captureSupported: true,
+      recordInApp: false,
+      pickClip: ({bool fromCamera = false}) async => clip,
+    )));
+
+    await tester.tap(find.byKey(const Key('upload-record')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('clip-trim')), findsOneWidget);
+    expect(find.byKey(const Key('clip-trim-label')), findsOneWidget);
+  });
+
   testWidgets('without capture support, only the URL path is offered', (tester) async {
     final api = _api();
     addTearDown(api.close);

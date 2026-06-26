@@ -803,6 +803,9 @@ class ApiClient {
     String? mime,
     String? sourceUrl,
     String? audience,
+    double? trimStart,
+    double? trimEnd,
+    double? speed,
   }) async {
     final uri = Uri.parse('$baseUrl/upload');
     final req = http.MultipartRequest('POST', uri)
@@ -815,6 +818,11 @@ class ApiClient {
       ..fields['actors'] = actorNames.join(',')
       ..fields['links'] = linkEventIds.join(',');
     if (audience != null) req.fields['audience'] = audience;
+    // Creator-Studio edit: the server applies trim/speed when building the web variant. Only
+    // send a field when set, so a plain upload stays a plain upload.
+    if (trimStart != null) req.fields['trim_start'] = trimStart.toString();
+    if (trimEnd != null) req.fields['trim_end'] = trimEnd.toString();
+    if (speed != null) req.fields['speed'] = speed.toString();
     if (sourceUrl != null && sourceUrl.isNotEmpty) {
       req.fields['source_url'] = sourceUrl;
     }
