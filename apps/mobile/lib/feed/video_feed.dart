@@ -66,11 +66,6 @@ class _VideoFeedState extends State<VideoFeed>
   /// finger moved up = toward the next clip). Reset on each drag start / page change.
   double _dragDy = 0;
 
-  /// TEMPORARY on-screen gesture monitor (top HUD) — shows what Flutter actually receives so we
-  /// can diagnose the "centre swipe does nothing" report on a real device. Remove once resolved.
-  String _dbg = 'swipe anywhere';
-  int _gestureN = 0;
-
   /// Event ids the user has saved this session (drives the filled bookmark icon). Seeded
   /// optimistically on toggle — we don't pre-fetch each item's saved state to keep the feed
   /// request-light, so a previously-saved clip shows unfilled until the user taps it.
@@ -165,11 +160,6 @@ class _VideoFeedState extends State<VideoFeed>
     final threshold = MediaQuery.sizeOf(context).height * _dragFraction;
     final next = v < -_flingVelocity || _dragDy < -threshold;
     final prev = v > _flingVelocity || _dragDy > threshold;
-    setState(() {
-      _gestureN++;
-      _dbg = 'V-DRAG dy=${_dragDy.round()} v=${v.round()} '
-          '→ ${next ? "NEXT" : prev ? "PREV" : "none"}';
-    });
     _dragDy = 0;
     if (next) {
       _moveFeed(1); // swipe up → next event in the feed
@@ -613,29 +603,19 @@ class _VideoFeedState extends State<VideoFeed>
         // over the rail's transparent middle still reach the buttons above (higher in the stack).
         Positioned.fill(
           key: const Key('feed-gestures'),
-          // TEMP: Listener records EVERY raw pointer that reaches Flutter (regardless of gesture
-          // recognition), so the HUD reveals whether a centre swipe is reaching Flutter at all.
-          child: Listener(
+          child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onPointerDown: (e) => setState(() =>
-                _dbg = 'DOWN ${e.position.dx.round()},${e.position.dy.round()}'),
-            onPointerMove: (e) => setState(() =>
-                _dbg = 'MOVE dy=${e.delta.dy.round()} @${e.position.dy.round()}'),
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onVerticalDragStart: (_) => _dragDy = 0,
-              onVerticalDragUpdate: (d) => _dragDy += d.delta.dy,
-              onVerticalDragEnd: _onVerticalDragEnd,
-              onHorizontalDragEnd: (d) {
-                final v = d.primaryVelocity ?? 0;
-                setState(() => _dbg = 'H-DRAG v=${v.round()}');
-                if (v > _flingVelocity) {
-                  _walkTimeline(forward: true); // right → next in timeline
-                } else if (v < -_flingVelocity) {
-                  _walkTimeline(forward: false); // left → previous in timeline
-                }
-              },
-            ),
+            onVerticalDragStart: (_) => _dragDy = 0,
+            onVerticalDragUpdate: (d) => _dragDy += d.delta.dy,
+            onVerticalDragEnd: _onVerticalDragEnd,
+            onHorizontalDragEnd: (d) {
+              final v = d.primaryVelocity ?? 0;
+              if (v > _flingVelocity) {
+                _walkTimeline(forward: true); // right → next in timeline
+              } else if (v < -_flingVelocity) {
+                _walkTimeline(forward: false); // left → previous in timeline
+              }
+            },
           ),
         ),
         // Pinned bottom scrim so the caption stays legible over bright clips (childless →
@@ -729,28 +709,6 @@ class _VideoFeedState extends State<VideoFeed>
               onDown: canDown ? () => _moveFeed(-1) : null,
               onLeft: canPrev ? () => _walkTimeline(forward: false) : null,
               onRight: canNext ? () => _walkTimeline(forward: true) : null,
-            ),
-          ),
-        ),
-        // TEMP: gesture monitor HUD. Shows the last raw pointer + the last drag Flutter
-        // recognised, so we can see whether a centre swipe reaches Flutter at all.
-        Positioned(
-          top: 90,
-          left: 12,
-          right: 12,
-          child: IgnorePointer(
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'monitor #$_gestureN  ·  $_dbg',
-                  style: const TextStyle(color: Colors.greenAccent, fontSize: 12),
-                ),
-              ),
             ),
           ),
         ),
