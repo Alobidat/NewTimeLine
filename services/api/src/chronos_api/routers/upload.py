@@ -27,6 +27,7 @@ import httpx
 import redis as redislib
 from chronos_core import config_service, objectstore, run_queue
 from chronos_core import upload as upload_core
+from chronos_core.domain.media_edit import normalize_edit_spec
 from chronos_core.models.user import User
 from chronos_core.run_queue import push_job
 from chronos_core.schemas.event import GeoPoint
@@ -173,6 +174,9 @@ async def upload_video(
     duration_s: int | None = Form(default=None),
     width: int | None = Form(default=None),
     height: int | None = Form(default=None),
+    trim_start: float | None = Form(default=None),
+    trim_end: float | None = Form(default=None),
+    speed: float | None = Form(default=None),
     category: str | None = Form(default=None),
     audience: str | None = Form(default=None),
     session: AsyncSession = Depends(get_session),
@@ -284,6 +288,7 @@ async def upload_video(
         height=height,
         category=category,
         visibility=chosen_audience,
+        edit_spec=normalize_edit_spec(trim_start=trim_start, trim_end=trim_end, speed=speed),
     )
     await session.flush()
 

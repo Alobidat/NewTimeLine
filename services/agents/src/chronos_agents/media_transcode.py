@@ -71,7 +71,39 @@ def _needs_transcode(mime: str | None, codec: str | None, width: int | None) -> 
     return bool(width and width > MAX_WIDTH)
 
 
-def _transcode_mp4(in_path: str) -> tuple[bytes, int | None, int | None] | None:
+def _build_ffmpeg_args(in_path: str, out_path: str, edit: dict | None = None) -> list[str]:
+    """Assemble the ffmpeg command for the web mp4, applying an optional Creator-Studio edit
+    (trim window + speed). Trim uses fast input-seek (``-ss`` before ``-i``) plus a ``-t``
+    duration; speed retimes video (``setpts``) and audio (``atempo``). Pure string-building, so
+    it's unit-tested without invoking ffmpeg."""
+    edit = edit or {}
+    args = ["ffmpeg", "-nostdin", "-v", "error", "-y"]
+
+    trim_start = edit.get("trim_start")
+    trim_end = edit.get("trim_end")
+    if trim_start:
+        args += ["-ss", f"{float(trim_start):.3f}"]  # input seek = fast; re-encode keeps it exact
+    args += ["-i", in_path]
+    if trim_end is not None:
+        duration = float(trim_end) - float(trim_start or 0.0)
+        if duration > 0:
+            args += ["-t", f"{duration:.3f}"]
+
+    speed = float(edit["speed"]) if edit.get("speed") else 1.0
+    vfilters = [f"scale=min({MAX_WIDTH}\\,iw):-2"]
+    if speed != 1.0:
+        vfilters.append(f"setpts={1.0 / speed:.6f}*PTS")
+    args += ["-vf", ",".join(vfilters)]
+    args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]
+    if speed != 1.0:
+        args += ["-af", f"atempo={speed:.3f}"]  # atempo handles 0.5–2.0 in one pass (media_edit)
+    args += ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out_path]
+    return args
+
+
+def _transcode_mp4(
+    in_path: str, *, edit: dict | None = None
+) -> tuple[bytes, int | None, int | None] | None:
     """Re-encode the clip at ``in_path`` to a web mp4. Returns ``(bytes, width, height)`` or None.
 
     mp4 ``+faststart`` rewrites the moov atom to the front, so the output must be a seekable
@@ -79,10 +111,7 @@ def _transcode_mp4(in_path: str) -> tuple[bytes, int | None, int | None] | None:
     out_path = in_path + ".web.mp4"
     try:
         proc = subprocess.run(
-            ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", in_path,
-             "-vf", f"scale=min({MAX_WIDTH}\\,iw):-2",
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-             "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out_path],
+            _build_ffmpeg_args(in_path, out_path, edit),
             capture_output=True, timeout=_TRANSCODE_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError):
@@ -101,12 +130,15 @@ def _transcode_mp4(in_path: str) -> tuple[bytes, int | None, int | None] | None:
             pass
 
 
-def _evaluate(data: bytes, mime: str | None, width: int | None) -> dict | None:
+def _evaluate(
+    data: bytes, mime: str | None, width: int | None, edit: dict | None = None
+) -> dict | None:
     """Decide + produce the web variant for a clip blob (runs off the event loop).
 
     Returns ``{"mode": "transcoded", "data": bytes, "width", "height"}`` for a re-encode, or
     ``{"mode": "passthrough", "width", "height"}`` when the source is already web-safe. ``None``
-    when the clip can't be read at all."""
+    when the clip can't be read at all. An ``edit`` (trim/speed) always forces a re-encode — a
+    passthrough can't carry edits."""
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tf:
         tf.write(data)
         path = tf.name
@@ -114,9 +146,9 @@ def _evaluate(data: bytes, mime: str | None, width: int | None) -> dict | None:
         codec, w, h = _probe_codec_dims(path)
         if codec is None:
             return None  # unreadable / no video stream → leave for a later retry
-        if not _needs_transcode(mime, codec, w):
+        if not edit and not _needs_transcode(mime, codec, w):
             return {"mode": "passthrough", "width": w, "height": h}
-        out = _transcode_mp4(path)
+        out = _transcode_mp4(path, edit=edit)
         if out is None:
             return None
         ev_data, ew, eh = out
@@ -144,12 +176,14 @@ async def _insert_variant(
         )
 
 
-async def _process(media_id, storage_key: str, mime: str | None, width: int | None) -> str | None:
+async def _process(
+    media_id, storage_key: str, mime: str | None, width: int | None, edit: dict | None = None
+) -> str | None:
     """Produce + persist the web variant for one clip. Returns ``transcoded`` | ``passthrough``."""
     raw = await asyncio.to_thread(objectstore.get_bytes, storage_key)
     if not raw:
         return None
-    result = await asyncio.to_thread(_evaluate, raw, mime, width)
+    result = await asyncio.to_thread(_evaluate, raw, mime, width, edit)
     if result is None:
         return None
     if result["mode"] == "transcoded":
@@ -182,7 +216,7 @@ async def transcode_pending(*, batch: int = 20, full: bool = False) -> dict:
     async with session_scope() as session:
         rows = (
             await session.execute(
-                select(Media.id, Media.storage_key, Media.mime, Media.width)
+                select(Media.id, Media.storage_key, Media.mime, Media.width, Media.edit_spec)
                 .where(
                     Media.kind == "video",
                     Media.status == "stored",
@@ -195,10 +229,10 @@ async def transcode_pending(*, batch: int = 20, full: bool = False) -> dict:
             )
         ).all()
 
-    for media_id, storage_key, mime, width in rows:
+    for media_id, storage_key, mime, width, edit_spec in rows:
         totals["scanned"] += 1
         try:
-            outcome = await _process(media_id, storage_key, mime, width)
+            outcome = await _process(media_id, storage_key, mime, width, edit_spec)
         except Exception:  # noqa: BLE001 - one bad clip must never abort the batch
             log.warning("media-transcode failed for %s", media_id, exc_info=True)
             totals["failed"] += 1

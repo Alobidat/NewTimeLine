@@ -507,6 +507,72 @@ def test_upload_with_storage_key_skips_buffering(client, monkeypatch):
     assert put_calls == []  # the binary was never streamed through the API
 
 
+def test_upload_passes_trim_speed_as_edit_spec(client, monkeypatch):
+    """trim/speed form fields become a normalized edit_spec on the hero media."""
+    created = {}
+
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    async def fake_create(session, **kw):
+        created.update(kw)
+
+        class _Ev:
+            id = uuid.uuid4()
+            status = type("S", (), {"value": "published"})()
+            visibility = type("V", (), {"value": "public"})()
+
+        return _Ev()
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.put_bytes", lambda k, d, **kw: k)
+    monkeypatch.setattr(upload_core, "create_video_event", fake_create)
+    monkeypatch.setattr("chronos_api.routers.upload._enqueue_geocode", lambda: None)
+
+    resp = client.post(
+        "/upload",
+        data={
+            "title": "Edited clip", "t_start": "2025.0",
+            "actors": "Alice", "locations": "Cairo", "links": str(uuid.uuid4()),
+            "trim_start": "1.5", "trim_end": "9.0", "speed": "2.0",
+        },
+        files={"file": ("clip.mp4", io.BytesIO(b"\x00\x01vid"), "video/mp4")},
+    )
+    assert resp.status_code == 201
+    assert created["edit_spec"] == {"trim_start": 1.5, "trim_end": 9.0, "speed": 2.0}
+
+
+def test_upload_without_edits_has_null_edit_spec(client, monkeypatch):
+    created = {}
+
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    async def fake_create(session, **kw):
+        created.update(kw)
+
+        class _Ev:
+            id = uuid.uuid4()
+            status = type("S", (), {"value": "published"})()
+            visibility = type("V", (), {"value": "public"})()
+
+        return _Ev()
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.put_bytes", lambda k, d, **kw: k)
+    monkeypatch.setattr(upload_core, "create_video_event", fake_create)
+    monkeypatch.setattr("chronos_api.routers.upload._enqueue_geocode", lambda: None)
+
+    resp = client.post(
+        "/upload",
+        data={"title": "Plain", "t_start": "2025.0", "actors": "A", "locations": "B",
+              "links": str(uuid.uuid4())},
+        files={"file": ("clip.mp4", io.BytesIO(b"\x00\x01vid"), "video/mp4")},
+    )
+    assert resp.status_code == 201
+    assert created["edit_spec"] is None
+
+
 def test_upload_rejects_foreign_storage_key(client, monkeypatch):
     """A storage_key under someone else's prefix is refused before any store access."""
     async def fake_cfg(session, key, default=None):

@@ -24,6 +24,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chronos_core.db.base import Base
@@ -70,6 +71,10 @@ class Media(UuidPk, Timestamps, Base):
     last_available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # avail_state: unknown | available | moved | gone
     avail_state: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
+
+    # Creator-Studio edit spec applied by the transcode agent when building the web variant —
+    # e.g. {"trim_start": 1.5, "trim_end": 9.0, "speed": 2.0}. Null = no edits (Phase 1).
+    edit_spec: Mapped[dict | None] = mapped_column(JSONB)
 
     __table_args__ = (UniqueConstraint("content_hash", name="uq_media_content_hash"),)
 

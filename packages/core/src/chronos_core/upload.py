@@ -57,6 +57,7 @@ async def create_video_event(
     height: int | None = None,
     category: str | None = None,
     visibility: str | None = None,
+    edit_spec: dict | None = None,
 ) -> Event:
     """Create a **published** user video event with its hero clip + metadata, at the chosen
     audience ``visibility`` (public|followers|friends). Caller commits."""
@@ -92,6 +93,7 @@ async def create_video_event(
         disposition="pin",          # user uploads are pinned (we own the only copy)
         origin_kind="user",
         added_by=by,
+        edit_spec=edit_spec,        # transcode applies trim/speed when building the web variant
     )
     session.add(media)
     await session.flush()
