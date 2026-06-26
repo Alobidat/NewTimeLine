@@ -34,8 +34,9 @@ from chronos_core.models.relation import EventRelation
 from sqlalchemy import select
 from sqlalchemy.orm import aliased
 
-from chronos_agents import comfyui
+from chronos_agents import comfyui, tts
 from chronos_agents._json import extract_json_object
+from chronos_agents.bots import news_video_render
 
 log = logging.getLogger("chronos.agents.bots.news_video")
 AGENT = "news-video"
@@ -101,28 +102,34 @@ async def _find_hot_story(session, *, since_days: int, exclude: set[uuid.UUID]):
     return None
 
 
-def _anchor_system(display_name: str) -> str:
+def _anchor_system(display_name: str, scenes: int) -> str:
     return (
-        f"You are {display_name}, an AI news anchor producing short cinematic video dispatches for "
-        "a world-events feed. Given a breaking-news headline, write a vivid TEXT-TO-VIDEO prompt "
-        "that visually represents the story: one concrete scene, real setting, camera motion, "
-        "lighting and mood — NO on-screen text, logos, captions, or watermarks. Then write the "
-        "post in your voice. Return ONLY a JSON object: "
-        '{"video_prompt": string (<=400 chars, the scene to render), '
-        '"title": string (<=100 chars), "summary": string (1-2 sentences), '
+        f"You are {display_name}, an AI news anchor producing a short, INFORMATIVE video dispatch "
+        "that summarizes a breaking story for a world-events feed. Given the headline + summary, "
+        "produce a tight script. Return ONLY a JSON object: "
+        '{"title": string (<=90 chars, punchy), '
+        '"summary": string (1-2 sentences), '
+        '"narration": string (the spoken voiceover: '
+        f'{scenes} short, factual, information-dense sentences that actually summarize the story — '
+        'no fluff, no "in this video"), '
+        f'"scenes": array of exactly {scenes} objects, each '
+        '{"visual": string (a concrete photojournalistic IMAGE prompt for this beat — real '
+        'setting, subjects, lighting; documentary news photography; NO text/logos/watermarks), '
+        '"caption": string (<=70 chars, an on-screen key fact for this beat)}, '
         f'"category": one of [{", ".join(sorted(_VALID_CATEGORIES))}], '
         '"actors": string[] (key people/orgs, may be empty), '
-        '"locations": string[] (places, may be empty)}.'
+        '"locations": string[] (places, may be empty)}. '
+        "The narration sentences and the scene captions should track the same beats in order."
     )
 
 
-async def _compose(router, display_name: str, story: Event) -> dict | None:
+async def _compose(router, display_name: str, story: Event, scenes: int) -> dict | None:
     user = f"Headline: {story.title}"
     if story.summary:
-        user += f"\nSummary: {story.summary[:600]}"
+        user += f"\nSummary: {story.summary[:800]}"
     try:
         resp = await router.complete(
-            system=_anchor_system(display_name), user=user, max_tokens=600
+            system=_anchor_system(display_name, scenes), user=user, max_tokens=2000
         )
         return extract_json_object(resp.text)
     except Exception:
@@ -130,20 +137,37 @@ async def _compose(router, display_name: str, story: Event) -> dict | None:
         return None
 
 
-def _fallback_compose(story: Event) -> dict:
-    """If the LLM is unavailable, render a generic but on-topic cinematic b-roll of the headline."""
+def _fallback_compose(story: Event, scenes: int) -> dict:
+    """If the LLM is unavailable, build a minimal but on-topic explainer from the headline."""
+    head = story.title.strip()
+    summary = (story.summary or head).strip()
+    visual = (f"photojournalistic documentary photo representing the news story: {head}. "
+              "real setting, dramatic natural light, sharp focus, news photography")
     return {
-        "video_prompt": (
-            f"cinematic documentary b-roll representing the news story: {story.title}. "
-            "realistic scene, dramatic natural lighting, slow smooth camera motion, "
-            "broadcast quality, highly detailed"
-        ),
-        "title": story.title[:100],
-        "summary": (story.summary or story.title)[:280],
+        "title": head[:90],
+        "summary": summary[:280],
+        "narration": summary,
+        "scenes": [{"visual": visual, "caption": head[:70]} for _ in range(max(scenes, 1))],
         "category": "news",
         "actors": [],
         "locations": [],
     }
+
+
+def _clean_scenes(value, *, limit: int) -> list[dict]:
+    """Sanitize the LLM 'scenes' into a bounded list of {visual, caption} with non-empty visuals."""
+    out: list[dict] = []
+    for s in value if isinstance(value, list) else []:
+        if not isinstance(s, dict):
+            continue
+        visual = str(s.get("visual") or "").strip()
+        if not visual:
+            continue
+        caption = str(s.get("caption") or "").strip()[:90]
+        out.append({"visual": visual[:400], "caption": caption})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _clean_list(value) -> list[str]:
@@ -169,11 +193,17 @@ async def generate_news_video(*, count: int = 1, story_id: str | None = None,
             log.warning("news-video: no agents.comfyui.base_url configured")
             return {"comfyui": "unconfigured"}
         timeout_s = int(await config_service.get(session, "agents.comfyui.timeout_seconds", 600))
-        seconds = float(await config_service.get(session, "agents.news_video.seconds", 4.0))
-        steps = int(await config_service.get(session, "agents.news_video.steps", 20))
+        n_scenes = int(await config_service.get(session, "agents.news_video.scenes", 5))
+        img_steps = int(await config_service.get(session, "agents.news_video.image_steps", 30))
+        img_w = int(await config_service.get(session, "agents.news_video.image_width", 832))
+        img_h = int(await config_service.get(session, "agents.news_video.image_height", 1216))
         since_days = int(await config_service.get(session, "agents.news_video.since_days", 7))
+        tts_enabled = bool(await config_service.get(session, "agents.news_video.tts_enabled", True))
+        voice_model = await config_service.get(
+            session, "agents.news_video.voice_model", "/opt/piper/en_US-amy-medium.onnx"
+        )
 
-        anchor_user, anchor_bot = await _ensure_anchor(session)
+        anchor_user, _anchor_bot = await _ensure_anchor(session)
         await session.commit()
         router = await build_router(session)
 
@@ -191,22 +221,42 @@ async def generate_news_video(*, count: int = 1, story_id: str | None = None,
                 seen.add(story.id)
                 totals["selected"] += 1
 
-                meta = await _compose(router, anchor_user.display_name, story) \
-                    or _fallback_compose(story)
-                vprompt = str(meta.get("video_prompt") or "").strip() \
-                    or _fallback_compose(story)["video_prompt"]
-                log.info("news-video: story=%s prompt=%r", story.id, vprompt[:120])
+                meta = await _compose(router, anchor_user.display_name, story, n_scenes) \
+                    or _fallback_compose(story, n_scenes)
+                scenes = _clean_scenes(meta.get("scenes"), limit=n_scenes) \
+                    or _fallback_compose(story, n_scenes)["scenes"]
+                title = str(meta.get("title") or story.title)[:200]
+                narration = str(meta.get("narration") or meta.get("summary") or story.title)
+                log.info("news-video: story=%s scenes=%d title=%r",
+                         story.id, len(scenes), title[:80])
                 if dry_run:
                     continue
 
-                out = await comfyui.generate_video(
-                    base_url, vprompt, seconds=seconds, steps=steps,
-                    seed=random.randint(1, 2**31 - 1), timeout_s=timeout_s,
+                # 1) render an image per scene on the GPU box (sequential — one card)
+                images: list[tuple[bytes, str]] = []
+                for sc in scenes:
+                    img = await comfyui.generate_image(
+                        base_url, sc["visual"], width=img_w, height=img_h, steps=img_steps,
+                        seed=random.randint(1, 2**31 - 1), timeout_s=timeout_s,
+                    )
+                    if img:
+                        images.append((img, sc["caption"]))
+                if not images:
+                    totals["failed"] += 1
+                    continue
+
+                # 2) narration (offline TTS) + 3) compose the captioned explainer (ffmpeg on worker)
+                narration_wav = (
+                    await asyncio.to_thread(tts.synthesize, narration, model_path=voice_model)
+                    if tts_enabled else None
+                )
+                out = await asyncio.to_thread(
+                    news_video_render.render, images, title, narration_wav
                 )
                 if not out:
                     totals["failed"] += 1
                     continue
-                data, width, height, frames = out
+                data, duration_s = out
                 totals["rendered"] += 1
 
                 storage_key = f"news-video/{uuid.uuid4().hex}.mp4"
@@ -217,14 +267,14 @@ async def generate_news_video(*, count: int = 1, story_id: str | None = None,
                     session,
                     bot_user_id=anchor_user.id,
                     seed=ANCHOR_SEED,
-                    title=str(meta.get("title") or story.title)[:200],
+                    title=title,
                     summary=str(meta.get("summary") or story.summary or story.title),
                     storage_key=storage_key,
                     mime="video/mp4",
                     bytes_len=len(data),
-                    width=width,
-                    height=height,
-                    duration_s=max(round(frames / comfyui.LTXV_FPS), 1),
+                    width=news_video_render.WIDTH,
+                    height=news_video_render.HEIGHT,
+                    duration_s=duration_s,
                     t_start=story.t_start,
                     category=_clean_category(meta.get("category")),
                     tags=["news", "ai-generated"],

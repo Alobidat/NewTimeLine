@@ -20,7 +20,11 @@ log = logging.getLogger("chronos.agents.comfyui")
 LTXV_FPS = 25
 LTXV_CKPT = "ltx-video-2b-v0.9.5.safetensors"
 LTXV_T5 = "t5xxl_fp16.safetensors"
+SDXL_CKPT = "sd_xl_base_1.0.safetensors"
 _DEFAULT_NEG = "low quality, worst quality, blurry, distorted, static, watermark, text, deformed"
+# SDXL stays sharp/coherent up to ~1:1.6; 832x1216 is the standard portrait the feed (9:16) crops.
+_IMG_NEG = ("low quality, worst quality, blurry, deformed, disfigured, watermark, signature, "
+            "text, caption, subtitles, logo, frame, border, ugly, jpeg artifacts")
 
 
 def snap_length(seconds: float, *, fps: int = LTXV_FPS, max_frames: int = 161) -> int:
@@ -152,3 +156,50 @@ async def generate_video(
     if not data:
         return None
     return data, width, height, length
+
+
+def build_sdxl_text2image(
+    prompt: str,
+    *,
+    negative: str = _IMG_NEG,
+    width: int = 832,
+    height: int = 1216,
+    steps: int = 30,
+    cfg: float = 7.0,
+    seed: int = 0,
+    filename_prefix: str = "chronos/scene",
+) -> dict:
+    """An SDXL text-to-image prompt graph (validated against ComfyUI 0.15)."""
+    return {
+        "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": SDXL_CKPT}},
+        "pos": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["ckpt", 1]}},
+        "neg": {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": ["ckpt", 1]}},
+        "lat": {"class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1}},
+        "k": {"class_type": "KSampler",
+              "inputs": {"seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "dpmpp_2m",
+                         "scheduler": "karras", "denoise": 1.0, "model": ["ckpt", 0],
+                         "positive": ["pos", 0], "negative": ["neg", 0],
+                         "latent_image": ["lat", 0]}},
+        "dec": {"class_type": "VAEDecode", "inputs": {"samples": ["k", 0], "vae": ["ckpt", 2]}},
+        "save": {"class_type": "SaveImage",
+                 "inputs": {"filename_prefix": filename_prefix, "images": ["dec", 0]}},
+    }
+
+
+async def generate_image(
+    base_url: str,
+    prompt: str,
+    *,
+    negative: str = _IMG_NEG,
+    width: int = 832,
+    height: int = 1216,
+    steps: int = 30,
+    seed: int = 0,
+    timeout_s: int = 300,
+) -> bytes | None:
+    """Generate one still (PNG bytes) from ``prompt`` via SDXL, or ``None`` on failure."""
+    graph = build_sdxl_text2image(
+        prompt, negative=negative, width=width, height=height, steps=steps, seed=seed
+    )
+    return await run_workflow(base_url, graph, timeout_s=timeout_s)

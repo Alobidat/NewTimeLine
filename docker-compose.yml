@@ -18,6 +18,8 @@ x-app-env: &app-env
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  # Ollama Cloud API key (off-GPU LLM for the agents; see llm.providers). Kept in the host .env.
+  OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
   ENVIRONMENT: dev
   # Social-login client secrets (ADR-0026). Kept out of git — set in the host .env; a provider
   # is only offered when its secret here AND its client_id (Config Service) are present.
