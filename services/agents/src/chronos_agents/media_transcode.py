@@ -19,10 +19,11 @@ import os
 import subprocess
 import tempfile
 
+import httpx
 from chronos_core import objectstore
 from chronos_core.db import session_scope
 from chronos_core.models.media import Media, MediaVariant
-from sqlalchemy import exists, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 log = logging.getLogger("chronos.agents.media_transcode")
@@ -35,6 +36,36 @@ WEB_SAFE_CODECS = {"h264"}
 WEB_SAFE_MIME = {"video/mp4"}
 _PROBE_TIMEOUT = 60
 _TRANSCODE_TIMEOUT = 600  # a re-encode can take a while; the worker runs one job at a time
+
+# Dispositions whose external source we may rehost locally (capture-first, ADR-0018). "link"
+# media is link-only (licensing) and stays proxied at play time — never downloaded here.
+_LOCALIZABLE = ("pin", "archive")
+# Polite UA so Wikimedia upload hosts serve the download rather than 403/429 a bare client.
+_UA = "ChronosBot/0.1 (+https://github.com/Alobidat/NewTimeLine) media-transcode"
+# Cap the source download so one pathological 4K original can't exhaust the worker's memory.
+_SOURCE_MAX_BYTES = 600 * 1024 * 1024
+
+
+async def _fetch_source(url: str | None) -> bytes | None:
+    """Download an external clip's bytes (one sequential GET, polite UA) so we can transcode it
+    into a local web variant — instead of hot-linking the origin at play time, which Wikimedia
+    rate-limits (429 → the clip never plays). Best-effort: any failure leaves the clip proxied."""
+    if not url:
+        return None
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=httpx.Timeout(60.0, read=120.0)
+        ) as client:
+            resp = await client.get(url, headers={"User-Agent": _UA})
+            resp.raise_for_status()
+            data = resp.content
+    except Exception:  # noqa: BLE001 - network/HTTP failure → leave for a later retry
+        log.warning("media-transcode: source fetch failed for %s", url, exc_info=True)
+        return None
+    if len(data) > _SOURCE_MAX_BYTES:
+        log.info("media-transcode: source too large (%d bytes); skipping %s", len(data), url)
+        return None
+    return data
 
 
 def _probe_codec_dims(path: str) -> tuple[str | None, int | None, int | None]:
@@ -177,10 +208,18 @@ async def _insert_variant(
 
 
 async def _process(
-    media_id, storage_key: str, mime: str | None, width: int | None, edit: dict | None = None
+    media_id, storage_key: str | None, source_url: str | None,
+    mime: str | None, width: int | None, edit: dict | None = None
 ) -> str | None:
-    """Produce + persist the web variant for one clip. Returns ``transcoded`` | ``passthrough``."""
-    raw = await asyncio.to_thread(objectstore.get_bytes, storage_key)
+    """Produce + persist the web variant for one clip. Returns ``transcoded`` | ``passthrough``.
+
+    Bytes come from local storage when the clip is already stored, else they're downloaded from
+    the external origin (Wikimedia etc.) — so an externally-hosted clip ends up served locally
+    and never hot-links at play time."""
+    if storage_key:
+        raw = await asyncio.to_thread(objectstore.get_bytes, storage_key)
+    else:
+        raw = await _fetch_source(source_url)
     if not raw:
         return None
     result = await asyncio.to_thread(_evaluate, raw, mime, width, edit)
@@ -196,10 +235,21 @@ async def _process(
             width=result["width"], height=result["height"], bytes_len=len(result["data"]),
         )
         return "transcoded"
-    # Passthrough: the source already plays on the web — point the web variant at the original.
+    # Passthrough: the source already plays on the web. For a locally-stored clip, just point the
+    # web variant at the original key (no extra storage). For a downloaded external clip we must
+    # still persist the bytes — that's the whole point — so it's served locally, not re-fetched.
+    if storage_key:
+        variant_key = storage_key
+        bytes_len = None
+    else:
+        variant_key = f"variants/{media_id}/web.mp4"
+        await asyncio.to_thread(
+            objectstore.put_bytes, variant_key, raw, content_type=mime or "video/mp4"
+        )
+        bytes_len = len(raw)
     await _insert_variant(
-        media_id, storage_key=storage_key, mime=mime or "video/mp4",
-        width=result["width"], height=result["height"], bytes_len=None,
+        media_id, storage_key=variant_key, mime=mime or "video/mp4",
+        width=result["width"], height=result["height"], bytes_len=bytes_len,
     )
     return "passthrough"
 
@@ -216,23 +266,36 @@ async def transcode_pending(*, batch: int = 20, full: bool = False) -> dict:
     async with session_scope() as session:
         rows = (
             await session.execute(
-                select(Media.id, Media.storage_key, Media.mime, Media.width, Media.edit_spec)
+                select(
+                    Media.id, Media.storage_key, Media.source_url, Media.mime,
+                    Media.width, Media.edit_spec,
+                )
                 .where(
                     Media.kind == "video",
-                    Media.status == "stored",
-                    Media.storage_key.is_not(None),
                     ~exists().where(
                         MediaVariant.media_id == Media.id, MediaVariant.rendition == WEB
+                    ),
+                    # Either already stored locally, OR an externally-hosted clip we're allowed
+                    # to rehost (pin/archive) — download + transcode the latter so it plays
+                    # locally instead of hot-linking the origin (which Wikimedia 429s).
+                    or_(
+                        and_(Media.status == "stored", Media.storage_key.is_not(None)),
+                        and_(
+                            Media.disposition.in_(_LOCALIZABLE),
+                            Media.source_url.is_not(None),
+                        ),
                     ),
                 )
                 .limit(limit)
             )
         ).all()
 
-    for media_id, storage_key, mime, width, edit_spec in rows:
+    for media_id, storage_key, source_url, mime, width, edit_spec in rows:
         totals["scanned"] += 1
         try:
-            outcome = await _process(media_id, storage_key, mime, width, edit_spec)
+            outcome = await _process(
+                media_id, storage_key, source_url, mime, width, edit_spec
+            )
         except Exception:  # noqa: BLE001 - one bad clip must never abort the batch
             log.warning("media-transcode failed for %s", media_id, exc_info=True)
             totals["failed"] += 1
