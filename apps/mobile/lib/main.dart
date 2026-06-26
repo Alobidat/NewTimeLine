@@ -26,10 +26,29 @@ class _AppScrollBehavior extends MaterialScrollBehavior {
   Set<PointerDeviceKind> get dragDevices => PointerDeviceKind.values.toSet();
 }
 
-void main() => runApp(const ChronosApp());
+/// The shared-link event id (`?event=<id>`), read **before `runApp`** so it's captured from the
+/// original URL — under Flutter web's default hash strategy the engine can move the query into the
+/// fragment once it boots, so reading it later (in a widget's initState) returns null. Also looks
+/// in the fragment so a `…/#/?event=<id>`-shaped link still resolves. Null off the web / no link.
+String? _bootDeepLinkEventId() {
+  final fromQuery = Uri.base.queryParameters['event'];
+  if (fromQuery != null && fromQuery.isNotEmpty) return fromQuery;
+  final frag = Uri.base.fragment; // hash strategy can carry the query here (e.g. "/?event=…")
+  final qm = frag.indexOf('?');
+  if (qm >= 0) {
+    final fromFrag = Uri.splitQueryString(frag.substring(qm + 1))['event'];
+    if (fromFrag != null && fromFrag.isNotEmpty) return fromFrag;
+  }
+  return null;
+}
+
+void main() => runApp(ChronosApp(initialEventId: _bootDeepLinkEventId()));
 
 class ChronosApp extends StatefulWidget {
-  const ChronosApp({super.key});
+  const ChronosApp({super.key, this.initialEventId});
+
+  /// A `?event=<id>` deep link captured at boot (web share links); opened once the app is up.
+  final String? initialEventId;
 
   @override
   State<ChronosApp> createState() => _ChronosAppState();
@@ -68,7 +87,11 @@ class _ChronosAppState extends State<ChronosApp> {
         brightness: Brightness.dark,
         colorSchemeSeed: const Color(0xFF2E7DF6),
       ),
-      home: _HomeWithAccount(api: _api, auth: _auth),
+      home: _HomeWithAccount(
+        api: _api,
+        auth: _auth,
+        initialEventId: widget.initialEventId,
+      ),
     );
   }
 }
@@ -79,10 +102,11 @@ class _ChronosAppState extends State<ChronosApp> {
 /// once the first frame is up and opens it in a focused immersive feed — so a shared link
 /// lands the recipient on the clip rather than a generic feed.
 class _HomeWithAccount extends StatefulWidget {
-  const _HomeWithAccount({required this.api, required this.auth});
+  const _HomeWithAccount({required this.api, required this.auth, this.initialEventId});
 
   final ApiClient api;
   final AuthState auth;
+  final String? initialEventId;
 
   @override
   State<_HomeWithAccount> createState() => _HomeWithAccountState();
@@ -92,7 +116,7 @@ class _HomeWithAccountState extends State<_HomeWithAccount> {
   @override
   void initState() {
     super.initState();
-    final eventId = Uri.base.queryParameters['event'];
+    final eventId = widget.initialEventId;
     if (eventId != null && eventId.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _openSharedEvent(eventId),
@@ -100,8 +124,8 @@ class _HomeWithAccountState extends State<_HomeWithAccount> {
     }
   }
 
-  /// Open a shared-link event in a focused immersive feed seeded with it. Best-effort: a bad
-  /// or unknown id silently leaves the user on the normal feed.
+  /// Open a shared-link event in a focused immersive feed seeded with it. A bad/unknown id
+  /// surfaces a brief message rather than failing silently, so a broken link is visible.
   Future<void> _openSharedEvent(String eventId) async {
     try {
       final event = await widget.api.event(eventId);
@@ -120,7 +144,10 @@ class _HomeWithAccountState extends State<_HomeWithAccount> {
         ),
       );
     } catch (_) {
-      // Unknown/garbage id — stay on the feed.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open that link — showing the feed instead.")),
+      );
     }
   }
 
