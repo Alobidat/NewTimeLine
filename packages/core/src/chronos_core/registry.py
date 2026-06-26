@@ -197,6 +197,18 @@ REGISTRY: list[ComponentManifest] = [
         doc="docs/ai-agents.md",
     ),
     ComponentManifest(
+        id="agent:bots.news_video", kind="agent", title="News Anchor (video)",
+        description="Finds the latest hot news story, renders a short video for it via ComfyUI "
+                    "(LTX-Video, GPU), and posts it under the Chronos Newsreel AI persona, linked "
+                    "to the source story.",
+        command="news-video", config_prefix="agents.news_video",
+        enabled_key="agents.news_video.enabled",
+        capabilities=["llm-call", "video-gen", "auto-publish", "gpu"],
+        actions=["enable", "disable", "run-now"],
+        stat_keys=["selected", "rendered", "posted", "no_story", "failed"],
+        doc="docs/ai-agents.md",
+    ),
+    ComponentManifest(
         id="agent:bots.scheduler", kind="agent", title="Bot Scheduler",
         description="Periodic tick: finds overdue AI users (cadence + daily caps) and enqueues "
                     "post/interact jobs, capped per tick. The heartbeat of the living feed.",

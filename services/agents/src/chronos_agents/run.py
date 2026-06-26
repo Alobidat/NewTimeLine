@@ -25,6 +25,7 @@ from chronos_core.runs import record_run
 
 from chronos_agents.bots.bootstrap import bootstrap as bots_bootstrap
 from chronos_agents.bots.interact import persona_interact
+from chronos_agents.bots.news_video import generate_news_video
 from chronos_agents.bots.post import persona_post
 from chronos_agents.bots.scheduler import bots_tick
 from chronos_agents.dedup import run_dedup
@@ -94,6 +95,14 @@ _COMMANDS = {
         "agent:bots.interact",
         lambda a: persona_interact(bot_id=getattr(a, "bot_id", None), count=a.count),
     ),
+    "news-video": (
+        "agent:bots.news_video",
+        lambda a: generate_news_video(
+            count=getattr(a, "count", 1),
+            story_id=getattr(a, "story_id", None),
+            dry_run=getattr(a, "dry_run", False),
+        ),
+    ),
     "moderate-event": (
         "agent:moderation",
         lambda a: moderate_event(getattr(a, "event_id", None)),
@@ -150,6 +159,10 @@ def _build_parser() -> argparse.ArgumentParser:
     pi = sub.add_parser("persona-interact", help="Have AI users react/comment/follow")
     pi.add_argument("--bot-id", default=None, help="A specific bot user id (else: overdue bots)")
     pi.add_argument("--count", type=int, default=1, help="Bots to act when no --bot-id")
+    nv = sub.add_parser("news-video", help="News anchor: hot story -> LTX video -> post")
+    nv.add_argument("--count", type=int, default=1, help="How many hot stories to cover")
+    nv.add_argument("--story-id", default=None, help="Cover a specific event id (else: hottest)")
+    nv.add_argument("--dry-run", action="store_true", help="Find + compose only; skip render/post")
     sub.add_parser("bots-tick", help="Scheduler tick: enqueue jobs for overdue bots")
     bb = sub.add_parser("bots-bootstrap", help="Bulk-create AI users + seed their first posts")
     bb.add_argument("--count", type=int, default=50, help="How many personas to create")

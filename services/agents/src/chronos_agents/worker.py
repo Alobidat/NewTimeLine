@@ -58,6 +58,30 @@ async def _bots_ticker() -> None:
         await asyncio.sleep(max(interval, 30))
 
 
+async def _news_video_ticker() -> None:
+    """Periodically enqueue the news-anchor agent: it finds the latest hot story, renders a short
+    video for it via ComfyUI, and posts it under the Chronos Newsreel persona. Gated by
+    ``agents.news_video.enabled``; cadence from ``agents.news_video.interval_seconds`` (long by
+    default — each run is a GPU render that time-shares the card with ollama)."""
+    from chronos_core import run_queue  # noqa: PLC0415
+
+    while True:
+        interval = 10800
+        try:
+            async with session_scope() as session:
+                interval = int(
+                    await config_service.get(session, "agents.news_video.interval_seconds", 10800)
+                )
+                enabled = bool(
+                    await config_service.get(session, "agents.news_video.enabled", True)
+                )
+            if enabled:
+                run_queue.enqueue("news-video", {"count": 1})
+        except Exception:
+            log.exception("news-video ticker error")
+        await asyncio.sleep(max(interval, 300))
+
+
 async def _maintenance_ticker() -> None:
     """Periodically enqueue the pipeline-maintenance agents so new + backlogged events get
     enriched, placed on the map, embedded/deduped, and graph-linked without manual runs.
@@ -136,6 +160,7 @@ async def run_worker() -> None:
     ticker = asyncio.create_task(_bots_ticker())
     maint = asyncio.create_task(_maintenance_ticker())
     monitor = asyncio.create_task(_monitor_ticker())
+    newsvid = asyncio.create_task(_news_video_ticker())
     drain = asyncio.create_task(drain_log_buffer())
     levels = asyncio.create_task(log_level_refresher())
     r = redislib.from_url(get_settings().redis_url, decode_responses=True)
@@ -168,6 +193,7 @@ async def run_worker() -> None:
         ticker.cancel()
         maint.cancel()
         monitor.cancel()
+        newsvid.cancel()
         drain.cancel()
         levels.cancel()
         r.close()

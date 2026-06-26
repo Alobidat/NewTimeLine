@@ -133,6 +133,100 @@ async def create_bot_video_event(
     return event
 
 
+async def create_bot_generated_video_event(
+    session: AsyncSession,
+    *,
+    bot_user_id: uuid.UUID,
+    seed: int,
+    title: str,
+    summary: str,
+    storage_key: str,
+    mime: str = "video/mp4",
+    bytes_len: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    duration_s: int | None = None,
+    t_start: float | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    actor_names: list[str] | None = None,
+    location_names: list[str] | None = None,
+    link_event_ids: list[uuid.UUID] | None = None,
+    geo: GeoPoint | None = None,
+    geo_label: str | None = None,
+) -> Event:
+    """Publish a bot-authored video event whose hero clip is a binary we **already generated and
+    stored** (e.g. a ComfyUI render), as opposed to a discovered remote clip
+    ([create_bot_video_event]). The hero media is ``status="stored"`` (no media-fetch needed) and
+    attributed to the bot; ``link_event_ids`` adds thematic edges (e.g. to the source news story).
+    Caller commits."""
+    by = str(bot_user_id)
+    now = datetime.now(UTC)
+    if t_start is not None:
+        ts, precision, instant = float(t_start), "day", None
+    else:
+        ts, precision, instant = datetime_to_t(now), "day", now
+
+    event = await repository.create_event(
+        session,
+        EventCreate(
+            title=title[:200],
+            summary=summary or None,
+            t_start=ts,
+            time_precision=precision,
+            instant=instant,
+            category=category or "news",
+            tags=tags or [],
+            geo=geo,
+            geo_label=geo_label,
+            created_by_agent=f"persona:{seed}",
+        ),
+    )
+    event.status = EventStatus.PUBLISHED
+    await session.flush()
+
+    media = Media(
+        kind="video",
+        storage_key=storage_key,
+        mime=mime,
+        bytes=bytes_len,
+        width=width,
+        height=height,
+        duration_s=duration_s,
+        status="stored",       # bytes are already in the object store
+        disposition="pin",     # we own the only copy of a generated clip
+        origin_kind="user",    # feed author-join attributes the post to the bot
+        added_by=by,
+    )
+    session.add(media)
+    await session.flush()
+    session.add(
+        EventMedia(event_id=event.id, media_id=media.id, role="hero", rank=0, added_by=by)
+    )
+
+    for name in actor_names or []:
+        if name and name.strip():
+            entity = await repository.get_or_create_entity(
+                session, kind="person", name=name.strip()
+            )
+            await repository.link_entity(session, event, entity, role="actor", added_by=by)
+    for name in location_names or []:
+        if name and name.strip():
+            entity = await repository.get_or_create_entity(
+                session, kind="place", name=name.strip()
+            )
+            await repository.link_entity(session, event, entity, role="location", added_by=by)
+
+    # Thematic edges to the source story/stories so the relate graph threads them together.
+    for dst in link_event_ids or []:
+        await repository.link_relation(
+            session, src_event=event.id, dst_event=dst, kind="thematic", created_by=by
+        )
+
+    await _record_upload_activity(session, bot_user_id, event.id)
+    return event
+
+
 async def _record_upload_activity(
     session: AsyncSession, user_id: uuid.UUID, event_id: uuid.UUID
 ) -> None:

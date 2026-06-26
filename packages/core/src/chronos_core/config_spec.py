@@ -443,6 +443,27 @@ SPECS: list[ConfigSpec] = [
     _e("logging.worker.level", "INFO", "Worker log level", _LOG_LEVELS,
        scope="logging", component_id="service:worker",
        help="Runtime root log level for the worker process (picked up within a cycle)."),
+    # ComfyUI media-AI render backend + the news-anchor video agent.
+    ConfigSpec(key="agents.comfyui.base_url", type="string", scope="agent:comfyui",
+               default="http://192.168.2.42:8188", label="ComfyUI base URL",
+               component_id="agent:bots.news_video",
+               help="HTTP endpoint of the ComfyUI render backend (GPU box)."),
+    _i("agents.comfyui.timeout_seconds", 600, "Render timeout (s)",
+       scope="agent:comfyui", component_id="agent:bots.news_video", minimum=30, maximum=3600,
+       help="Max seconds to wait for a ComfyUI render before giving up."),
+    _b("agents.news_video.enabled", True, "News-video agent enabled",
+       scope="agent:comfyui", component_id="agent:bots.news_video"),
+    _i("agents.news_video.seconds", 4, "Clip length (s)",
+       scope="agent:comfyui", component_id="agent:bots.news_video", minimum=2, maximum=8,
+       help="Target length of generated news clips (snapped to LTX's 8n+1 frames at 25fps)."),
+    _i("agents.news_video.steps", 20, "Diffusion steps",
+       scope="agent:comfyui", component_id="agent:bots.news_video", minimum=8, maximum=50),
+    _i("agents.news_video.since_days", 7, "Story recency window (days)",
+       scope="agent:comfyui", component_id="agent:bots.news_video", minimum=1, maximum=30,
+       help="Only cover RSS-ingested stories created within this many days."),
+    _i("agents.news_video.interval_seconds", 10800, "Anchor cadence (s)",
+       scope="agent:comfyui", component_id="agent:bots.news_video", minimum=600, maximum=86400,
+       help="How often the worker auto-runs the news anchor (each run is a GPU render)."),
 ]
 
 SPEC_BY_KEY: dict[str, ConfigSpec] = {s.key: s for s in SPECS}
