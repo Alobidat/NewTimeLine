@@ -9,6 +9,7 @@
 /// the feed never renders a blank or broken page.
 library;
 
+import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -59,6 +60,20 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   bool _failed = false;
   bool _muted = true;
 
+  /// Init attempts for the current url, and a generation token that invalidates in-flight async
+  /// work when the url changes or the widget disposes (so a late `initialize()` can't resurrect a
+  /// controller for a clip we've already swiped past).
+  int _attempts = 0;
+  int _gen = 0;
+  Timer? _retry;
+
+  /// Recreate the player a few times on a decoder failure before giving up. On a real device the
+  /// platform H.264 decoder occasionally fails to `start()` (CodecException) — typically a
+  /// transient resource race when the previous clip's decoder is still releasing as we swipe to
+  /// the next. A short backoff lets the HW decoder pool free up; a fresh controller then starts
+  /// cleanly, so the clip plays instead of freezing on a black frame.
+  static const _maxAttempts = 4;
+
   // On the web the clip is rendered by a raw HTML <video> (see build) — never the
   // video_player controller, whose platform view can't be cover-fit. Image heroes never use a
   // controller (they're drawn as a photo), so a non-clip hero is never "wanted".
@@ -80,6 +95,7 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
     if (old.url != widget.url) {
       _disposeController();
       _failed = false;
+      _attempts = 0;
       if (_wanted) _init();
       return;
     }
@@ -96,22 +112,52 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   }
 
   Future<void> _init() async {
+    _retry?.cancel();
+    final gen = ++_gen; // any work tagged with a stale gen is discarded below
     final c = VideoPlayerController.networkUrl(Uri.parse(widget.url!));
     try {
       await c.initialize();
-      if (!mounted) {
+      // Swiped away (or url changed) while initializing → drop this controller, don't show it.
+      if (!mounted || gen != _gen) {
         await c.dispose();
         return;
       }
       await c.setLooping(true);
       await c.setVolume(_muted ? 0 : 1);
+      c.addListener(_watchController); // catch a *runtime* decoder failure (see _watchController)
       _controller = c;
+      _attempts = 0;
       _syncPlayback();
       setState(() {});
     } catch (_) {
       await c.dispose();
-      if (mounted) setState(() => _failed = true);
+      if (mounted && gen == _gen) _scheduleRetry();
     }
+  }
+
+  /// A decoder that fails mid-stream (e.g. MediaCodec CodecException) surfaces as `value.hasError`
+  /// rather than throwing from `initialize()`. Recover by tearing the controller down and
+  /// retrying — a fresh decoder usually starts cleanly once the failed one has released.
+  void _watchController() {
+    if (_controller?.value.hasError ?? false) {
+      _disposeController();
+      _scheduleRetry();
+    }
+  }
+
+  void _scheduleRetry() {
+    if (!_wanted || _attempts >= _maxAttempts) {
+      if (mounted) setState(() => _failed = true);
+      return;
+    }
+    _attempts++;
+    _retry?.cancel();
+    // Back off (growing with each attempt) so the platform decoder pool frees the previous
+    // instance before we allocate another — retrying instantly just fails the same way.
+    _retry = Timer(Duration(milliseconds: 250 * _attempts), () {
+      if (mounted && _wanted && _controller == null) _init();
+    });
+    if (mounted) setState(() {}); // fall back to the poster/glyph while we retry
   }
 
   /// Play only while the active page; pause + rewind when it scrolls away.
@@ -127,8 +173,14 @@ class _FeedClipPlayerState extends State<FeedClipPlayer> {
   }
 
   void _disposeController() {
-    _controller?.dispose();
+    _retry?.cancel();
+    _gen++; // invalidate any in-flight _init() so it can't re-attach this disposed player
+    final c = _controller;
     _controller = null;
+    if (c != null) {
+      c.removeListener(_watchController);
+      c.dispose();
+    }
   }
 
   void _onTap() {
