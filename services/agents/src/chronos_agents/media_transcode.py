@@ -34,6 +34,10 @@ WEB = "web"  # the default web-safe rendition label
 MAX_WIDTH = 1280  # cap the long edge so a 4K source doesn't ship 4K to phones
 WEB_SAFE_CODECS = {"h264"}
 WEB_SAFE_MIME = {"video/mp4"}
+# Even an h264/mp4 source is re-encoded when it's this large: a high-bitrate original (e.g. a
+# 175 MB clip) is slow to start on a phone AND the API serves /raw by loading the whole object
+# into memory per range request. Re-encoding at the cap shrinks it to a streamable size.
+_MAX_PASSTHROUGH_BYTES = 16 * 1024 * 1024
 _PROBE_TIMEOUT = 60
 _TRANSCODE_TIMEOUT = 600  # a re-encode can take a while; the worker runs one job at a time
 
@@ -177,7 +181,11 @@ def _evaluate(
         codec, w, h = _probe_codec_dims(path)
         if codec is None:
             return None  # unreadable / no video stream → leave for a later retry
-        if not edit and not _needs_transcode(mime, codec, w):
+        if (
+            not edit
+            and not _needs_transcode(mime, codec, w)
+            and len(data) <= _MAX_PASSTHROUGH_BYTES
+        ):
             return {"mode": "passthrough", "width": w, "height": h}
         out = _transcode_mp4(path, edit=edit)
         if out is None:
