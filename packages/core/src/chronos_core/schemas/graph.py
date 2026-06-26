@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from chronos_core.schemas.entity import EntityRead, EntityRole  # re-exported for callers
 from chronos_core.schemas.event import EventRead
+from chronos_core.schemas.social import UserSummary
 
 __all__ = [
     "EntityRead",
@@ -39,6 +40,7 @@ class SearchResults(BaseModel):
     events: list[EventRead] = Field(default_factory=list)
     actors: list[EntityRead] = Field(default_factory=list)   # person | org
     places: list[EntityRead] = Field(default_factory=list)   # place
+    creators: list[UserSummary] = Field(default_factory=list)  # users/bots (author search)
 
 
 class RelatedEvent(BaseModel):

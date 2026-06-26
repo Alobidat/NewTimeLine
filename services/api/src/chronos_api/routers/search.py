@@ -32,6 +32,7 @@ from chronos_api.graph_queries import (
     PLACE_KINDS,
     search_entities_by_kinds,
     search_events,
+    search_users,
 )
 
 log = logging.getLogger("chronos.api.search")
@@ -85,9 +86,11 @@ def _enqueue_collect(args: dict) -> bool:
 
 @router.get("", response_model=SearchResults)
 async def search(
-    q: str | None = Query(default=None, description="free text; matches title or entity name"),
+    q: str | None = Query(default=None, description="free text; matches title, entity, or author"),
     location: str | None = Query(default=None, description="place facet (country/city/area)"),
     actor: str | None = Query(default=None, description="actor name(s)"),
+    author: str | None = Query(default=None, description="creator handle / display name"),
+    media: str | None = Query(default=None, description="'video' restricts to clip-hero events"),
     t0: float | None = Query(default=None, description="from year (signed; negative=BC)"),
     t1: float | None = Query(default=None, description="to year (signed)"),
     category: str | None = None,
@@ -95,18 +98,18 @@ async def search(
     collect: bool = Query(default=True, description="also enqueue a live-collection job"),
     session: AsyncSession = Depends(get_session),
 ) -> SearchResults:
-    """Faceted search (events + actors + places) that also triggers live collection.
+    """Faceted search (events + actors + places + creators) that also triggers live collection.
 
     Returns DB matches immediately and, when enabled, enqueues an on-demand ``collect`` job
     so the corpus expands; the client follows ``/search/stream`` to refresh as results land.
     """
-    # The free-text term feeds every facet; location/actor narrow the entity facets.
+    # The free-text term feeds every facet; location/actor/author narrow the matching facets.
     # Queries run sequentially: a single AsyncSession is not safe for concurrent use.
-    term = q or actor or location
+    term = q or actor or author or location
     facet_limit = int(await _cfg(session, "search.facet_limit"))
 
     events = await search_events(
-        session, q=term, t0=t0, t1=t1, category=category, limit=limit
+        session, q=term, t0=t0, t1=t1, category=category, media=media, limit=limit
     )
     actors = await search_entities_by_kinds(
         session, q=(actor or q), kinds=ACTOR_KINDS, limit=facet_limit
@@ -114,6 +117,8 @@ async def search(
     places = await search_entities_by_kinds(
         session, q=(location or q), kinds=PLACE_KINDS, limit=facet_limit
     )
+    # Creators facet: who posted — searchable by handle or display name (e.g. "newsreel").
+    creators = await search_users(session, q=(author or q), limit=facet_limit)
 
     subject = _subject_text(q, location, actor)
     collecting = False
@@ -128,6 +133,7 @@ async def search(
         events=events,
         actors=actors,
         places=places,
+        creators=creators,
     )
 
 

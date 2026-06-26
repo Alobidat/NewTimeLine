@@ -156,6 +156,8 @@ class ApiClient {
     String? q,
     String? location,
     String? actor,
+    String? author,
+    String? media, // 'video' restricts to clip-hero events
     double? t0,
     double? t1,
     int limit = 50,
@@ -166,6 +168,8 @@ class ApiClient {
         'q': ?q,
         'location': ?location,
         'actor': ?actor,
+        'author': ?author,
+        'media': ?media,
         't0': ?t0?.toString(),
         't1': ?t1?.toString(),
         'limit': limit.toString(),

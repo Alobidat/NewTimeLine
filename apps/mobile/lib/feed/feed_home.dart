@@ -14,6 +14,7 @@ import '../api/client.dart';
 import '../profile/avatar.dart';
 import '../profile/notifications_screen.dart';
 import '../profile/profile_screen.dart';
+import '../search/search_screen.dart';
 import '../shell/experience_screen.dart';
 import '../state/auth_state.dart';
 import '../upload/upload_screen.dart';
@@ -75,6 +76,12 @@ class _FeedHomeState extends State<FeedHome>
           builder: (_) => NotificationsScreen(api: _api, auth: _auth),
         ))
         .then((_) => _loadUnread()); // opening the inbox clears unread server-side
+  }
+
+  void _openSearch() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => SearchScreen(api: _api, auth: _auth),
+    ));
   }
 
   @override
@@ -162,6 +169,13 @@ class _FeedHomeState extends State<FeedHome>
                         for (final tab in FeedTab.values) Tab(text: tab.label),
                       ],
                     ),
+                  ),
+                  // Search & dig (events, authors, people, places).
+                  IconButton(
+                    key: const Key('feed-search'),
+                    tooltip: 'Search',
+                    onPressed: _openSearch,
+                    icon: const Icon(Icons.search, color: Colors.white),
                   ),
                   // Notifications bell (signed-in only) with an unread badge.
                   AnimatedBuilder(

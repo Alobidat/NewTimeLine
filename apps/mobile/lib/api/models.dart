@@ -368,6 +368,7 @@ class SearchResults {
     this.events = const [],
     this.actors = const [],
     this.places = const [],
+    this.creators = const [],
   });
 
   final String subject;
@@ -375,8 +376,10 @@ class SearchResults {
   final List<EventRead> events;
   final List<EntityRead> actors;
   final List<EntityRead> places;
+  final List<UserSummary> creators; // users/bots matching the query (author search)
 
-  bool get isEmpty => events.isEmpty && actors.isEmpty && places.isEmpty;
+  bool get isEmpty =>
+      events.isEmpty && actors.isEmpty && places.isEmpty && creators.isEmpty;
 
   factory SearchResults.fromJson(Map<String, dynamic> j) => SearchResults(
     subject: (j['subject'] as String?) ?? '',
@@ -389,6 +392,9 @@ class SearchResults {
         .toList(),
     places: ((j['places'] as List?) ?? [])
         .map((e) => EntityRead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    creators: ((j['creators'] as List?) ?? [])
+        .map((e) => UserSummary.fromJson(e as Map<String, dynamic>))
         .toList(),
   );
 }

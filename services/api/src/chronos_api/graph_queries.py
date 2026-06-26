@@ -19,11 +19,12 @@ from chronos_core.schemas.graph import (
     RelatedEvent,
 )
 from chronos_core.schemas.media import MediaRead
+from chronos_core.schemas.social import UserSummary
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chronos_api.feed_queries import _DISPLAYABLE, _HERO_JOIN
 from chronos_api.queries import _EVENT_COLS, _event_read
-from chronos_api.feed_queries import _HERO_JOIN, _DISPLAYABLE
 
 # Causal kinds that form a *chain* (directed cause→effect). same-place/same-actor are mere
 # co-occurrence and belong in the "related" panel, not the back/forth dig.
@@ -79,17 +80,23 @@ async def search_events(
     t1: float | None = None,
     category: str | None = None,
     since: datetime | None = None,
+    media: str | None = None,
     limit: int = 50,
 ) -> list[EventRead]:
-    """Find events by free text (title OR a linked entity name) within an optional time
-    range. Backs the "search a location / event title / date" entry point.
+    """Find events by free text (title, a linked entity name, OR the author's handle/name)
+    within an optional time range. Backs the "search a location / event title / date / author"
+    entry point. ``media='video'`` restricts to events with a clip (video/embed) hero.
 
     ``since`` restricts to events created at/after a wall-clock instant and orders newest-
     first — the search SSE stream uses it to surface freshly-collected matches as they land."""
     clauses = ["e.status = 'published'"]
     params: dict = {"limit": limit}
     if q:
-        clauses.append("(e.title ILIKE :qlike OR en.name ILIKE :qlike)")
+        # Match the title, a linked entity (who/where), OR the posting user/bot (author search).
+        clauses.append(
+            "(e.title ILIKE :qlike OR en.name ILIKE :qlike "
+            "OR au.handle ILIKE :qlike OR au.display_name ILIKE :qlike)"
+        )
         params["qlike"] = f"%{q}%"
     if t0 is not None:
         clauses.append("e.t_end >= :t0")
@@ -103,10 +110,13 @@ async def search_events(
     if since is not None:
         clauses.append("e.created_at >= :since")
         params["since"] = since
+    if media in ("video", "clip"):
+        clauses.append("hm.kind IN ('video', 'embed')")
     where = " AND ".join(clauses)
     order = "created_at DESC" if since is not None else "t_start"
-    # Match (title OR linked-entity name) in a CTE, then project event columns alone — keeps
-    # the shared _EVENT_COLS (unqualified id/geom) unambiguous despite the entity join.
+    # Match (title OR linked-entity name OR author) in a CTE, then project event columns alone —
+    # keeps the shared _EVENT_COLS (unqualified id/geom) unambiguous despite the joins. The hero
+    # media + its author (added_by → users) drive author search + the video filter.
     rows = (
         await session.execute(
             text(
@@ -114,6 +124,9 @@ async def search_events(
                 "  SELECT DISTINCT e.id AS event_id FROM events e "
                 "  LEFT JOIN event_entities ee ON ee.event_id = e.id "
                 "  LEFT JOIN entities en ON en.id = ee.entity_id "
+                "  LEFT JOIN event_media em ON em.event_id = e.id AND em.role = 'hero' "
+                "  LEFT JOIN media hm ON hm.id = em.media_id "
+                "  LEFT JOIN users au ON au.id::text = hm.added_by "
                 f"  WHERE {where}"
                 f") SELECT {_EVENT_COLS} FROM events e JOIN matched m ON m.event_id = e.id "
                 f"ORDER BY {order} LIMIT :limit"
@@ -122,6 +135,36 @@ async def search_events(
         )
     ).all()
     return [_event_read(r) for r in rows]
+
+
+async def search_users(
+    session: AsyncSession, *, q: str | None = None, limit: int = 10
+) -> list[UserSummary]:
+    """Find creators (users + bots) by handle or display name — the "author" search facet.
+
+    Exact handle/name matches rank first, then higher-reputation accounts. ``following`` is left
+    false (search is often anonymous; the profile screen resolves the real relation on open)."""
+    if not q:
+        return []
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, handle, display_name, avatar_url FROM users "
+                "WHERE handle ILIKE :qlike OR display_name ILIKE :qlike "
+                "ORDER BY (lower(handle) = lower(:qexact) "
+                "          OR lower(display_name) = lower(:qexact)) DESC, "
+                "         reputation DESC NULLS LAST, handle "
+                "LIMIT :limit"
+            ),
+            {"qlike": f"%{q}%", "qexact": q, "limit": limit},
+        )
+    ).all()
+    return [
+        UserSummary(
+            id=r.id, handle=r.handle, display_name=r.display_name, avatar_url=r.avatar_url
+        )
+        for r in rows
+    ]
 
 
 async def search_entities(
