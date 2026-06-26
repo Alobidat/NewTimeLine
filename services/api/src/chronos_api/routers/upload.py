@@ -19,18 +19,21 @@ bounded by config (``upload.max_bytes`` / ``upload.allowed_mime``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
 import httpx
 import redis as redislib
-from chronos_core import config_service, objectstore, run_queue, upload as upload_core
+from chronos_core import config_service, objectstore, run_queue
+from chronos_core import upload as upload_core
 from chronos_core.models.user import User
 from chronos_core.run_queue import push_job
 from chronos_core.schemas.event import GeoPoint
 from chronos_core.schemas.privacy import PrivacySettings
 from chronos_core.settings import get_settings
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chronos_api.auth_stub import require_verified_actor
@@ -42,6 +45,9 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 
 _DEFAULT_MAX_BYTES = 209_715_200  # 200 MB
 _DEFAULT_ALLOWED = ["video/mp4", "video/webm", "video/quicktime", "video/ogg"]
+_EXT_FOR_MIME = {
+    "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "video/ogg": "ogv",
+}
 
 
 def _split(raw: str | None) -> list[str]:
@@ -100,10 +106,60 @@ async def _fetch_source(url: str, max_bytes: int) -> tuple[bytes, str]:
     return data, mime
 
 
+class PresignRequest(BaseModel):
+    """Ask for a direct-to-store upload slot for a clip about to be recorded/picked."""
+
+    filename: str | None = None
+    content_type: str
+    size_bytes: int
+
+
+@router.post("/presign", status_code=status.HTTP_201_CREATED)
+async def presign_upload(
+    body: PresignRequest,
+    session: AsyncSession = Depends(get_session),
+    actor: uuid.UUID = Depends(require_verified_actor),
+) -> dict:
+    """Mint a **direct-to-object-store** PUT URL for a clip, so a large recording streams straight
+    to storage instead of through the API. Flow: client PUTs the bytes to ``url`` with the given
+    ``Content-Type`` header, then calls ``POST /upload`` with the returned ``storage_key`` plus the
+    event metadata to publish. Same type/size limits as the multipart path, enforced up front."""
+    max_bytes = int(await config_service.get(session, "upload.max_bytes", _DEFAULT_MAX_BYTES))
+    allowed = await config_service.get(session, "upload.allowed_mime", _DEFAULT_ALLOWED)
+    mime = (body.content_type or "").split(";")[0].strip().lower()
+    if allowed and mime not in allowed:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"unsupported content type: {mime}"
+        )
+    if body.size_bytes <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "size_bytes must be positive")
+    if body.size_bytes > max_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds the {max_bytes}-byte limit"
+        )
+    # Key is namespaced to the actor so /upload can prove the object belongs to the caller.
+    storage_key = f"uploads/{actor}/{uuid.uuid4().hex}.{_EXT_FOR_MIME.get(mime, 'bin')}"
+    try:
+        url = await asyncio.to_thread(objectstore.presigned_put, storage_key, content_type=mime)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("presign: could not mint upload URL")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "media store unavailable"
+        ) from exc
+    return {
+        "storage_key": storage_key,
+        "url": url,
+        "method": "PUT",
+        "headers": {"Content-Type": mime},
+        "max_bytes": max_bytes,
+    }
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_video(
     file: UploadFile | None = File(default=None),
     source_url: str | None = Form(default=None),
+    storage_key: str | None = Form(default=None),
     title: str = Form(...),
     t_start: float | None = Form(default=None),
     actors: str | None = Form(default=None),
@@ -144,17 +200,35 @@ async def upload_video(
             status.HTTP_400_BAD_REQUEST, "at least one linked event id is required"
         )
 
-    # --- the clip binary: an uploaded file, or an external source_url (no-picker path) ---
+    # --- the clip binary: a direct-uploaded object (storage_key from /presign), an uploaded
+    #     file, or an external source_url. The storage_key path is already in the store and is
+    #     never buffered in the API — that's the whole point of presigned direct upload. ---------
     max_bytes = int(await config_service.get(session, "upload.max_bytes", _DEFAULT_MAX_BYTES))
     allowed = await config_service.get(session, "upload.allowed_mime", _DEFAULT_ALLOWED)
-    if file is not None:
+    data: bytes | None = None  # the in-memory clip (file/source_url paths only)
+    if storage_key and storage_key.strip():
+        storage_key = storage_key.strip()
+        # Only the caller's own freshly-presigned objects qualify — never an arbitrary key.
+        if not storage_key.startswith(f"uploads/{actor}/"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "storage_key does not belong to you")
+        info = await asyncio.to_thread(objectstore.head, storage_key)
+        if info is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "uploaded object not found — PUT it to the presigned url first",
+            )
+        mime = (info.get("content_type") or "application/octet-stream").split(";")[0].strip()
+        bytes_len = int(info.get("size") or 0)
+    elif file is not None:
         data = await file.read()
         mime = file.content_type or "application/octet-stream"
+        bytes_len = len(data)
     elif source_url and source_url.strip():
         data, mime = await _fetch_source(source_url.strip(), max_bytes)
+        bytes_len = len(data)
     else:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "a clip file or source_url is required"
+            status.HTTP_400_BAD_REQUEST, "a clip file, source_url, or storage_key is required"
         )
 
     # --- size / type limits (config-tunable) ------------------------------------------
@@ -162,25 +236,24 @@ async def upload_video(
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"unsupported content type: {mime}"
         )
-    if not data:
+    if bytes_len <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload")
-    if len(data) > max_bytes:
+    if bytes_len > max_bytes:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             f"file exceeds the {max_bytes}-byte limit",
         )
 
-    # --- store the binary in the object store -----------------------------------------
-    ext = {"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
-           "video/ogg": "ogv"}.get(mime, "bin")
-    storage_key = f"uploads/{actor}/{uuid.uuid4().hex}.{ext}"
-    try:
-        objectstore.put_bytes(storage_key, data, content_type=mime)
-    except Exception as exc:  # noqa: BLE001
-        log.exception("upload: object-store write failed")
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "media store unavailable"
-        ) from exc
+    # --- store the binary (file/source_url paths); the storage_key path is already stored ------
+    if data is not None:
+        storage_key = f"uploads/{actor}/{uuid.uuid4().hex}.{_EXT_FOR_MIME.get(mime, 'bin')}"
+        try:
+            objectstore.put_bytes(storage_key, data, content_type=mime)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("upload: object-store write failed")
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "media store unavailable"
+            ) from exc
 
     geo = GeoPoint(lon=lon, lat=lat) if (lat is not None and lon is not None) else None
 
@@ -200,7 +273,7 @@ async def upload_video(
         time_precision=time_precision,
         storage_key=storage_key,
         mime=mime,
-        bytes_len=len(data),
+        bytes_len=bytes_len,
         geo=geo,
         geo_label=geo_label,
         actor_names=actor_names,

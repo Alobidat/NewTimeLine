@@ -12,15 +12,16 @@ import uuid
 import chronos_core.interest as interest
 import chronos_core.social_repo as srepo
 import chronos_core.upload as upload_core
-import chronos_api.feed_queries as fq
 import pytest
-from chronos_api.auth_stub import get_actor, require_verified_actor
-from chronos_api.deps import get_session
-from chronos_api.routers import feed, social, upload
 from chronos_core.schemas.event import EventRead
 from chronos_core.schemas.social import FeedItem, FeedResponse, InterestProfile
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+import chronos_api.feed_queries as fq
+from chronos_api.auth_stub import get_actor, require_verified_actor
+from chronos_api.deps import get_session
+from chronos_api.routers import feed, social, upload
 
 
 class _FakeSession:
@@ -391,3 +392,137 @@ def test_upload_rejects_bad_content_type(client, monkeypatch):
         files={"file": ("a.txt", io.BytesIO(b"hi"), "text/plain")},
     )
     assert resp.status_code == 415
+
+
+# --- presigned direct upload (Creator Studio Phase 0) ---------------------------------
+
+
+def test_presign_returns_put_url(client, monkeypatch):
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    minted = {}
+
+    def fake_presign(key, *, content_type=None, expires=3600):
+        minted["key"] = key
+        minted["content_type"] = content_type
+        return f"https://store.example/{key}?sig=abc"
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.presigned_put", fake_presign)
+
+    resp = client.post(
+        "/upload/presign",
+        json={"filename": "clip.mp4", "content_type": "video/mp4", "size_bytes": 5_000_000},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["method"] == "PUT"
+    assert body["storage_key"].startswith(f"uploads/{get_actor(None)}/")
+    assert body["storage_key"].endswith(".mp4")
+    assert body["headers"]["Content-Type"] == "video/mp4"
+    assert body["url"].endswith("?sig=abc")
+    assert minted["content_type"] == "video/mp4"
+
+
+def test_presign_rejects_unsupported_type(client, monkeypatch):
+    async def fake_cfg(session, key, default=None):
+        if key == "upload.allowed_mime":
+            return ["video/mp4"]
+        return default
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    resp = client.post(
+        "/upload/presign",
+        json={"content_type": "application/zip", "size_bytes": 10},
+    )
+    assert resp.status_code == 415
+
+
+def test_presign_rejects_oversize(client, monkeypatch):
+    async def fake_cfg(session, key, default=None):
+        if key == "upload.max_bytes":
+            return 1000
+        return default
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    resp = client.post(
+        "/upload/presign",
+        json={"content_type": "video/mp4", "size_bytes": 5000},
+    )
+    assert resp.status_code == 413
+
+
+def test_upload_with_storage_key_skips_buffering(client, monkeypatch):
+    """The direct-upload path: publish from an already-stored object, never re-storing it."""
+    created = {}
+    put_calls = []
+
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    def fake_head(key):
+        created["headed"] = key
+        return {"size": 4_200_000, "content_type": "video/mp4"}
+
+    def fake_put(key, data, *, content_type=None):  # must NOT be called
+        put_calls.append(key)
+        return key
+
+    class _Ev:
+        id = uuid.uuid4()
+
+        class _S:
+            value = "published"
+
+        class _V:
+            value = "public"
+
+        status = _S()
+        visibility = _V()
+
+    async def fake_create(session, **kw):
+        created.update(kw)
+        return _Ev()
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.head", fake_head)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.put_bytes", fake_put)
+    monkeypatch.setattr(upload_core, "create_video_event", fake_create)
+    monkeypatch.setattr("chronos_api.routers.upload._enqueue_geocode", lambda: None)
+
+    key = f"uploads/{get_actor(None)}/deadbeef.mp4"
+    resp = client.post(
+        "/upload",
+        data={
+            "title": "Recorded clip", "t_start": "2025.0",
+            "actors": "Alice", "locations": "Cairo", "links": str(uuid.uuid4()),
+            "storage_key": key,
+        },
+    )
+    assert resp.status_code == 201
+    assert created["storage_key"] == key  # reused as-is, not re-minted
+    assert created["bytes_len"] == 4_200_000  # from head(), not an in-memory read
+    assert created["headed"] == key
+    assert put_calls == []  # the binary was never streamed through the API
+
+
+def test_upload_rejects_foreign_storage_key(client, monkeypatch):
+    """A storage_key under someone else's prefix is refused before any store access."""
+    async def fake_cfg(session, key, default=None):
+        return default
+
+    def boom_head(key):  # head must not even be reached
+        raise AssertionError("head() should not run for a foreign key")
+
+    monkeypatch.setattr("chronos_api.routers.upload.config_service.get", fake_cfg)
+    monkeypatch.setattr("chronos_api.routers.upload.objectstore.head", boom_head)
+    resp = client.post(
+        "/upload",
+        data={
+            "title": "x", "t_start": "1.0", "actors": "A", "locations": "B",
+            "links": str(uuid.uuid4()),
+            "storage_key": f"uploads/{uuid.uuid4()}/evil.mp4",
+        },
+    )
+    assert resp.status_code == 403

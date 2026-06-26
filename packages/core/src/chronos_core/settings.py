@@ -25,6 +25,11 @@ class Settings(BaseSettings):
 
     # Object store (S3-compatible; MinIO locally).
     s3_endpoint: str = Field(default="http://localhost:9000")
+    # Browser/mobile-reachable S3 host used only to sign *direct upload* (presigned-PUT) URLs.
+    # Empty → fall back to s3_endpoint (dev / single-host, where the client can reach MinIO too).
+    # In prod this is the public TLS route to the object store (the internal s3_endpoint is not
+    # reachable from clients); enabling direct upload also needs bucket CORS allowing PUT.
+    s3_public_endpoint: str = Field(default="")
     s3_access_key: str = Field(default="chronos")
     s3_secret_key: str = Field(default="chronos")
     s3_bucket: str = Field(default="chronos-sources")

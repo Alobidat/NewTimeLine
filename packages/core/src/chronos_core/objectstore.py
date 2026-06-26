@@ -29,6 +29,24 @@ def _client():
     )
 
 
+@lru_cache
+def _signing_client():
+    """A boto3 client pointed at the *public* S3 host, used only to mint presigned URLs we hand
+    to browsers/phones. Falls back to the internal endpoint when no public endpoint is set (dev /
+    single-host). Separate from ``_client`` so internal reads/writes stay on the internal host."""
+    import boto3
+    from botocore.config import Config
+
+    s = get_settings()
+    return boto3.client(
+        "s3",
+        endpoint_url=s.s3_public_endpoint or s.s3_endpoint,
+        aws_access_key_id=s.s3_access_key,
+        aws_secret_access_key=s.s3_secret_key,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+
+
 def ensure_bucket() -> None:
     """Create the configured bucket if it does not exist (idempotent)."""
     from botocore.exceptions import ClientError
@@ -67,3 +85,28 @@ def presigned_get(key: str, *, expires: int = 3600) -> str:
         Params={"Bucket": get_settings().s3_bucket, "Key": key},
         ExpiresIn=expires,
     )
+
+
+def presigned_put(key: str, *, content_type: str | None = None, expires: int = 3600) -> str:
+    """A time-limited PUT URL the client uses to upload a clip **straight to the object store**,
+    bypassing the API (so a big recording never streams through API memory). Signed against the
+    public endpoint; the client must PUT with the same ``Content-Type`` it was signed for."""
+    ensure_bucket()
+    params = {"Bucket": get_settings().s3_bucket, "Key": key}
+    if content_type:
+        params["ContentType"] = content_type
+    return _signing_client().generate_presigned_url(
+        "put_object", Params=params, ExpiresIn=expires
+    )
+
+
+def head(key: str) -> dict | None:
+    """Return ``{"size", "content_type"}`` for an object, or ``None`` if it doesn't exist —
+    used to confirm a direct-uploaded clip actually landed before publishing its event."""
+    from botocore.exceptions import ClientError
+
+    try:
+        obj = _client().head_object(Bucket=get_settings().s3_bucket, Key=key)
+    except ClientError:
+        return None
+    return {"size": int(obj.get("ContentLength") or 0), "content_type": obj.get("ContentType")}
