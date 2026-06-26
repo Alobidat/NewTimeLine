@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app talks to an HTTP (no-TLS) backend: the on-site dev API at http://192.168.2.45:8000
+     serves the feed AND streams the clip media, and some free-licensed media is hosted on plain
+     HTTP origins. Android 9+ (targetSdk >= 28) blocks cleartext traffic by DEFAULT, which made
+     every API call and every ExoPlayer (video_player) media fetch fail on a real device — the
+     feed showed network errors and clips never played. Permit cleartext so the native build can
+     reach the API and stream video. (Web builds are unaffected; they use same-origin /api.) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
