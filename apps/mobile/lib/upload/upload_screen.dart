@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import '../api/client.dart';
 import '../auth/interaction_gate.dart';
 import '../creator/clip_edit_controls.dart';
+import '../creator/clip_preview.dart';
 import '../creator/clip_project.dart';
 import '../creator/recorder.dart' show canRecordInApp;
 import '../creator/recorder_screen.dart' show recordClipInApp;
@@ -25,6 +26,10 @@ import 'clip_source.dart';
 /// Picks a clip from the device — injectable so tests can supply one without a real picker.
 typedef ClipPicker = Future<PickedClip?> Function({bool fromCamera});
 
+/// Builds the in-editor video preview for a chosen clip — injectable so tests render a
+/// placeholder instead of spinning up a real `video_player`/`<video>` on the VM.
+typedef ClipPreviewBuilder = Widget Function(PickedClip clip);
+
 class UploadScreen extends StatefulWidget {
   const UploadScreen({
     super.key,
@@ -33,6 +38,7 @@ class UploadScreen extends StatefulWidget {
     this.pickClip = captureClip,
     this.captureSupported,
     this.recordInApp,
+    this.previewBuilder,
     this.replyToEventId,
     this.replyToTitle,
   });
@@ -49,6 +55,10 @@ class UploadScreen extends StatefulWidget {
   /// Force the in-app live recorder on/off (defaults to the platform's [canRecordInApp]); for
   /// tests — when false, "Record" goes straight to [pickClip] instead of opening the recorder.
   final bool? recordInApp;
+
+  /// Builds the chosen clip's video preview (defaults to the platform [ClipPreview]); tests
+  /// inject a lightweight placeholder so no real video player runs on the VM.
+  final ClipPreviewBuilder? previewBuilder;
 
   /// When set, this upload is a **video reply** to that event: its id pre-fills the required
   /// link (satisfying the ADR-0020 "links" invariant) and a banner names what's being replied to.
@@ -93,6 +103,9 @@ class _UploadScreenState extends State<UploadScreen> {
     _sourceUrl.dispose();
     super.dispose();
   }
+
+  /// The real platform preview, used unless a test injects [UploadScreen.previewBuilder].
+  Widget _defaultPreview(PickedClip clip) => ClipPreview(clip: clip);
 
   void _snack(String msg) {
     if (!mounted) return;
@@ -320,6 +333,19 @@ class _UploadScreenState extends State<UploadScreen> {
                       ),
                     ),
                   ),
+                // A playable preview of the chosen clip, so trimming/speed is visual.
+                if (_clip != null) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      key: const Key('upload-clip-preview'),
+                      height: 220,
+                      width: double.infinity,
+                      child: (widget.previewBuilder ?? _defaultPreview)(_clip!),
+                    ),
+                  ),
+                ],
                 // Trim/speed controls for the chosen clip (server applies them on publish).
                 if (_clip != null)
                   ClipEditControls(

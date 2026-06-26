@@ -17,6 +17,9 @@ ApiClient _api() =>
 
 Widget _host(UploadScreen screen) => MaterialApp(home: screen);
 
+// Stand in for the real video preview so no `video_player`/`<video>` spins up on the test VM.
+Widget _noPreview(PickedClip _) => const SizedBox(key: Key('test-preview'));
+
 void main() {
   testWidgets('capture buttons show, and a picked clip becomes a chip (URL field hidden)',
       (tester) async {
@@ -36,6 +39,7 @@ void main() {
       auth: AuthState(api: api),
       captureSupported: true, // force the capture UI on the test VM
       recordInApp: false, // "Record" uses the injected picker, not the live recorder
+      previewBuilder: _noPreview,
       pickClip: ({bool fromCamera = false}) async => clip,
     )));
 
@@ -51,6 +55,9 @@ void main() {
     expect(find.text('my-take.webm'), findsOneWidget);
     expect(find.text('2.0 MB'), findsOneWidget);
     expect(find.byKey(const Key('upload-source-url')), findsNothing);
+    // The clip gets a video preview box (the injected placeholder stands in for the player).
+    expect(find.byKey(const Key('upload-clip-preview')), findsOneWidget);
+    expect(find.byKey(const Key('test-preview')), findsOneWidget);
 
     // Clearing it returns to the record/choose + URL state.
     await tester.tap(find.byKey(const Key('upload-clip-clear')));
@@ -97,6 +104,7 @@ void main() {
       auth: AuthState(api: api),
       captureSupported: true,
       recordInApp: false,
+      previewBuilder: _noPreview,
       pickClip: ({bool fromCamera = false}) async => clip,
     )));
 
@@ -138,6 +146,7 @@ void main() {
       auth: AuthState(api: api),
       captureSupported: true,
       recordInApp: false,
+      previewBuilder: _noPreview,
       pickClip: ({bool fromCamera = false}) async => clip,
     )));
 
